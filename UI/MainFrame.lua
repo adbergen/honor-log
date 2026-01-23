@@ -1,186 +1,492 @@
 -- HonorLog Main Frame
--- Expandable movable stats panel
+-- Enterprise-level UI inspired by Details!, WeakAuras, and ElvUI
 
 local ADDON_NAME, HonorLog = ...
 
--- Frame colors
+--------------------------------------------------------------------------------
+-- ENTERPRISE COLOR SYSTEM
+--------------------------------------------------------------------------------
 local COLORS = {
-    bg = { 0.1, 0.1, 0.1, 0.9 },
-    border = { 0.3, 0.3, 0.3, 1 },
-    header = { 0.2, 0.2, 0.2, 1 },
-    win = { 0, 1, 0, 1 },
-    loss = { 1, 0, 0, 1 },
-    neutral = { 1, 0.82, 0, 1 },
-    text = { 1, 1, 1, 1 },
-    label = { 0.7, 0.7, 0.7, 1 },
+    -- Background layers (dark theme with depth)
+    bgPrimary = { 0.08, 0.08, 0.10, 0.98 },
+    bgSecondary = { 0.10, 0.10, 0.13, 0.95 },
+    bgTertiary = { 0.14, 0.14, 0.18, 0.90 },
+    bgCard = { 0.12, 0.12, 0.16, 0.95 },
+    bgCardHover = { 0.16, 0.16, 0.22, 1 },
+
+    -- Accent gradients
+    headerGradientTop = { 0.18, 0.18, 0.24, 1 },
+    headerGradientBot = { 0.10, 0.10, 0.14, 1 },
+    accentGlow = { 0.30, 0.70, 0.95, 0.15 },
+
+    -- Borders
+    borderDark = { 0.06, 0.06, 0.08, 1 },
+    borderLight = { 0.30, 0.30, 0.38, 0.8 },
+    borderGlow = { 0.40, 0.75, 1.0, 0.25 },
+    borderAccent = { 0.35, 0.65, 0.90, 0.6 },
+
+    -- Status colors
+    win = { 0.30, 0.90, 0.40, 1 },
+    winGlow = { 0.20, 0.80, 0.30, 0.4 },
+    winDark = { 0.15, 0.50, 0.20, 0.8 },
+    loss = { 0.95, 0.35, 0.35, 1 },
+    lossGlow = { 0.85, 0.25, 0.25, 0.4 },
+    lossDark = { 0.50, 0.18, 0.18, 0.8 },
+    neutral = { 1.0, 0.85, 0.25, 1 },
+    neutralDim = { 0.80, 0.68, 0.20, 0.7 },
+
+    -- Text hierarchy
+    textPrimary = { 0.98, 0.98, 1.0, 1 },
+    textSecondary = { 0.75, 0.75, 0.80, 1 },
+    textTertiary = { 0.50, 0.50, 0.58, 1 },
+    textMuted = { 0.38, 0.38, 0.45, 1 },
+
+    -- Brand accent
+    accent = { 0.35, 0.78, 1.0, 1 },
+    accentDim = { 0.25, 0.55, 0.75, 0.8 },
+    brand = { 0.25, 0.85, 0.45, 1 },
+    brandDim = { 0.18, 0.60, 0.32, 0.8 },
+
+    -- Separators
+    separator = { 0.25, 0.25, 0.32, 0.6 },
+    separatorGlow = { 0.35, 0.65, 0.90, 0.2 },
 }
 
+-- BG-specific colors (refined palette)
 local BG_COLORS = {
-    AV = { 0.4, 0.6, 1, 1 },    -- Blue
-    AB = { 1, 0.5, 0.2, 1 },    -- Orange
-    WSG = { 0.2, 0.8, 0.2, 1 }, -- Green
-    EotS = { 0.8, 0.4, 0.8, 1 }, -- Purple
+    AV = { 0.45, 0.75, 1.0, 1 },   -- Ice blue
+    AB = { 1.0, 0.78, 0.28, 1 },   -- Rich gold
+    WSG = { 1.0, 0.38, 0.38, 1 },  -- Vibrant red
+    EotS = { 0.75, 0.45, 1.0, 1 }, -- Deep purple
 }
 
--- Create the main frame
+local BG_GLOW_COLORS = {
+    AV = { 0.35, 0.65, 0.90, 0.3 },
+    AB = { 0.90, 0.68, 0.18, 0.3 },
+    WSG = { 0.90, 0.28, 0.28, 0.3 },
+    EotS = { 0.65, 0.35, 0.90, 0.3 },
+}
+
+-- Full BG names
+local BG_NAMES = {
+    AV = "Alterac Valley",
+    AB = "Arathi Basin",
+    WSG = "Warsong Gulch",
+    EotS = "Eye of the Storm",
+}
+
+-- Premium icons
+local BG_ICONS = {
+    AV = "Interface\\Icons\\Spell_Frost_FreezingBreath",
+    AB = "Interface\\Icons\\INV_BannerPVP_02",
+    WSG = "Interface\\Icons\\INV_Misc_Rune_07",
+    EotS = "Interface\\Icons\\Spell_Arcane_PortalStormwind",
+}
+
+--------------------------------------------------------------------------------
+-- LAYOUT CONSTANTS
+--------------------------------------------------------------------------------
+local FRAME_WIDTH = 290
+local FRAME_HEIGHT_COMPACT = 60
+local FRAME_HEIGHT_EXPANDED = 262
+local HEADER_HEIGHT = 28
+local CARD_HEIGHT = 36
+local CARD_SPACING = 2
+local PADDING = 8
+local INNER_PADDING = 6
+
+--------------------------------------------------------------------------------
+-- UTILITY FUNCTIONS
+--------------------------------------------------------------------------------
+
+-- Create smooth gradient texture
+local function CreateGradient(parent, orientation, r1, g1, b1, a1, r2, g2, b2, a2)
+    local gradient = parent:CreateTexture(nil, "BACKGROUND")
+    gradient:SetAllPoints()
+    gradient:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+    gradient:SetGradient(orientation,
+        CreateColor(r1, g1, b1, a1),
+        CreateColor(r2, g2, b2, a2))
+    return gradient
+end
+
+-- Create inner shadow effect
+local function CreateInnerShadow(frame)
+    local shadow = frame:CreateTexture(nil, "OVERLAY", nil, -1)
+    shadow:SetPoint("TOPLEFT", 1, -1)
+    shadow:SetPoint("BOTTOMRIGHT", -1, 1)
+    shadow:SetColorTexture(0, 0, 0, 0.3)
+    return shadow
+end
+
+-- Create glow border
+local function CreateGlowBorder(frame, color)
+    local glow = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    glow:SetPoint("TOPLEFT", -2, 2)
+    glow:SetPoint("BOTTOMRIGHT", 2, -2)
+    glow:SetBackdrop({
+        bgFile = nil,
+        edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeSize = 2,
+    })
+    glow:SetBackdropBorderColor(unpack(color or COLORS.borderGlow))
+    glow:SetFrameLevel(frame:GetFrameLevel() - 1)
+    return glow
+end
+
+-- Create slim progress bar (no text inside - too small)
+local function CreateProgressBar(parent, height)
+    local container = CreateFrame("Frame", nil, parent)
+    container:SetHeight(height or 3)
+
+    -- Background track
+    local bgTrack = container:CreateTexture(nil, "BACKGROUND")
+    bgTrack:SetAllPoints()
+    bgTrack:SetColorTexture(0.12, 0.12, 0.15, 0.9)
+    container.bgTrack = bgTrack
+
+    -- Fill bar
+    local fill = container:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", 0, 0)
+    fill:SetPoint("BOTTOMLEFT", 0, 0)
+    fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    fill:SetWidth(1)
+    container.fill = fill
+
+    function container:SetProgress(percent, isWin)
+        local maxWidth = container:GetWidth()
+        local width = math.max(1, maxWidth * (percent / 100))
+        fill:SetWidth(width)
+
+        if isWin then
+            fill:SetVertexColor(0.25, 0.85, 0.35, 1)
+        else
+            fill:SetVertexColor(0.90, 0.30, 0.30, 1)
+        end
+    end
+
+    return container
+end
+
+-- Create icon button with hover effect
+local function CreateIconButton(parent, normalTex, size)
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(size or 20, size or 20)
+
+    local bg = btn:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(unpack(COLORS.bgTertiary))
+    bg:SetAlpha(0)
+    btn.bg = bg
+
+    local icon = btn:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    icon:SetTexture(normalTex)
+    icon:SetAlpha(0.7)
+    btn.icon = icon
+
+    btn:SetScript("OnEnter", function(self)
+        self.bg:SetAlpha(1)
+        self.icon:SetAlpha(1)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self.bg:SetAlpha(0)
+        self.icon:SetAlpha(0.7)
+    end)
+
+    return btn
+end
+
+--------------------------------------------------------------------------------
+-- MAIN FRAME CREATION
+--------------------------------------------------------------------------------
 local function CreateMainFrame()
     local frame = CreateFrame("Frame", "HonorLogMainFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(180, 60) -- Compact size
+    frame:SetSize(FRAME_WIDTH, FRAME_HEIGHT_COMPACT)
     frame:SetPoint("CENTER", 0, 0)
     frame:SetMovable(true)
     frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
     frame:SetClampedToScreen(true)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetFrameLevel(100)
 
-    -- Backdrop
+    -- Main backdrop with premium dark theme
     frame:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 12,
-        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
-    frame:SetBackdropColor(unpack(COLORS.bg))
-    frame:SetBackdropBorderColor(unpack(COLORS.border))
+    frame:SetBackdropColor(unpack(COLORS.bgPrimary))
+    frame:SetBackdropBorderColor(unpack(COLORS.borderDark))
 
-    -- Header bar
+    -- Outer glow effect
+    local outerGlow = CreateGlowBorder(frame, COLORS.borderGlow)
+    frame.outerGlow = outerGlow
+
+    ----------------------------------------------------------------------------
+    -- HEADER
+    ----------------------------------------------------------------------------
     local header = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    header:SetHeight(18)
-    header:SetPoint("TOPLEFT", 4, -4)
-    header:SetPoint("TOPRIGHT", -4, -4)
+    header:SetHeight(HEADER_HEIGHT)
+    header:SetPoint("TOPLEFT", 5, -5)
+    header:SetPoint("TOPRIGHT", -5, -5)
     header:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
     })
-    header:SetBackdropColor(unpack(COLORS.header))
+    header:SetBackdropColor(unpack(COLORS.headerGradientTop))
+    header:SetBackdropBorderColor(unpack(COLORS.borderLight))
+    header:EnableMouse(true)
+    header:RegisterForDrag("LeftButton")
+    header:SetScript("OnDragStart", function() frame:StartMoving() end)
+    header:SetScript("OnDragStop", function()
+        frame:StopMovingOrSizing()
+        local point, _, relPoint, x, y = frame:GetPoint()
+        HonorLog.db.settings.framePoint = { point, nil, relPoint, x, y }
+    end)
+    -- Right-click handler set at end of CreateMainFrame
     frame.header = header
 
-    -- Title
-    local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    title:SetPoint("LEFT", 4, 0)
+    -- Header gradient overlay
+    local headerGradient = header:CreateTexture(nil, "ARTWORK")
+    headerGradient:SetPoint("TOPLEFT", 1, -1)
+    headerGradient:SetPoint("BOTTOMRIGHT", -1, 1)
+    headerGradient:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+    headerGradient:SetGradient("VERTICAL",
+        CreateColor(0.18, 0.18, 0.24, 0.8),
+        CreateColor(0.10, 0.10, 0.14, 0.95))
+
+    -- Addon icon
+    local icon = header:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(20, 20)
+    icon:SetPoint("LEFT", 6, 0)
+    icon:SetTexture("Interface\\Icons\\INV_Misc_Token_HonorHold")
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    -- Title with brand color
+    local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("LEFT", icon, "RIGHT", 6, 0)
     title:SetText("HonorLog")
-    title:SetTextColor(0, 1, 0, 1)
+    title:SetTextColor(unpack(COLORS.brand))
     frame.title = title
 
-    -- View mode indicator
+    -- Version badge
+    local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
+    versionBadge:SetText("BETA")
+    versionBadge:SetTextColor(unpack(COLORS.accent))
+
+    -- View mode indicator (pill badge)
+    local viewModeBg = header:CreateTexture(nil, "ARTWORK")
+    viewModeBg:SetSize(50, 16)
+    viewModeBg:SetPoint("LEFT", versionBadge, "RIGHT", 8, 0)
+    viewModeBg:SetColorTexture(0.15, 0.15, 0.20, 0.8)
+    frame.viewModeBg = viewModeBg
+
     local viewMode = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    viewMode:SetPoint("RIGHT", -20, 0)
-    viewMode:SetTextColor(0.7, 0.7, 0.7, 1)
+    viewMode:SetPoint("CENTER", viewModeBg, "CENTER", 0, 0)
+    viewMode:SetTextColor(unpack(COLORS.textSecondary))
     frame.viewMode = viewMode
 
-    -- Close button
-    local closeBtn = CreateFrame("Button", nil, header)
-    closeBtn:SetSize(14, 14)
-    closeBtn:SetPoint("RIGHT", -2, 0)
-    closeBtn:SetNormalTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
-    closeBtn:SetPushedTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Down")
-    closeBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
+    -- Close button (custom styled)
+    local closeBtn = CreateIconButton(header, "Interface\\Buttons\\UI-Panel-MinimizeButton-Up", 16)
+    closeBtn:SetPoint("RIGHT", -4, 0)
     closeBtn:SetScript("OnClick", function()
         HonorLog:ToggleMainFrame()
     end)
 
     -- Expand/collapse button
-    local expandBtn = CreateFrame("Button", nil, header)
-    expandBtn:SetSize(14, 14)
+    local expandBtn = CreateIconButton(header, "Interface\\Buttons\\UI-PlusButton-UP", 16)
     expandBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
-    expandBtn:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP")
-    expandBtn:SetPushedTexture("Interface\\Buttons\\UI-PlusButton-DOWN")
-    expandBtn:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight", "ADD")
     expandBtn:SetScript("OnClick", function()
         HonorLog:ToggleExpanded()
     end)
     frame.expandBtn = expandBtn
 
-    -- Compact content area
+    ----------------------------------------------------------------------------
+    -- COMPACT VIEW (Summary Stats)
+    ----------------------------------------------------------------------------
     local compact = CreateFrame("Frame", nil, frame)
     compact:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
     compact:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -4)
-    compact:SetHeight(30)
+    compact:SetHeight(22)
+    compact:EnableMouse(true)
+    -- Right-click handler set at end of CreateMainFrame
     frame.compact = compact
 
-    -- Current BG / Status line
+    -- Current BG status with icon
+    local statusIcon = compact:CreateTexture(nil, "ARTWORK")
+    statusIcon:SetSize(12, 12)
+    statusIcon:SetPoint("LEFT", PADDING, 0)
+    statusIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
+    statusIcon:SetAlpha(0.8)
+    frame.statusIcon = statusIcon
+
     local statusLine = compact:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusLine:SetPoint("TOPLEFT", 4, 0)
-    statusLine:SetPoint("TOPRIGHT", -4, 0)
+    statusLine:SetPoint("LEFT", statusIcon, "RIGHT", 4, 0)
     statusLine:SetJustifyH("LEFT")
     frame.statusLine = statusLine
 
-    -- Session stats line
-    local sessionLine = compact:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sessionLine:SetPoint("TOPLEFT", statusLine, "BOTTOMLEFT", 0, -2)
-    sessionLine:SetPoint("TOPRIGHT", statusLine, "BOTTOMRIGHT", 0, -2)
-    sessionLine:SetJustifyH("LEFT")
-    sessionLine:SetTextColor(unpack(COLORS.label))
-    frame.sessionLine = sessionLine
+    -- Session quick stats (right aligned)
+    local sessionQuick = compact:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sessionQuick:SetPoint("RIGHT", -PADDING, 0)
+    sessionQuick:SetJustifyH("RIGHT")
+    frame.sessionQuick = sessionQuick
 
-    -- Expanded content area (initially hidden)
+    ----------------------------------------------------------------------------
+    -- EXPANDED VIEW
+    ----------------------------------------------------------------------------
     local expanded = CreateFrame("Frame", nil, frame)
-    expanded:SetPoint("TOPLEFT", compact, "BOTTOMLEFT", 0, -4)
-    expanded:SetPoint("TOPRIGHT", compact, "BOTTOMRIGHT", 0, -4)
-    expanded:SetHeight(140)
+    expanded:SetPoint("TOPLEFT", compact, "BOTTOMLEFT", 0, -2)
+    expanded:SetPoint("TOPRIGHT", compact, "BOTTOMRIGHT", 0, -2)
+    expanded:SetHeight(180)
+    expanded:EnableMouse(true)
+    -- Right-click handler set at end of CreateMainFrame
     expanded:Hide()
     frame.expanded = expanded
 
-    -- Create BG stat rows
-    frame.bgRows = {}
-    local yOffset = 0
-    for _, bgType in ipairs({"AV", "AB", "WSG", "EotS"}) do
-        local row = CreateFrame("Frame", nil, expanded)
-        row:SetHeight(30)
-        row:SetPoint("TOPLEFT", 0, yOffset)
-        row:SetPoint("TOPRIGHT", 0, yOffset)
+    -- Subtle separator
+    local topSep = expanded:CreateTexture(nil, "ARTWORK")
+    topSep:SetHeight(1)
+    topSep:SetPoint("TOPLEFT", PADDING, 0)
+    topSep:SetPoint("TOPRIGHT", -PADDING, 0)
+    topSep:SetColorTexture(unpack(COLORS.separator))
 
-        -- BG name
-        local bgName = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        bgName:SetPoint("LEFT", 4, 0)
-        bgName:SetWidth(35)
+    -- BG Stats Cards
+    frame.bgCards = {}
+    local yOffset = -8
+
+    for _, bgType in ipairs({"AV", "AB", "WSG", "EotS"}) do
+        local card = CreateFrame("Frame", nil, expanded, "BackdropTemplate")
+        card:SetHeight(CARD_HEIGHT)
+        card:SetPoint("TOPLEFT", PADDING, yOffset)
+        card:SetPoint("TOPRIGHT", -PADDING, yOffset)
+
+        -- Card background with hover effect
+        card:SetBackdrop({
+            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 },
+        })
+        card:SetBackdropColor(unpack(COLORS.bgCard))
+        card:SetBackdropBorderColor(unpack(COLORS.borderDark))
+
+        card:EnableMouse(true)
+        card:SetScript("OnEnter", function(self)
+            self:SetBackdropColor(unpack(COLORS.bgCardHover))
+            self:SetBackdropBorderColor(unpack(BG_GLOW_COLORS[bgType]))
+            if self.bgIcon then self.bgIcon:SetAlpha(1) end
+        end)
+        card:SetScript("OnLeave", function(self)
+            self:SetBackdropColor(unpack(COLORS.bgCard))
+            self:SetBackdropBorderColor(unpack(COLORS.borderDark))
+            if self.bgIcon then self.bgIcon:SetAlpha(0.9) end
+        end)
+        -- Right-click handler set at end of CreateMainFrame
+
+        -- Left accent bar
+        local accentBar = card:CreateTexture(nil, "ARTWORK")
+        accentBar:SetWidth(3)
+        accentBar:SetPoint("TOPLEFT", 0, 0)
+        accentBar:SetPoint("BOTTOMLEFT", 0, 0)
+        accentBar:SetColorTexture(unpack(BG_COLORS[bgType]))
+        card.accentBar = accentBar
+
+        -- BG Icon
+        local bgIcon = card:CreateTexture(nil, "ARTWORK")
+        bgIcon:SetSize(24, 24)
+        bgIcon:SetPoint("LEFT", 6, 0)
+        bgIcon:SetTexture(BG_ICONS[bgType])
+        bgIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        bgIcon:SetAlpha(0.9)
+        card.bgIcon = bgIcon
+
+        -- BG Name (abbreviated)
+        local bgName = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        bgName:SetPoint("LEFT", bgIcon, "RIGHT", 5, 4)
         bgName:SetText(bgType)
         bgName:SetTextColor(unpack(BG_COLORS[bgType]))
-        row.bgName = bgName
+        card.bgName = bgName
 
-        -- Record (W-L)
-        local record = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        record:SetPoint("LEFT", bgName, "RIGHT", 4, 0)
-        record:SetWidth(45)
-        record:SetJustifyH("CENTER")
-        row.record = record
+        -- Full BG name (smaller, below abbreviation)
+        local bgFullName = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        bgFullName:SetPoint("TOPLEFT", bgName, "BOTTOMLEFT", 0, 0)
+        bgFullName:SetText(BG_NAMES[bgType])
+        bgFullName:SetTextColor(unpack(COLORS.textTertiary))
+        card.bgFullName = bgFullName
 
-        -- Winrate
-        local winrate = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        winrate:SetPoint("LEFT", record, "RIGHT", 4, 0)
-        winrate:SetWidth(40)
-        winrate:SetJustifyH("CENTER")
-        row.winrate = winrate
+        -- Win-Loss record (right side)
+        local record = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        record:SetPoint("TOPRIGHT", -6, -4)
+        record:SetJustifyH("RIGHT")
+        card.record = record
 
-        -- Honor
-        local honor = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        honor:SetPoint("LEFT", winrate, "RIGHT", 4, 0)
-        honor:SetWidth(45)
+        -- Winrate + Honor on bottom right
+        local winrate = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        winrate:SetPoint("BOTTOMRIGHT", -6, 5)
+        winrate:SetJustifyH("RIGHT")
+        card.winrate = winrate
+
+        -- Honor earned (left of winrate)
+        local honor = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        honor:SetPoint("RIGHT", winrate, "LEFT", -8, 0)
         honor:SetJustifyH("RIGHT")
         honor:SetTextColor(unpack(COLORS.neutral))
-        row.honor = honor
+        card.honor = honor
 
-        frame.bgRows[bgType] = row
-        yOffset = yOffset - 30
+        -- Winrate progress bar (bottom of card)
+        local progressBar = CreateProgressBar(card, 2)
+        progressBar:SetPoint("BOTTOMLEFT", 3, 1)
+        progressBar:SetPoint("BOTTOMRIGHT", -3, 1)
+        card.progressBar = progressBar
+
+        frame.bgCards[bgType] = card
+        yOffset = yOffset - CARD_HEIGHT - CARD_SPACING
     end
 
-    -- Session summary row
-    local sessionRow = CreateFrame("Frame", nil, expanded)
-    sessionRow:SetHeight(24)
-    sessionRow:SetPoint("TOPLEFT", 0, yOffset - 4)
-    sessionRow:SetPoint("TOPRIGHT", 0, yOffset - 4)
+    -- Session Summary Panel
+    local sessionPanel = CreateFrame("Frame", nil, expanded, "BackdropTemplate")
+    sessionPanel:SetHeight(28)
+    sessionPanel:SetPoint("TOPLEFT", PADDING, yOffset - 3)
+    sessionPanel:SetPoint("TOPRIGHT", -PADDING, yOffset - 3)
+    sessionPanel:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    sessionPanel:SetBackdropColor(0.08, 0.15, 0.20, 0.9)
+    sessionPanel:SetBackdropBorderColor(unpack(COLORS.accentDim))
+    sessionPanel:EnableMouse(true)
+    -- Right-click handler set at end of CreateMainFrame
+    frame.sessionPanel = sessionPanel
 
-    local sessionLabel = sessionRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sessionLabel:SetPoint("LEFT", 4, 0)
+    -- Session label
+    local sessionLabel = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sessionLabel:SetPoint("LEFT", 8, 0)
     sessionLabel:SetText("Session:")
-    sessionLabel:SetTextColor(0, 1, 0, 1)
+    sessionLabel:SetTextColor(unpack(COLORS.accent))
 
-    local sessionStats = sessionRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sessionStats:SetPoint("LEFT", sessionLabel, "RIGHT", 4, 0)
-    sessionStats:SetPoint("RIGHT", -4, 0)
+    -- Session stats (W-L and winrate)
+    local sessionStats = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sessionStats:SetPoint("LEFT", sessionLabel, "RIGHT", 6, 0)
     sessionStats:SetJustifyH("LEFT")
     frame.sessionStats = sessionStats
-    frame.sessionRow = sessionRow
 
-    -- Dragging
-    frame:RegisterForDrag("LeftButton")
+    -- Session rewards (right side)
+    local sessionRewards = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sessionRewards:SetPoint("RIGHT", -8, 0)
+    sessionRewards:SetJustifyH("RIGHT")
+    frame.sessionRewards = sessionRewards
+
+    ----------------------------------------------------------------------------
+    -- INTERACTIONS
+    ----------------------------------------------------------------------------
+
+    -- Dragging (already registered in frame creation)
     frame:SetScript("OnDragStart", function(self)
         if not HonorLog.db.settings.frameLocked then
             self:StartMoving()
@@ -192,17 +498,41 @@ local function CreateMainFrame()
         HonorLog.db.settings.framePoint = { point, nil, relPoint, x, y }
     end)
 
-    -- Right-click menu
-    frame:SetScript("OnMouseDown", function(self, button)
+    -- Right-click menu - use BOTH OnMouseDown and OnMouseUp for maximum compatibility
+    local function HandleRightClick(self, button)
         if button == "RightButton" then
+            print("|cff00ff00[HonorLog]|r Right-click detected on: " .. (self:GetName() or "unnamed frame"))
             HonorLog:ShowContextMenu()
         end
-    end)
+    end
+
+    -- Apply to main frame
+    frame:SetScript("OnMouseDown", HandleRightClick)
+    frame:SetScript("OnMouseUp", HandleRightClick)
+
+    -- Apply to header
+    header:SetScript("OnMouseDown", HandleRightClick)
+
+    -- Apply to compact view
+    compact:SetScript("OnMouseDown", HandleRightClick)
+
+    -- Apply to expanded view
+    expanded:SetScript("OnMouseDown", HandleRightClick)
+
+    -- Apply to session panel
+    sessionPanel:SetScript("OnMouseDown", HandleRightClick)
+
+    -- Apply to all BG cards
+    for bgType, card in pairs(frame.bgCards) do
+        card:SetScript("OnMouseDown", HandleRightClick)
+    end
 
     return frame
 end
 
--- Initialize the main frame
+--------------------------------------------------------------------------------
+-- INITIALIZATION
+--------------------------------------------------------------------------------
 function HonorLog:InitializeMainFrame()
     self.mainFrame = CreateMainFrame()
 
@@ -232,7 +562,9 @@ function HonorLog:InitializeMainFrame()
     self:UpdateMainFrame()
 end
 
--- Toggle frame visibility
+--------------------------------------------------------------------------------
+-- TOGGLE FUNCTIONS
+--------------------------------------------------------------------------------
 function HonorLog:ToggleMainFrame()
     if self.mainFrame:IsShown() then
         self.mainFrame:Hide()
@@ -244,29 +576,27 @@ function HonorLog:ToggleMainFrame()
     end
 end
 
--- Toggle expanded state
 function HonorLog:ToggleExpanded()
     self:SetExpanded(not self.db.settings.frameExpanded)
 end
 
--- Set expanded state
 function HonorLog:SetExpanded(expanded)
     self.db.settings.frameExpanded = expanded
 
     if expanded then
         self.mainFrame.expanded:Show()
-        self.mainFrame:SetHeight(200)
-        self.mainFrame.expandBtn:SetNormalTexture("Interface\\Buttons\\UI-MinusButton-UP")
-        self.mainFrame.expandBtn:SetPushedTexture("Interface\\Buttons\\UI-MinusButton-DOWN")
+        self.mainFrame:SetHeight(FRAME_HEIGHT_EXPANDED)
+        self.mainFrame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
     else
         self.mainFrame.expanded:Hide()
-        self.mainFrame:SetHeight(60)
-        self.mainFrame.expandBtn:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP")
-        self.mainFrame.expandBtn:SetPushedTexture("Interface\\Buttons\\UI-PlusButton-DOWN")
+        self.mainFrame:SetHeight(FRAME_HEIGHT_COMPACT)
+        self.mainFrame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
     end
 end
 
--- Update the frame content
+--------------------------------------------------------------------------------
+-- UPDATE FUNCTION
+--------------------------------------------------------------------------------
 function HonorLog:UpdateMainFrame()
     if not self.mainFrame or not self.mainFrame:IsShown() then return end
 
@@ -274,9 +604,19 @@ function HonorLog:UpdateMainFrame()
     local frame = self.mainFrame
 
     -- Update view mode indicator
-    frame.viewMode:SetText(scope == "account" and "[A]" or "[C]")
+    if scope == "account" then
+        frame.viewMode:SetText("ACCOUNT")
+        frame.viewModeBg:SetColorTexture(0.18, 0.12, 0.25, 0.9)
+    else
+        frame.viewMode:SetText("CHAR")
+        frame.viewModeBg:SetColorTexture(0.12, 0.18, 0.22, 0.9)
+    end
 
-    -- Update status line
+    -- Adjust badge width
+    local textWidth = frame.viewMode:GetStringWidth() + 12
+    frame.viewModeBg:SetWidth(math.max(40, textWidth))
+
+    -- Update status line (compact view)
     local currentBG = self:GetCurrentBG()
     if currentBG then
         local duration = 0
@@ -284,114 +624,268 @@ function HonorLog:UpdateMainFrame()
         if startTime then
             duration = math.floor(GetTime() - startTime)
         end
-        frame.statusLine:SetText(string.format("|cffffd700%s|r - %s",
-            currentBG, self:FormatDuration(duration)))
-        frame.statusLine:SetTextColor(unpack(BG_COLORS[currentBG]))
+        local honorAccum = self:GetBGHonorAccumulated()
+        local statusText = string.format("%s  -  %s", currentBG, self:FormatDuration(duration))
+        if honorAccum > 0 then
+            statusText = statusText .. string.format("  |cffffd700+%d|r", honorAccum)
+        end
+        frame.statusLine:SetText(statusText)
+        frame.statusLine:SetTextColor(unpack(BG_COLORS[currentBG] or COLORS.textPrimary))
+        frame.statusIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
+        frame.statusIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
     else
-        frame.statusLine:SetText("Not in BG")
-        frame.statusLine:SetTextColor(unpack(COLORS.label))
+        frame.statusLine:SetText("Not in Battleground")
+        frame.statusLine:SetTextColor(unpack(COLORS.textTertiary))
+        frame.statusIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-NotReady")
+        frame.statusIcon:SetVertexColor(0.5, 0.5, 0.55, 0.7)
     end
 
-    -- Update session line (compact view)
+    -- Session quick stats (compact view)
     local totalSession = self:GetTotalSessionStats()
     if totalSession.played > 0 then
         local color = totalSession.winrate >= 50 and COLORS.win or COLORS.loss
-        frame.sessionLine:SetText(string.format("Session: %d-%d (%.0f%%) +%d hon",
-            totalSession.wins, totalSession.losses, totalSession.winrate, totalSession.honor))
+        frame.sessionQuick:SetText(string.format("%d-%d  %.0f%%",
+            totalSession.wins, totalSession.losses, totalSession.winrate))
+        frame.sessionQuick:SetTextColor(unpack(color))
     else
-        frame.sessionLine:SetText("Session: No games yet")
+        frame.sessionQuick:SetText("--")
+        frame.sessionQuick:SetTextColor(unpack(COLORS.textMuted))
     end
 
-    -- Update expanded BG rows
-    for bgType, row in pairs(frame.bgRows) do
+    -- Update BG cards
+    for bgType, card in pairs(frame.bgCards) do
         local stats = self:GetBGStats(bgType, scope)
         local derived = self:GetDerivedStats(bgType, scope)
 
         if stats.played > 0 then
-            row.record:SetText(string.format("%d-%d", stats.wins, stats.losses))
-            row.winrate:SetText(string.format("%.0f%%", derived.winrate))
+            -- Record
+            card.record:SetText(string.format("%d-%d", stats.wins, stats.losses))
+            card.record:SetTextColor(unpack(COLORS.textPrimary))
 
-            local color = derived.winrate >= 50 and COLORS.win or COLORS.loss
-            row.winrate:SetTextColor(unpack(color))
+            -- Winrate
+            local isWinning = derived.winrate >= 50
+            local color = isWinning and COLORS.win or COLORS.loss
 
-            row.honor:SetText(string.format("%dk", math.floor(stats.honorLifetime / 1000)))
+            card.winrate:SetText(string.format("%.0f%%", derived.winrate))
+            card.winrate:SetTextColor(unpack(color))
+
+            -- Honor (formatted)
+            local honorText = stats.honorLifetime >= 1000
+                and string.format("%.1fk", stats.honorLifetime / 1000)
+                or tostring(stats.honorLifetime)
+            card.honor:SetText(honorText .. " Honor")
+            card.honor:SetTextColor(unpack(COLORS.neutralDim))
+
+            -- Progress bar
+            card.progressBar:SetProgress(derived.winrate, isWinning)
+
+            -- Full opacity
+            card.bgIcon:SetAlpha(0.9)
+            card.bgName:SetAlpha(1)
+            card.bgFullName:SetAlpha(0.7)
+            card.accentBar:SetAlpha(1)
         else
-            row.record:SetText("-")
-            row.record:SetTextColor(unpack(COLORS.label))
-            row.winrate:SetText("-")
-            row.winrate:SetTextColor(unpack(COLORS.label))
-            row.honor:SetText("-")
+            card.record:SetText("--")
+            card.record:SetTextColor(unpack(COLORS.textMuted))
+            card.winrate:SetText("--")
+            card.winrate:SetTextColor(unpack(COLORS.textMuted))
+            card.honor:SetText("0 Honor")
+            card.honor:SetTextColor(unpack(COLORS.textMuted))
+            card.progressBar:SetProgress(0, true)
+
+            -- Dimmed
+            card.bgIcon:SetAlpha(0.4)
+            card.bgName:SetAlpha(0.5)
+            card.bgFullName:SetAlpha(0.3)
+            card.accentBar:SetAlpha(0.3)
         end
     end
 
-    -- Update session summary
+    -- Update session panel
     if totalSession.played > 0 then
-        frame.sessionStats:SetText(string.format("%d-%d (%.0f%%), +%d honor, +%d marks",
-            totalSession.wins, totalSession.losses, totalSession.winrate,
+        local color = totalSession.winrate >= 50 and COLORS.win or COLORS.loss
+        frame.sessionStats:SetText(string.format("%d-%d (%.0f%%)",
+            totalSession.wins, totalSession.losses, totalSession.winrate))
+        frame.sessionStats:SetTextColor(unpack(color))
+
+        frame.sessionRewards:SetText(string.format("+%d Honor | +%d Marks",
             totalSession.honor, totalSession.marks))
+        frame.sessionRewards:SetTextColor(unpack(COLORS.neutral))
     else
-        frame.sessionStats:SetText("No games this session")
-        frame.sessionStats:SetTextColor(unpack(COLORS.label))
+        frame.sessionStats:SetText("No games yet")
+        frame.sessionStats:SetTextColor(unpack(COLORS.textTertiary))
+        frame.sessionRewards:SetText("")
     end
 end
 
--- Context menu
+--------------------------------------------------------------------------------
+-- CONTEXT MENU (TBC Classic compatible)
+--------------------------------------------------------------------------------
 local menuFrame = CreateFrame("Frame", "HonorLogContextMenu", UIParent, "UIDropDownMenuTemplate")
 
-function HonorLog:ShowContextMenu()
-    local menu = {
-        { text = "HonorLog", isTitle = true, notCheckable = true },
-        {
-            text = "View Mode: " .. (self.db.settings.viewMode == "account" and "Account" or "Character"),
-            notCheckable = true,
-            func = function()
-                self.db.settings.viewMode = self.db.settings.viewMode == "account" and "character" or "account"
-                self:UpdateMainFrame()
-            end,
-        },
-        {
-            text = self.db.settings.frameLocked and "Unlock Frame" or "Lock Frame",
-            notCheckable = true,
-            func = function()
-                self.db.settings.frameLocked = not self.db.settings.frameLocked
-            end,
-        },
-        { text = "", notCheckable = true, disabled = true },
-        {
-            text = "Print Stats",
-            notCheckable = true,
-            func = function() self:PrintStats() end,
-        },
-        {
-            text = "Reset Session",
-            notCheckable = true,
-            func = function()
-                self:ResetSession()
-                print("|cff00ff00HonorLog|r Session reset.")
-            end,
-        },
-        {
-            text = "Export",
-            notCheckable = true,
-            func = function() self:ShowExportFrame() end,
-        },
-        { text = "", notCheckable = true, disabled = true },
-        {
-            text = "Options",
-            notCheckable = true,
-            func = function() self:OpenOptions() end,
-        },
-        {
-            text = "Close",
-            notCheckable = true,
-            func = function() CloseDropDownMenus() end,
-        },
-    }
+local function InitializeMenu(frame, level, menuList)
+    level = level or 1
 
-    EasyMenu(menu, menuFrame, "cursor", 0, 0, "MENU")
+    if level == 1 then
+        -- Title
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "|cff40d860HonorLog|r"
+        info.isTitle = true
+        info.notCheckable = true
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Separator
+        info = UIDropDownMenu_CreateInfo()
+        info.text = ""
+        info.disabled = true
+        info.notCheckable = true
+        UIDropDownMenu_AddButton(info, level)
+
+        -- View mode toggle
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "View: " .. (HonorLog.db.settings.viewMode == "account" and "Account-wide" or "Character")
+        info.notCheckable = true
+        info.func = function()
+            HonorLog.db.settings.viewMode = HonorLog.db.settings.viewMode == "account" and "character" or "account"
+            HonorLog:UpdateMainFrame()
+        end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Lock/Unlock
+        info = UIDropDownMenu_CreateInfo()
+        info.text = HonorLog.db.settings.frameLocked and "Unlock Frame" or "Lock Frame"
+        info.notCheckable = true
+        info.func = function()
+            HonorLog.db.settings.frameLocked = not HonorLog.db.settings.frameLocked
+            print("|cff40d860HonorLog|r Frame " .. (HonorLog.db.settings.frameLocked and "locked" or "unlocked"))
+        end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Separator
+        info = UIDropDownMenu_CreateInfo()
+        info.text = ""
+        info.disabled = true
+        info.notCheckable = true
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Print Stats
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Print Stats"
+        info.notCheckable = true
+        info.func = function() HonorLog:PrintStats() end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Reset Session
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Reset Session"
+        info.notCheckable = true
+        info.func = function()
+            HonorLog:ResetSession()
+            print("|cff40d860HonorLog|r Session stats reset.")
+        end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Reset Stats submenu
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Reset Stats"
+        info.notCheckable = true
+        info.hasArrow = true
+        info.menuList = "RESET_STATS"
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Export
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Export Data"
+        info.notCheckable = true
+        info.func = function() HonorLog:ShowExportFrame() end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Separator
+        info = UIDropDownMenu_CreateInfo()
+        info.text = ""
+        info.disabled = true
+        info.notCheckable = true
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Options
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Options"
+        info.notCheckable = true
+        info.func = function() HonorLog:OpenOptions() end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Close
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Close"
+        info.notCheckable = true
+        info.func = function() CloseDropDownMenus() end
+        UIDropDownMenu_AddButton(info, level)
+
+    elseif level == 2 and menuList == "RESET_STATS" then
+        -- Reset Character Stats
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "Character Stats"
+        info.notCheckable = true
+        info.func = function()
+            for bgType, _ in pairs(HonorLog.db.char.battlegrounds) do
+                HonorLog.db.char.battlegrounds[bgType] = {
+                    played = 0, wins = 0, losses = 0,
+                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
+                }
+            end
+            HonorLog.db.char.history = {}
+            HonorLog:ResetSession()
+            HonorLog:UpdateMainFrame()
+            print("|cff40d860HonorLog|r Character stats reset.")
+        end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Reset Account Stats
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Account Stats"
+        info.notCheckable = true
+        info.func = function()
+            for bgType, _ in pairs(HonorLog.db.global.battlegrounds) do
+                HonorLog.db.global.battlegrounds[bgType] = {
+                    played = 0, wins = 0, losses = 0,
+                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
+                }
+            end
+            HonorLog.db.global.history = {}
+            HonorLog:UpdateMainFrame()
+            print("|cff40d860HonorLog|r Account stats reset.")
+        end
+        UIDropDownMenu_AddButton(info, level)
+    end
 end
 
--- Timer for in-BG duration updates
+-- Note: We initialize on each show for TBC Classic compatibility
+
+function HonorLog:ShowContextMenu()
+    print("|cff00ff00[HonorLog]|r ShowContextMenu called!")
+
+    -- Re-initialize menu each time for TBC Classic compatibility
+    UIDropDownMenu_Initialize(menuFrame, InitializeMenu, "MENU")
+
+    -- Use cursor position
+    local cursorX, cursorY = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    cursorX = cursorX / scale
+    cursorY = cursorY / scale
+
+    -- Position and show menu
+    menuFrame:ClearAllPoints()
+    menuFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cursorX, cursorY)
+
+    -- Toggle the dropdown
+    ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+
+    print("|cff00ff00[HonorLog]|r   Menu toggled at cursor (" .. math.floor(cursorX) .. ", " .. math.floor(cursorY) .. ")")
+end
+
+--------------------------------------------------------------------------------
+-- LIVE UPDATE TIMER
+--------------------------------------------------------------------------------
 local updateTimer = 0
 local UPDATE_INTERVAL = 1
 
