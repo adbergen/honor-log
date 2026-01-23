@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# Backup files
+*.bak
+*.orig
+
+# AI generated files
+CLAUDE.md
