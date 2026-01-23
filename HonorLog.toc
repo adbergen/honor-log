@@ -1,0 +1,29 @@
+## Interface: 20504
+## Title: HonorLog
+## Notes: Battleground statistics tracker for BCC Anniversary - tracks wins, losses, honor, marks, and more
+## Author: You
+## Version: 1.0.0
+## SavedVariables: HonorLogDB
+## SavedVariablesPerCharacter: HonorLogCharDB
+
+## OptionalDeps: LibStub, LibDataBroker-1.1
+
+# Libraries (embedded)
+Libs\LibStub.lua
+Libs\LibDataBroker-1.1.lua
+
+# Core
+Data.lua
+Core.lua
+
+# Modules
+Modules\BattlegroundBase.lua
+Modules\AV.lua
+Modules\AB.lua
+Modules\WSG.lua
+Modules\EotS.lua
+
+# UI
+UI\MainFrame.lua
+UI\Options.lua
+UI\Export.lua
