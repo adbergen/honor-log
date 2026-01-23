@@ -72,12 +72,43 @@ for _, event in ipairs(events) do
     eventFrame:RegisterEvent(event)
 end
 
+-- Save BG state to persist across /reload
+local function SaveBGState()
+    if HonorLog.db and HonorLog.db.char then
+        HonorLog.db.char.bgState = {
+            currentBG = currentBG,
+            bgStartTime = bgStartTime,
+            bgStartHonor = bgStartHonor,
+            bgHonorAccumulated = bgHonorAccumulated,
+            isInBG = isInBG,
+        }
+    end
+end
+
+-- Restore BG state after /reload (called from InitializeDB when reload detected)
+function HonorLog:RestoreBGState()
+    local state = self.db.char.bgState
+    if state and state.isInBG then
+        currentBG = state.currentBG
+        bgStartTime = state.bgStartTime
+        bgStartHonor = state.bgStartHonor
+        bgHonorAccumulated = state.bgHonorAccumulated or 0
+        isInBG = state.isInBG
+        print("|cff00ff00[HonorLog]|r Restored BG state: " .. tostring(currentBG) .. ", honor: " .. tostring(bgHonorAccumulated))
+    end
+end
+
 -- Addon loaded
 function HonorLog:ADDON_LOADED(addon)
     if addon ~= ADDON_NAME then return end
 
-    -- Initialize database
+    -- Initialize database (this also detects reload vs fresh login)
     self:InitializeDB()
+
+    -- Restore BG state if this is a reload and we were in a BG
+    if self.isReload and self.db.char.bgState and self.db.char.bgState.isInBG then
+        self:RestoreBGState()
+    end
 
     -- Initialize UI
     self:InitializeMainFrame()
@@ -269,6 +300,9 @@ function HonorLog:OnBattlegroundEnter(bgType)
         if GetHonorCurrency then print("|cffff00ff[HonorLog Debug]|r   GetHonorCurrency()=" .. tostring(GetHonorCurrency())) end
         if UnitHonor then print("|cffff00ff[HonorLog Debug]|r   UnitHonor('player')=" .. tostring(UnitHonor("player"))) end
     end
+
+    -- Save state for /reload persistence
+    SaveBGState()
 end
 
 -- Leaving battleground
@@ -326,6 +360,9 @@ function HonorLog:OnBattlegroundLeave()
     currentBG = nil
     bgStartTime = nil
     bgStartHonor = nil
+
+    -- Save cleared state
+    SaveBGState()
 
     -- Update UI
     if self.UpdateMainFrame then
@@ -651,6 +688,7 @@ function HonorLog:HONOR_XP_UPDATE()
     if lastHonorValue and currentHonor > lastHonorValue then
         local gained = currentHonor - lastHonorValue
         bgHonorAccumulated = bgHonorAccumulated + gained
+        SaveBGState()
 
         if debugMode then
             print("|cffff00ff[HonorLog Debug]|r   Gained " .. gained .. " honor, total accumulated: " .. bgHonorAccumulated)
@@ -686,6 +724,7 @@ function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
         honorAmount = tonumber(honorAmount)
         if honorAmount and honorAmount > 0 then
             bgHonorAccumulated = bgHonorAccumulated + honorAmount
+            SaveBGState()
 
             if debugMode then
                 print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN - parsed: " .. honorAmount .. " honor, total: " .. bgHonorAccumulated)
@@ -721,6 +760,7 @@ function HonorLog:CHAT_MSG_SYSTEM(msg)
             honorAmount = tonumber(honorAmount)
             if honorAmount and honorAmount > 0 then
                 bgHonorAccumulated = bgHonorAccumulated + honorAmount
+                SaveBGState()
 
                 if debugMode then
                     print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM - parsed honor: " .. honorAmount .. ", total: " .. bgHonorAccumulated)

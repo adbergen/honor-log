@@ -40,6 +40,14 @@ local DEFAULTS = {
         lastUpdateTime = 0, -- Timestamp when session was last updated
         wasLogout = false, -- Track if last exit was logout vs reload (deprecated, kept for migration)
         lastGameTime = 0, -- GetTime() at last save - used to detect reload vs fresh login
+        -- BG state (persists across /reload for mid-BG continuity)
+        bgState = {
+            currentBG = nil,
+            bgStartTime = nil,
+            bgStartHonor = nil,
+            bgHonorAccumulated = 0,
+            isInBG = false,
+        },
     },
     settings = {
         frameVisible = true,
@@ -121,17 +129,20 @@ function HonorLog:InitializeDB()
     -- (the game client restarted, so the timer reset)
     -- Also treat it as fresh login if lastGameTime was never set (first install)
     if currentGameTime < lastGameTime or lastGameTime == 0 then
-        -- Fresh login after logout/quit - reset session
+        -- Fresh login after logout/quit - reset session and BG state
         print("|cff00ff00[HonorLog]|r Fresh login detected (client restarted) - resetting session")
         HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
+        HonorLogCharDB.bgState = DeepCopy(DEFAULTS.char.bgState)
         HonorLogCharDB.sessionStartTime = now
         HonorLogCharDB.lastUpdateTime = now
         HonorLogCharDB.wasLogout = false
+        self.isReload = false
     else
-        -- This is a /reload - keep existing session data
+        -- This is a /reload - keep existing session data and BG state
         -- currentGameTime > lastGameTime means the timer continued (same session)
         print("|cff00ff00[HonorLog]|r Reload detected (same session) - keeping session (games: " .. tostring(HonorLogCharDB.session and HonorLogCharDB.session.AV and HonorLogCharDB.session.AV.played or "nil") .. ")")
         HonorLogCharDB.lastUpdateTime = now
+        self.isReload = true
     end
 
     -- Update lastGameTime for next check
