@@ -29,13 +29,17 @@ local DEFAULTS = {
         },
         history = {}, -- Per-character history
         historyLimit = 50,
-        -- Session data (not persisted, reset on login)
+        -- Session data (persists across /reload, resets on actual logout)
         session = {
             AV = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             AB = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             WSG = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             EotS = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
         },
+        sessionStartTime = 0, -- Timestamp when session started
+        lastUpdateTime = 0, -- Timestamp when session was last updated
+        wasLogout = false, -- Track if last exit was logout vs reload (deprecated, kept for migration)
+        lastGameTime = 0, -- GetTime() at last save - used to detect reload vs fresh login
     },
     settings = {
         frameVisible = true,
@@ -101,8 +105,37 @@ function HonorLog:InitializeDB()
         DeepMerge(HonorLogDB.settings, DEFAULTS.settings)
     end
 
-    -- Always reset session on login
-    HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
+    -- Check if this is a reload or fresh login using GetTime() comparison
+    -- GetTime() returns time since WoW client started:
+    --   - On /reload: GetTime() continues counting (same game session)
+    --   - On fresh login: GetTime() resets to near 0 (new game session)
+    -- This is more reliable than PLAYER_LOGOUT which fires on /reload in some clients
+    local now = time()
+    local currentGameTime = GetTime()
+    local lastGameTime = HonorLogCharDB.lastGameTime or 0
+
+    -- Debug: show what values we're comparing
+    print("|cff00ff00[HonorLog]|r InitializeDB - currentGameTime: " .. string.format("%.1f", currentGameTime) .. ", lastGameTime: " .. string.format("%.1f", lastGameTime))
+
+    -- If current GetTime() is less than stored GetTime(), this is a fresh login
+    -- (the game client restarted, so the timer reset)
+    -- Also treat it as fresh login if lastGameTime was never set (first install)
+    if currentGameTime < lastGameTime or lastGameTime == 0 then
+        -- Fresh login after logout/quit - reset session
+        print("|cff00ff00[HonorLog]|r Fresh login detected (client restarted) - resetting session")
+        HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
+        HonorLogCharDB.sessionStartTime = now
+        HonorLogCharDB.lastUpdateTime = now
+        HonorLogCharDB.wasLogout = false
+    else
+        -- This is a /reload - keep existing session data
+        -- currentGameTime > lastGameTime means the timer continued (same session)
+        print("|cff00ff00[HonorLog]|r Reload detected (same session) - keeping session (games: " .. tostring(HonorLogCharDB.session and HonorLogCharDB.session.AV and HonorLogCharDB.session.AV.played or "nil") .. ")")
+        HonorLogCharDB.lastUpdateTime = now
+    end
+
+    -- Update lastGameTime for next check
+    HonorLogCharDB.lastGameTime = currentGameTime
 
     -- Track this character
     local charKey = UnitName("player") .. "-" .. GetRealmName()
