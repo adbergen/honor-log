@@ -23,8 +23,17 @@ local BG_INSTANCE_NAMES = {
 local currentBG = nil
 local bgStartTime = nil
 local bgStartHonor = nil
+local bgHonorAccumulated = 0  -- Track honor gained during BG via events
+local lastHonorValue = nil    -- For tracking honor changes
 local isInBG = false
 local bgEnded = false
+local debugMode = false
+
+-- Backup state for when we leave before score update arrives
+local lastBG = nil
+local lastBGStartTime = nil
+local lastBGStartHonor = nil
+local lastBGLeaveTime = nil
 
 -- Create main frame for events
 local eventFrame = CreateFrame("Frame", "HonorLogEventFrame")
@@ -49,8 +58,14 @@ local events = {
     "CHAT_MSG_BG_SYSTEM_ALLIANCE",
     "CHAT_MSG_BG_SYSTEM_HORDE",
     "CHAT_MSG_BG_SYSTEM_NEUTRAL",
+    "CHAT_MSG_RAID_BOSS_EMOTE",
+    "CHAT_MSG_MONSTER_YELL",
     "HONOR_XP_UPDATE",
+    "CHAT_MSG_COMBAT_HONOR_GAIN", -- TBC Classic honor kills
+    "CHAT_MSG_SYSTEM", -- For "You receive currency: [Honor Points] xN" messages
     "PLAYER_LOGOUT",
+    "PLAYER_DEAD",
+    "BATTLEGROUND_POINTS_UPDATE",
 }
 
 for _, event in ipairs(events) do
@@ -81,13 +96,21 @@ end
 -- Detect current battleground
 function HonorLog:DetectBattleground()
     -- Method 1: Check instance map ID
-    local _, instanceType, _, _, _, _, _, mapID = GetInstanceInfo()
+    local instanceName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, mapID = GetInstanceInfo()
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r Instance: " .. tostring(instanceName) .. ", Type: " .. tostring(instanceType) .. ", MapID: " .. tostring(mapID))
+    end
+
     if instanceType == "pvp" and mapID and BG_MAP_IDS[mapID] then
         return BG_MAP_IDS[mapID]
     end
 
     -- Method 2: Check zone name
     local zoneName = GetRealZoneText()
+    if debugMode and zoneName then
+        print("|cffff00ff[HonorLog Debug]|r Zone: " .. zoneName)
+    end
     if zoneName and BG_INSTANCE_NAMES[zoneName] then
         return BG_INSTANCE_NAMES[zoneName]
     end
@@ -95,11 +118,27 @@ function HonorLog:DetectBattleground()
     -- Method 3: Check battlefield status
     for i = 1, GetMaxBattlefieldID() do
         local status, mapName = GetBattlefieldStatus(i)
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r BF " .. i .. " Status: " .. tostring(status) .. ", Map: " .. tostring(mapName))
+        end
         if status == "active" and mapName then
             for name, bgType in pairs(BG_INSTANCE_NAMES) do
                 if mapName:find(name) then
                     return bgType
                 end
+            end
+            -- Also check if mapName itself is a direct match
+            if BG_INSTANCE_NAMES[mapName] then
+                return BG_INSTANCE_NAMES[mapName]
+            end
+        end
+    end
+
+    -- Method 4: Check by instance name directly (fallback)
+    if instanceType == "pvp" and instanceName then
+        for name, bgType in pairs(BG_INSTANCE_NAMES) do
+            if instanceName:find(name) then
+                return bgType
             end
         end
     end
@@ -139,26 +178,113 @@ function HonorLog:CheckBattlegroundStatus()
     end
 end
 
+-- Helper function to get current honor (handles API differences)
+local function GetCurrentHonor()
+    local honor = nil
+    local source = "none"
+
+    -- Try GetHonorCurrency first (TBC/Wrath)
+    if GetHonorCurrency then
+        honor = GetHonorCurrency()
+        if honor and honor > 0 then
+            source = "GetHonorCurrency"
+        end
+    end
+
+    -- Fallback to UnitHonor (some clients)
+    if (not honor or honor == 0) and UnitHonor then
+        local unitHonor = UnitHonor("player")
+        if unitHonor and unitHonor > 0 then
+            honor = unitHonor
+            source = "UnitHonor"
+        end
+    end
+
+    -- Fallback to GetPVPCurrency for honor (some TBC clients)
+    if (not honor or honor == 0) and GetPVPCurrency then
+        local pvpHonor = GetPVPCurrency(HONOR_CURRENCY or 1)
+        if pvpHonor and pvpHonor > 0 then
+            honor = pvpHonor
+            source = "GetPVPCurrency"
+        end
+    end
+
+    -- Try C_CurrencyInfo if available (retail-like API)
+    if (not honor or honor == 0) and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+        local info = C_CurrencyInfo.GetCurrencyInfo(1901) -- Honor currency ID
+        if info and info.quantity and info.quantity > 0 then
+            honor = info.quantity
+            source = "C_CurrencyInfo"
+        end
+    end
+
+    if debugMode and source ~= "none" then
+        print("|cffff00ff[HonorLog Debug]|r GetCurrentHonor using: " .. source .. " = " .. tostring(honor))
+    end
+
+    return honor or 0
+end
+
 -- Entering battleground
 function HonorLog:OnBattlegroundEnter(bgType)
     isInBG = true
     currentBG = bgType
     bgStartTime = GetTime()
-    bgStartHonor = GetHonorCurrency and GetHonorCurrency() or UnitHonor("player") or 0
     bgEnded = false
+
+    -- Reset honor tracking for this BG
+    bgHonorAccumulated = 0
+    bgStartHonor = GetCurrentHonor()
+    lastHonorValue = bgStartHonor
+
+    -- If honor is 0 or nil, try again after a short delay (API might not be ready)
+    if not bgStartHonor or bgStartHonor == 0 then
+        C_Timer.After(1, function()
+            if isInBG and currentBG == bgType and (not bgStartHonor or bgStartHonor == 0) then
+                bgStartHonor = GetCurrentHonor()
+                lastHonorValue = bgStartHonor
+                if debugMode then
+                    print("|cffff00ff[HonorLog Debug]|r Delayed honor capture: " .. tostring(bgStartHonor))
+                end
+            end
+        end)
+    end
 
     -- Update UI
     if self.UpdateMainFrame then
         self:UpdateMainFrame()
     end
 
-    -- Debug
-    -- print("|cff00ff00HonorLog|r Entered", bgType)
+    -- Always print BG entry so user knows tracking is working
+    print("|cff00ff00[HonorLog]|r Entered " .. bgType .. " - tracking started")
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r BG Entry - Type: " .. bgType .. ", StartHonor: " .. tostring(bgStartHonor))
+        -- Show which APIs are available
+        print("|cffff00ff[HonorLog Debug]|r   APIs: GetHonorCurrency=" .. tostring(GetHonorCurrency ~= nil) ..
+            ", UnitHonor=" .. tostring(UnitHonor ~= nil) ..
+            ", GetPVPCurrency=" .. tostring(GetPVPCurrency ~= nil) ..
+            ", C_CurrencyInfo=" .. tostring(C_CurrencyInfo ~= nil))
+        -- Show raw API values
+        if GetHonorCurrency then print("|cffff00ff[HonorLog Debug]|r   GetHonorCurrency()=" .. tostring(GetHonorCurrency())) end
+        if UnitHonor then print("|cffff00ff[HonorLog Debug]|r   UnitHonor('player')=" .. tostring(UnitHonor("player"))) end
+    end
 end
 
 -- Leaving battleground
 function HonorLog:OnBattlegroundLeave()
-    if not isInBG or bgEnded then
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r OnBattlegroundLeave called")
+        print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG))
+        print("|cffff00ff[HonorLog Debug]|r   bgEnded: " .. tostring(bgEnded))
+        print("|cffff00ff[HonorLog Debug]|r   currentBG: " .. tostring(currentBG))
+    end
+
+    -- If game already ended and recorded, just clean up
+    if bgEnded then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   Game already recorded, cleaning up")
+        end
         isInBG = false
         currentBG = nil
         bgStartTime = nil
@@ -166,18 +292,34 @@ function HonorLog:OnBattlegroundLeave()
         return
     end
 
-    -- BG ended without proper detection - mark as loss
-    if currentBG and bgStartTime then
-        local duration = GetTime() - bgStartTime
-        local honorGained = 0
-
-        local currentHonor = GetHonorCurrency and GetHonorCurrency() or UnitHonor("player") or 0
-        if bgStartHonor then
-            honorGained = math.max(0, currentHonor - bgStartHonor)
+    -- IMPORTANT: Check for winner BEFORE clearing state!
+    -- This handles the case where we're teleported out before UPDATE_BATTLEFIELD_SCORE fires
+    if currentBG and bgStartTime and not bgEnded then
+        local winner = GetBattlefieldWinner()
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   Checking for winner before leaving: " .. tostring(winner))
         end
 
-        -- We don't have winner info, so we'll rely on the BG message detection
-        -- This is a fallback for edge cases
+        if winner ~= nil then
+            local factions = { [0] = "Horde", [1] = "Alliance" }
+            local winningFaction = factions[winner]
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r   Found winner on leave: " .. tostring(winningFaction))
+            end
+            if winningFaction then
+                bgEnded = true
+                self:OnBattlegroundEnd(winningFaction)
+            end
+        else
+            -- No winner detected yet - save state in case UPDATE_BATTLEFIELD_SCORE fires after we leave
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r   No winner yet, saving backup state for delayed detection")
+            end
+            lastBG = currentBG
+            lastBGStartTime = bgStartTime
+            lastBGStartHonor = bgStartHonor
+            lastBGLeaveTime = GetTime()
+        end
     end
 
     isInBG = false
@@ -191,41 +333,97 @@ function HonorLog:OnBattlegroundLeave()
     end
 end
 
--- BG end message patterns
+-- BG end message patterns (case-insensitive matching used below)
 local WIN_PATTERNS = {
-    ["The Alliance wins!"] = "Alliance",
-    ["The Horde wins!"] = "Horde",
-    ["Alliance wins!"] = "Alliance",
-    ["Horde wins!"] = "Horde",
-    ["The Alliance has won the battle for Warsong Gulch!"] = "Alliance",
-    ["The Horde has won the battle for Warsong Gulch!"] = "Horde",
-    ["The Alliance has taken the flag!"] = nil, -- Capture, not win
-    ["The battle for Alterac Valley has begun!"] = nil, -- Start message
+    -- Generic win messages
+    ["the alliance wins"] = "Alliance",
+    ["the horde wins"] = "Horde",
+    ["alliance wins"] = "Alliance",
+    ["horde wins"] = "Horde",
+    ["alliance victory"] = "Alliance",
+    ["horde victory"] = "Horde",
+    -- WSG specific
+    ["the alliance has won the battle for warsong gulch"] = "Alliance",
+    ["the horde has won the battle for warsong gulch"] = "Horde",
+    ["alliance has won the battle"] = "Alliance",
+    ["horde has won the battle"] = "Horde",
+    -- AB specific
+    ["the alliance has won the battle for arathi basin"] = "Alliance",
+    ["the horde has won the battle for arathi basin"] = "Horde",
+    -- EotS specific
+    ["the alliance has won the battle for eye of the storm"] = "Alliance",
+    ["the horde has won the battle for eye of the storm"] = "Horde",
+    -- AV specific
+    ["the alliance has won the battle for alterac valley"] = "Alliance",
+    ["the horde has won the battle for alterac valley"] = "Horde",
+    -- AV general kills (backup detection)
+    ["drek'thar is dead"] = "Alliance",
+    ["vanndar stormpike is dead"] = "Horde",
+    ["drek'thar has been slain"] = "Alliance",
+    ["vanndar stormpike has been slain"] = "Horde",
 }
 
 -- Handle BG system messages
 local function HandleBGMessage(self, msg)
-    if not isInBG or not currentBG or bgEnded then return end
+    -- ALWAYS print BG messages in debug mode, even if we're not tracking
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r HandleBGMessage received:")
+        print("|cffff00ff[HonorLog Debug]|r   msg: " .. tostring(msg))
+        print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG) .. ", currentBG: " .. tostring(currentBG) .. ", bgEnded: " .. tostring(bgEnded))
+    end
 
-    -- Check for win messages
+    if not isInBG or not currentBG or bgEnded then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   SKIPPING - not tracking this BG")
+        end
+        return
+    end
+
+    -- Convert to lowercase for case-insensitive matching
+    local msgLower = msg:lower()
+
+    -- Check for win messages (case-insensitive)
     local winner = nil
     for pattern, faction in pairs(WIN_PATTERNS) do
-        if msg:find(pattern) then
+        if msgLower:find(pattern, 1, true) then
             winner = faction
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r Matched pattern: " .. pattern .. " -> " .. faction)
+            end
             break
         end
     end
 
-    -- Also check for "wins" in the message
-    if not winner then
-        if msg:find("Alliance") and msg:find("win") then
+    -- AV: Check for general kill messages
+    if not winner and currentBG == "AV" then
+        if msgLower:find("drek'thar") and (msgLower:find("slain") or msgLower:find("dead") or msgLower:find("killed")) then
             winner = "Alliance"
-        elseif msg:find("Horde") and msg:find("win") then
+        elseif msgLower:find("vanndar") and (msgLower:find("slain") or msgLower:find("dead") or msgLower:find("killed")) then
             winner = "Horde"
         end
     end
 
+    -- Fallback: check for actual win messages (not "Icewing" which contains "win")
+    if not winner then
+        -- More specific patterns to avoid false positives like "Icewing"
+        if msgLower:find("alliance wins") or msgLower:find("alliance victory") or msgLower:find("the alliance wins") then
+            winner = "Alliance"
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r Fallback match: Alliance wins")
+            end
+        elseif msgLower:find("horde wins") or msgLower:find("horde victory") or msgLower:find("the horde wins") then
+            winner = "Horde"
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r Fallback match: Horde wins")
+            end
+        end
+    end
+
     if winner then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r Winner detected from BG message: " .. winner)
+            print("|cffff00ff[HonorLog Debug]|r   Setting bgEnded = true and calling OnBattlegroundEnd")
+        end
         bgEnded = true
         self:OnBattlegroundEnd(winner)
     end
@@ -243,20 +441,90 @@ function HonorLog:CHAT_MSG_BG_SYSTEM_NEUTRAL(msg)
     HandleBGMessage(self, msg)
 end
 
+-- Additional message events that might contain BG win info
+function HonorLog:CHAT_MSG_RAID_BOSS_EMOTE(msg)
+    HandleBGMessage(self, msg)
+end
+
+function HonorLog:CHAT_MSG_MONSTER_YELL(msg)
+    HandleBGMessage(self, msg)
+end
+
+-- Battleground points update (AB, EotS resource-based BGs)
+function HonorLog:BATTLEGROUND_POINTS_UPDATE()
+    if not isInBG or not currentBG or bgEnded then return end
+
+    -- Check if we've hit 2000 resources (win condition for AB/EotS)
+    if currentBG == "AB" or currentBG == "EotS" then
+        local allianceScore, hordScore = GetBattlefieldScore()
+
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r Points update - Alliance: " .. tostring(allianceScore) .. ", Horde: " .. tostring(hordScore))
+        end
+
+        local winScore = (currentBG == "AB") and 2000 or 2000
+
+        if allianceScore and allianceScore >= winScore then
+            bgEnded = true
+            self:OnBattlegroundEnd("Alliance")
+        elseif hordScore and hordScore >= winScore then
+            bgEnded = true
+            self:OnBattlegroundEnd("Horde")
+        end
+    end
+end
+
 -- Battleground ended
 function HonorLog:OnBattlegroundEnd(winner)
-    if not currentBG or not bgStartTime then return end
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r OnBattlegroundEnd called")
+        print("|cffff00ff[HonorLog Debug]|r   winner param: " .. tostring(winner))
+        print("|cffff00ff[HonorLog Debug]|r   currentBG: " .. tostring(currentBG))
+        print("|cffff00ff[HonorLog Debug]|r   bgStartTime: " .. tostring(bgStartTime))
+    end
+
+    if not currentBG or not bgStartTime then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - missing currentBG or bgStartTime!")
+        end
+        return
+    end
 
     local playerFaction = UnitFactionGroup("player")
     local won = (winner == playerFaction)
 
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   playerFaction: " .. tostring(playerFaction))
+        print("|cffff00ff[HonorLog Debug]|r   won: " .. tostring(won))
+        print("|cffff00ff[HonorLog Debug]|r   Calculating duration...")
+    end
+
     local duration = math.floor(GetTime() - bgStartTime)
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   duration: " .. tostring(duration))
+        print("|cffff00ff[HonorLog Debug]|r   Calculating honor...")
+    end
 
     -- Calculate honor gained
     local honorGained = 0
-    local currentHonor = GetHonorCurrency and GetHonorCurrency() or UnitHonor("player") or 0
-    if bgStartHonor then
+    local currentHonor = GetCurrentHonor()
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   currentHonor: " .. tostring(currentHonor) .. ", bgStartHonor: " .. tostring(bgStartHonor))
+        print("|cffff00ff[HonorLog Debug]|r   bgHonorAccumulated: " .. tostring(bgHonorAccumulated))
+    end
+
+    -- Primary method: use accumulated honor from HONOR_XP_UPDATE events
+    if bgHonorAccumulated and bgHonorAccumulated > 0 then
+        honorGained = bgHonorAccumulated
+    -- Fallback: calculate from start/end difference
+    elseif bgStartHonor and bgStartHonor > 0 then
         honorGained = math.max(0, currentHonor - bgStartHonor)
+    end
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   honorGained: " .. tostring(honorGained))
     end
 
     -- Marks gained (3 for win, 1 for loss in most BGs)
@@ -267,8 +535,27 @@ function HonorLog:OnBattlegroundEnd(winner)
         marksGained = won and 3 or 1
     end
 
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   marksGained: " .. tostring(marksGained))
+    end
+
     -- Record the game
-    self:RecordGame(currentBG, won, duration, honorGained, marksGained)
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r *** RECORDING GAME ***")
+        print("|cffff00ff[HonorLog Debug]|r   BG: " .. tostring(currentBG) .. ", Won: " .. tostring(won))
+        print("|cffff00ff[HonorLog Debug]|r   Duration: " .. tostring(duration) .. ", Honor: " .. tostring(honorGained) .. ", Marks: " .. tostring(marksGained))
+    end
+
+    -- Use pcall to catch any errors in RecordGame
+    local success, err = pcall(function()
+        self:RecordGame(currentBG, won, duration, honorGained, marksGained)
+    end)
+
+    if not success then
+        print("|cffff0000[HonorLog ERROR]|r RecordGame failed: " .. tostring(err))
+    elseif debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   RecordGame completed successfully")
+    end
 
     -- Print result
     local resultColor = won and "|cff00ff00" or "|cffff0000"
@@ -285,22 +572,232 @@ end
 
 -- Battlefield score update (alternative detection method)
 function HonorLog:UPDATE_BATTLEFIELD_SCORE()
-    if not isInBG or not currentBG or bgEnded then return end
-
     -- Check if the BG has ended by looking at the scoreboard
     local winner = GetBattlefieldWinner()
-    if winner then
-        bgEnded = true
-        local factions = { [0] = "Horde", [1] = "Alliance" }
-        self:OnBattlegroundEnd(factions[winner])
+    local factions = { [0] = "Horde", [1] = "Alliance" }
+    local winningFaction = winner ~= nil and factions[winner] or nil
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r UPDATE_BATTLEFIELD_SCORE")
+        print("|cffff00ff[HonorLog Debug]|r   raw winner: " .. tostring(winner) .. " -> " .. tostring(winningFaction))
+        print("|cffff00ff[HonorLog Debug]|r   bgEnded: " .. tostring(bgEnded))
+        print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG) .. ", currentBG: " .. tostring(currentBG))
+        print("|cffff00ff[HonorLog Debug]|r   lastBG: " .. tostring(lastBG))
+    end
+
+    -- If we already recorded this game, skip
+    if bgEnded then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   SKIPPED - bgEnded already true")
+        end
+        return
+    end
+
+    -- GetBattlefieldWinner returns: 0 = Horde, 1 = Alliance, nil = no winner yet
+    if winner ~= nil then
+        -- Check if we're still in BG with valid state
+        if isInBG and currentBG then
+            bgEnded = true
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r   Recording winner (in BG): " .. tostring(winningFaction))
+            end
+            if winningFaction then
+                self:OnBattlegroundEnd(winningFaction)
+            end
+        -- Check if we just left but have backup state (within 10 seconds)
+        elseif lastBG and lastBGStartTime and lastBGLeaveTime and (GetTime() - lastBGLeaveTime) < 10 then
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r   Recording winner (using backup state): " .. tostring(winningFaction))
+            end
+            -- Temporarily restore state to record the game
+            currentBG = lastBG
+            bgStartTime = lastBGStartTime
+            bgStartHonor = lastBGStartHonor
+            bgEnded = true
+
+            if winningFaction then
+                self:OnBattlegroundEnd(winningFaction)
+            end
+
+            -- Clear backup state
+            lastBG = nil
+            lastBGStartTime = nil
+            lastBGStartHonor = nil
+            lastBGLeaveTime = nil
+
+            -- Clear main state again
+            currentBG = nil
+            bgStartTime = nil
+            bgStartHonor = nil
+        else
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r   Cannot record - no valid state")
+            end
+        end
     end
 end
 
--- Honor update event
+-- Honor update event - track honor gained during BG
 function HonorLog:HONOR_XP_UPDATE()
-    -- Could be used for more accurate honor tracking
-    -- Currently handled in OnBattlegroundEnd
+    if not isInBG or bgEnded then return end
+
+    local currentHonor = GetCurrentHonor()
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r HONOR_XP_UPDATE - current: " .. tostring(currentHonor) .. ", last: " .. tostring(lastHonorValue))
+    end
+
+    -- Track the change in honor
+    if lastHonorValue and currentHonor > lastHonorValue then
+        local gained = currentHonor - lastHonorValue
+        bgHonorAccumulated = bgHonorAccumulated + gained
+
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   Gained " .. gained .. " honor, total accumulated: " .. bgHonorAccumulated)
+        end
+    end
+
+    lastHonorValue = currentHonor
 end
+
+-- TBC Classic: Parse honor from chat messages
+-- Formats:
+--   "PlayerName dies, honorable kill Rank: RankName (X Honor Points)"
+--   "You have been awarded X honor points."
+function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
+    if not isInBG or bgEnded then return end
+
+    local honorAmount = nil
+
+    -- Try pattern 1: "(X Honor Points)" - honorable kills
+    honorAmount = msg:match("%((%d+) Honor Point")
+
+    -- Try pattern 2: "awarded X honor points" - BG bonus honor
+    if not honorAmount then
+        honorAmount = msg:match("awarded (%d+) honor")
+    end
+
+    -- Try pattern 3: just look for any number followed by "honor"
+    if not honorAmount then
+        honorAmount = msg:match("(%d+) honor")
+    end
+
+    if honorAmount then
+        honorAmount = tonumber(honorAmount)
+        if honorAmount and honorAmount > 0 then
+            bgHonorAccumulated = bgHonorAccumulated + honorAmount
+
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN - parsed: " .. honorAmount .. " honor, total: " .. bgHonorAccumulated)
+            end
+        end
+    elseif debugMode then
+        print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN - couldn't parse: " .. tostring(msg))
+    end
+end
+
+-- TBC Classic: Parse honor from system messages
+-- Format: "You receive currency: [Honor Points] x10"
+function HonorLog:CHAT_MSG_SYSTEM(msg)
+    -- Debug: show all system messages in BG when debug mode is on
+    if debugMode and isInBG then
+        print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM: " .. tostring(msg))
+    end
+
+    if not isInBG then return end
+
+    -- Check for honor currency messages (case-insensitive)
+    local msgLower = msg:lower()
+    if msgLower:find("honor points") or msgLower:find("honor point") then
+        -- Try pattern: "Honor Points] x10" or "Honor Points] xN"
+        local honorAmount = msg:match("%[Honor Points%]%s*x(%d+)")
+
+        if not honorAmount then
+            -- Try alternate pattern without x: just a number after Honor Points
+            honorAmount = msg:match("%[Honor Points%]%s*(%d+)")
+        end
+
+        if honorAmount then
+            honorAmount = tonumber(honorAmount)
+            if honorAmount and honorAmount > 0 then
+                bgHonorAccumulated = bgHonorAccumulated + honorAmount
+
+                if debugMode then
+                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM - parsed honor: " .. honorAmount .. ", total: " .. bgHonorAccumulated)
+                end
+            end
+        elseif debugMode then
+            print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM - found Honor Points but couldn't parse amount: " .. tostring(msg))
+        end
+    end
+end
+
+-- Player logout - save current GetTime() for reload detection
+function HonorLog:PLAYER_LOGOUT()
+    -- Debug: always print when this fires
+    print("|cff00ff00[HonorLog]|r PLAYER_LOGOUT fired! GetTime()=" .. string.format("%.1f", GetTime()))
+
+    if self.db and self.db.char then
+        -- Store current GetTime() - on /reload this value will be less than GetTime() at next load
+        -- On fresh login after logout, GetTime() will have reset, so it will be less than this stored value
+        self.db.char.lastGameTime = GetTime()
+        self.db.char.wasLogout = true -- Keep for backwards compatibility
+        print("|cff00ff00[HonorLog]|r   Saved lastGameTime=" .. string.format("%.1f", self.db.char.lastGameTime))
+    else
+        print("|cffff0000[HonorLog]|r   ERROR: self.db or self.db.char is nil!")
+    end
+end
+
+-- Periodic winner check (safety net for missed events)
+local winnerCheckFrame = CreateFrame("Frame")
+local winnerCheckTimer = 0
+local WINNER_CHECK_INTERVAL = 1  -- Check every 1 second while in BG
+
+winnerCheckFrame:SetScript("OnUpdate", function(self, elapsed)
+    if not isInBG or bgEnded then return end
+
+    winnerCheckTimer = winnerCheckTimer + elapsed
+    if winnerCheckTimer >= WINNER_CHECK_INTERVAL then
+        winnerCheckTimer = 0
+
+        -- Method 1: GetBattlefieldWinner
+        local winner = GetBattlefieldWinner()
+        if winner ~= nil then
+            local factions = { [0] = "Horde", [1] = "Alliance" }
+            local winningFaction = factions[winner]
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r *** PERIODIC CHECK FOUND WINNER ***")
+                print("|cffff00ff[HonorLog Debug]|r   raw: " .. tostring(winner) .. " -> " .. tostring(winningFaction))
+                print("|cffff00ff[HonorLog Debug]|r   Setting bgEnded = true and calling OnBattlegroundEnd")
+            end
+            bgEnded = true
+            if winningFaction then
+                HonorLog:OnBattlegroundEnd(winningFaction)
+            end
+            return
+        end
+
+        -- Method 2: Check battlefield score for resource-based BGs
+        if currentBG == "AB" or currentBG == "EotS" then
+            local allianceScore = 0
+            local hordeScore = 0
+
+            -- Try to get the scores from the world state
+            -- In TBC, AB and EotS use 2000 resources to win
+            local numScores = GetNumBattlefieldScores()
+            if numScores and numScores > 0 then
+                -- Check faction scores via faction stat widgets
+                for i = 1, numScores do
+                    local name, kills, killingBlows, deaths, honorGained, faction = GetBattlefieldScore(i)
+                    -- faction: 0 = Horde, 1 = Alliance
+                end
+            end
+        end
+
+        -- Method 3: Check if player just got honor (BG ended reward)
+        -- This is a fallback detection
+    end
+end)
 
 -- Slash commands
 function HonorLog:RegisterSlashCommands()
@@ -321,11 +818,39 @@ function HonorLog:HandleSlashCommand(msg)
     elseif cmd == "stats" then
         self:PrintStats(arg)
     elseif cmd == "reset" then
-        if arg:lower() == "session" then
+        local resetType = arg:lower()
+        if resetType == "session" then
             self:ResetSession()
             print("|cff00ff00HonorLog|r Session stats reset.")
+        elseif resetType == "character" or resetType == "char" then
+            -- Reset character battleground stats
+            for bgType, _ in pairs(self.db.char.battlegrounds) do
+                self.db.char.battlegrounds[bgType] = {
+                    played = 0, wins = 0, losses = 0,
+                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
+                }
+            end
+            self.db.char.history = {}
+            self:ResetSession()
+            if self.UpdateMainFrame then
+                self:UpdateMainFrame()
+            end
+            print("|cff00ff00HonorLog|r Character stats reset.")
+        elseif resetType == "account" then
+            -- Reset account-wide battleground stats
+            for bgType, _ in pairs(self.db.global.battlegrounds) do
+                self.db.global.battlegrounds[bgType] = {
+                    played = 0, wins = 0, losses = 0,
+                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
+                }
+            end
+            self.db.global.history = {}
+            if self.UpdateMainFrame then
+                self:UpdateMainFrame()
+            end
+            print("|cff00ff00HonorLog|r Account stats reset.")
         else
-            print("|cff00ff00HonorLog|r Usage: /bg reset session")
+            print("|cff00ff00HonorLog|r Usage: /bg reset [session|character|account]")
         end
     elseif cmd == "export" then
         self:ShowExportFrame(arg)
@@ -346,6 +871,44 @@ function HonorLog:HandleSlashCommand(msg)
         if self.UpdateMainFrame then
             self:UpdateMainFrame()
         end
+    elseif cmd == "debug" then
+        debugMode = not debugMode
+        print("|cff00ff00HonorLog|r Debug mode: " .. (debugMode and "ON" or "OFF"))
+        if debugMode then
+            print("|cff00ff00HonorLog|r Current state:")
+            print("  InBG: " .. tostring(isInBG))
+            print("  BG: " .. tostring(currentBG))
+            print("  Ended: " .. tostring(bgEnded))
+            print("  StartTime: " .. tostring(bgStartTime))
+            -- Try to detect BG
+            local detected = self:DetectBattleground()
+            print("  Detected BG: " .. tostring(detected))
+            -- Show GetBattlefieldWinner result
+            local winner = GetBattlefieldWinner()
+            print("  GetBattlefieldWinner: " .. tostring(winner))
+            -- Show session data
+            print("  Session wasLogout: " .. tostring(self.db.char.wasLogout))
+        end
+    elseif cmd == "status" then
+        -- Show current tracking status
+        print("|cff00ff00HonorLog Status:|r")
+        print("  In BG: " .. tostring(isInBG))
+        print("  Current BG: " .. tostring(currentBG))
+        print("  BG Ended: " .. tostring(bgEnded))
+        local detected = self:DetectBattleground()
+        print("  Detected BG: " .. tostring(detected))
+        local session = self:GetTotalSessionStats()
+        print("  Session games: " .. session.played)
+    elseif cmd == "test" then
+        -- Test command to manually record a game
+        local bgType = arg:upper()
+        if bgType == "" then bgType = "WSG" end
+        if self.db.char.battlegrounds[bgType] then
+            self:RecordGame(bgType, true, 600, 100, 3)
+            print("|cff00ff00HonorLog|r Test game recorded: " .. bgType .. " WIN")
+        else
+            print("|cff00ff00HonorLog|r Invalid BG. Use: /bg test [AV|AB|WSG|EotS]")
+        end
     else
         print("|cff00ff00HonorLog|r Unknown command. Type /bg help for options.")
     end
@@ -356,9 +919,14 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/bg|r - Toggle stats frame")
     print("  |cffffffff/bg stats [bg]|r - Print stats summary")
     print("  |cffffffff/bg reset session|r - Reset session stats")
+    print("  |cffffffff/bg reset character|r - Reset character stats")
+    print("  |cffffffff/bg reset account|r - Reset account-wide stats")
     print("  |cffffffff/bg export [text|csv]|r - Export stats")
     print("  |cffffffff/bg view [character|account]|r - Switch view mode")
     print("  |cffffffff/bg config|r - Open options")
+    print("  |cffffffff/bg status|r - Show tracking status")
+    print("  |cffffffff/bg debug|r - Toggle debug mode")
+    print("  |cffffffff/bg test [bg]|r - Test record a game")
     print("  |cffffffff/bg help|r - Show this help")
 end
 
@@ -414,6 +982,10 @@ end
 
 function HonorLog:GetBGStartTime()
     return bgStartTime
+end
+
+function HonorLog:GetBGHonorAccumulated()
+    return bgHonorAccumulated or 0
 end
 
 -- Callback for data updates
