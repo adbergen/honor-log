@@ -611,6 +611,17 @@ function HonorLog:OnBattlegroundEnd(winner)
         "|cff00ff00", resultColor, result, currentBG,
         self:FormatDuration(duration), honorGained, marksGained))
 
+    -- Reset BG tracking state immediately after recording
+    -- This prevents stale data if player does /reload before leaving the BG zone
+    isInBG = false
+    currentBG = nil
+    bgStartTime = nil
+    bgStartHonor = nil
+    bgHonorAccumulated = 0
+    lastHonorValue = nil
+    -- bgEnded stays true so OnBattlegroundLeave knows game was recorded
+    SaveBGState()
+
     -- Update UI
     if self.UpdateMainFrame then
         self:UpdateMainFrame()
