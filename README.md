@@ -15,18 +15,18 @@ A battleground statistics tracker for WoW TBC Classic Anniversary.
 
 ## Usage
 
-Type `/bg` or `/honorlog` in chat to toggle the stats frame.
+Type `/honorlog` or `/hl` in chat to toggle the stats frame.
 
 ### Commands
-- `/bg` - Toggle stats frame
-- `/bg stats` - Print stats summary to chat
-- `/bg stats av` - Print stats for specific BG
-- `/bg reset session` - Reset current session stats
-- `/bg export` - Open export dialog
-- `/bg view character` - Show character stats
-- `/bg view account` - Show account-wide stats
-- `/bg config` - Open options panel
-- `/bg help` - Show all commands
+- `/honorlog` - Toggle stats frame
+- `/honorlog stats` - Print stats summary to chat
+- `/honorlog stats av` - Print stats for specific BG
+- `/honorlog reset session` - Reset current session stats
+- `/honorlog export` - Open export dialog
+- `/honorlog view character` - Show character stats
+- `/honorlog view account` - Show account-wide stats
+- `/honorlog config` - Open options panel
+- `/honorlog help` - Show all commands
 
 ### Frame Controls
 - **Drag** the frame to move it

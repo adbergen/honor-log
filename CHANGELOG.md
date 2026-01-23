@@ -15,4 +15,4 @@
 - Blizzard Interface Options integration
 - LibDataBroker support for broker display addons
 - Milestone notifications (optional)
-- Slash commands: /bg, /honorlog
+- Slash commands: /honorlog, /hl

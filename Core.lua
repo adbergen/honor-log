@@ -90,7 +90,7 @@ function HonorLog:ADDON_LOADED(addon)
     -- Unregister this event
     eventFrame:UnregisterEvent("ADDON_LOADED")
 
-    print("|cff00ff00HonorLog|r loaded. Type |cffffffff/bg|r for options.")
+    print("|cff00ff00HonorLog|r loaded. Type |cffffffff/honorlog|r or |cffffffff/hl|r for options.")
 end
 
 -- Detect current battleground
@@ -801,8 +801,8 @@ end)
 
 -- Slash commands
 function HonorLog:RegisterSlashCommands()
-    SLASH_HONORLOG1 = "/bg"
-    SLASH_HONORLOG2 = "/honorlog"
+    SLASH_HONORLOG1 = "/honorlog"
+    SLASH_HONORLOG2 = "/hl"
 
     SlashCmdList["HONORLOG"] = function(msg)
         self:HandleSlashCommand(msg)
@@ -850,7 +850,7 @@ function HonorLog:HandleSlashCommand(msg)
             end
             print("|cff00ff00HonorLog|r Account stats reset.")
         else
-            print("|cff00ff00HonorLog|r Usage: /bg reset [session|character|account]")
+            print("|cff00ff00HonorLog|r Usage: /honorlog reset [session|character|account]")
         end
     elseif cmd == "export" then
         self:ShowExportFrame(arg)
@@ -866,7 +866,7 @@ function HonorLog:HandleSlashCommand(msg)
             self:SetSetting("viewMode", "account")
             print("|cff00ff00HonorLog|r Now showing account-wide stats.")
         else
-            print("|cff00ff00HonorLog|r Usage: /bg view [character|account]")
+            print("|cff00ff00HonorLog|r Usage: /honorlog view [character|account]")
         end
         if self.UpdateMainFrame then
             self:UpdateMainFrame()
@@ -907,27 +907,27 @@ function HonorLog:HandleSlashCommand(msg)
             self:RecordGame(bgType, true, 600, 100, 3)
             print("|cff00ff00HonorLog|r Test game recorded: " .. bgType .. " WIN")
         else
-            print("|cff00ff00HonorLog|r Invalid BG. Use: /bg test [AV|AB|WSG|EotS]")
+            print("|cff00ff00HonorLog|r Invalid BG. Use: /honorlog test [AV|AB|WSG|EotS]")
         end
     else
-        print("|cff00ff00HonorLog|r Unknown command. Type /bg help for options.")
+        print("|cff00ff00HonorLog|r Unknown command. Type /honorlog help for options.")
     end
 end
 
 function HonorLog:PrintHelp()
-    print("|cff00ff00HonorLog Commands:|r")
-    print("  |cffffffff/bg|r - Toggle stats frame")
-    print("  |cffffffff/bg stats [bg]|r - Print stats summary")
-    print("  |cffffffff/bg reset session|r - Reset session stats")
-    print("  |cffffffff/bg reset character|r - Reset character stats")
-    print("  |cffffffff/bg reset account|r - Reset account-wide stats")
-    print("  |cffffffff/bg export [text|csv]|r - Export stats")
-    print("  |cffffffff/bg view [character|account]|r - Switch view mode")
-    print("  |cffffffff/bg config|r - Open options")
-    print("  |cffffffff/bg status|r - Show tracking status")
-    print("  |cffffffff/bg debug|r - Toggle debug mode")
-    print("  |cffffffff/bg test [bg]|r - Test record a game")
-    print("  |cffffffff/bg help|r - Show this help")
+    print("|cff00ff00HonorLog Commands:|r (also: /hl)")
+    print("  |cffffffff/honorlog|r - Toggle stats frame")
+    print("  |cffffffff/honorlog stats [bg]|r - Print stats summary")
+    print("  |cffffffff/honorlog reset session|r - Reset session stats")
+    print("  |cffffffff/honorlog reset character|r - Reset character stats")
+    print("  |cffffffff/honorlog reset account|r - Reset account-wide stats")
+    print("  |cffffffff/honorlog export [text|csv]|r - Export stats")
+    print("  |cffffffff/honorlog view [character|account]|r - Switch view mode")
+    print("  |cffffffff/honorlog config|r - Open options")
+    print("  |cffffffff/honorlog status|r - Show tracking status")
+    print("  |cffffffff/honorlog debug|r - Toggle debug mode")
+    print("  |cffffffff/honorlog test [bg]|r - Test record a game")
+    print("  |cffffffff/honorlog help|r - Show this help")
 end
 
 function HonorLog:PrintStats(bgFilter)
