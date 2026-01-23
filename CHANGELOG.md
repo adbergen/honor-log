@@ -1,9 +1,9 @@
 # Changelog
 
-## [0.1.0-beta] - 2025-01-23
+## [1.0.0] - 2025-01-23
 
 ### Added
-- Initial beta release
+- Initial release
 - Track wins, losses, honor, and marks for all TBC battlegrounds (AV, AB, WSG, EotS)
 - Per-character and account-wide statistics
 - Session stats that reset on logout
