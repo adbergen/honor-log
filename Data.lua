@@ -59,6 +59,9 @@ local DEFAULTS = {
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,
         ldbEnabled = true,
+        minimapButton = {
+            hide = false,
+        },
     },
 }
 

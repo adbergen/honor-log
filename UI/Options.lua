@@ -171,9 +171,25 @@ function HonorLog:InitializeOptions()
     ldbCheck:SetChecked(self.db.settings.ldbEnabled)
     panel.ldbCheck = ldbCheck
 
+    -- Show Minimap Button checkbox
+    local minimapCheck = CreateCheckbox(panel, "HonorLogMinimapCheck", "Show Minimap Button", "Display a minimap button for quick access", function(checked)
+        if HonorLog.minimapIcon then
+            if checked then
+                HonorLog.minimapIcon:Show("HonorLog")
+                HonorLog.db.settings.minimapButton.hide = false
+            else
+                HonorLog.minimapIcon:Hide("HonorLog")
+                HonorLog.db.settings.minimapButton.hide = true
+            end
+        end
+    end)
+    minimapCheck:SetPoint("TOPLEFT", ldbCheck, "BOTTOMLEFT", 0, -5)
+    minimapCheck:SetChecked(not self.db.settings.minimapButton.hide)
+    panel.minimapCheck = minimapCheck
+
     -- Reset buttons section
     local resetHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    resetHeader:SetPoint("TOPLEFT", ldbCheck, "BOTTOMLEFT", 4, -30)
+    resetHeader:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 4, -30)
     resetHeader:SetText("|cffffd700Data Management|r")
 
     -- Reset Session button

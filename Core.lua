@@ -911,6 +911,10 @@ function HonorLog:HandleSlashCommand(msg)
         if self.UpdateMainFrame then
             self:UpdateMainFrame()
         end
+    elseif cmd == "minimap" then
+        self:ToggleMinimapButton()
+        local shown = self:IsMinimapButtonShown()
+        print("|cff00ff00HonorLog|r Minimap button: " .. (shown and "shown" or "hidden"))
     elseif cmd == "debug" then
         debugMode = not debugMode
         print("|cff00ff00HonorLog|r Debug mode: " .. (debugMode and "ON" or "OFF"))
@@ -963,6 +967,7 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog reset account|r - Reset account-wide stats")
     print("  |cffffffff/honorlog export [text|csv]|r - Export stats")
     print("  |cffffffff/honorlog view [character|account]|r - Switch view mode")
+    print("  |cffffffff/honorlog minimap|r - Toggle minimap button")
     print("  |cffffffff/honorlog config|r - Open options")
     print("  |cffffffff/honorlog status|r - Show tracking status")
     print("  |cffffffff/honorlog debug|r - Toggle debug mode")
@@ -1069,6 +1074,39 @@ function HonorLog:InitializeLDB()
     })
 
     self:UpdateLDB()
+
+    -- Initialize minimap button
+    self:InitializeMinimapButton()
+end
+
+-- Minimap button using LibDBIcon
+function HonorLog:InitializeMinimapButton()
+    local icon = LibStub and LibStub("LibDBIcon-1.0", true)
+    if not icon then return end
+
+    -- Register the minimap button
+    icon:Register("HonorLog", self.ldb, self.db.settings.minimapButton)
+    self.minimapIcon = icon
+end
+
+-- Toggle minimap button visibility
+function HonorLog:ToggleMinimapButton()
+    if not self.minimapIcon then return end
+
+    local hidden = self.db.settings.minimapButton.hide
+    if hidden then
+        self.minimapIcon:Show("HonorLog")
+        self.db.settings.minimapButton.hide = false
+    else
+        self.minimapIcon:Hide("HonorLog")
+        self.db.settings.minimapButton.hide = true
+    end
+end
+
+-- Check if minimap button is visible
+function HonorLog:IsMinimapButtonShown()
+    if not self.minimapIcon then return false end
+    return not self.db.settings.minimapButton.hide
 end
 
 function HonorLog:UpdateLDB()

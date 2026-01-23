@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2025-01-23
+
+### Added
+- Minimap button using LibDBIcon for quick access
+- Toggle minimap button via `/honorlog minimap` or Options panel
+
 ## [1.0.0] - 2025-01-23
 
 ### Added
