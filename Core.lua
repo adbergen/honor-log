@@ -323,6 +323,13 @@ function HonorLog:OnBattlegroundLeave()
         currentBG = nil
         bgStartTime = nil
         bgStartHonor = nil
+        bgHonorAccumulated = 0  -- Reset honor counter for next BG
+        bgEnded = false  -- Reset flag for next BG
+        lastHonorValue = nil  -- Reset honor tracking
+        SaveBGState()
+        if self.UpdateMainFrame then
+            self:UpdateMainFrame()
+        end
         return
     end
 
@@ -360,6 +367,9 @@ function HonorLog:OnBattlegroundLeave()
     currentBG = nil
     bgStartTime = nil
     bgStartHonor = nil
+    bgHonorAccumulated = 0  -- Reset honor counter
+    bgEnded = false  -- Reset flag for next BG
+    lastHonorValue = nil  -- Reset honor tracking
 
     -- Save cleared state
     SaveBGState()
