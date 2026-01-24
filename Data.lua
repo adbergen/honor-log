@@ -121,7 +121,7 @@ function HonorLog:InitializeDB()
     local now = time()
     local currentGameTime = GetTime()
     local lastGameTime = HonorLogCharDB.lastGameTime or 0
-    local lastSessionDate = HonorLogCharDB.sessionDate or 0
+    local lastSessionDate = HonorLogCharDB.sessionDate
 
     -- Get today's date as YYYYMMDD number for easy comparison
     local today = tonumber(date("%Y%m%d", now))
@@ -130,8 +130,14 @@ function HonorLog:InitializeDB()
     local shouldResetSession = false
     local resetReason = ""
 
+    -- Migration: if sessionDate was never set, this is first run after update
+    -- Don't reset existing session data, just set the date
+    if not lastSessionDate then
+        HonorLogCharDB.sessionDate = today
+        lastSessionDate = today
+        self.isReload = true
     -- Reset if it's a new day
-    if lastSessionDate ~= today then
+    elseif lastSessionDate ~= today then
         shouldResetSession = true
         resetReason = "new day"
     -- Reset if client was restarted (GetTime() reset)
@@ -159,9 +165,6 @@ function HonorLog:InitializeDB()
 
     -- Update tracking values
     HonorLogCharDB.lastGameTime = currentGameTime
-    if not HonorLogCharDB.sessionDate then
-        HonorLogCharDB.sessionDate = today
-    end
 
     -- Track this character
     local charKey = UnitName("player") .. "-" .. GetRealmName()
