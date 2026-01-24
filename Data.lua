@@ -116,40 +116,52 @@ function HonorLog:InitializeDB()
         DeepMerge(HonorLogDB.settings, DEFAULTS.settings)
     end
 
-    -- Check if this is a reload or fresh login using GetTime() comparison
-    -- GetTime() returns time since WoW client started:
-    --   - On /reload: GetTime() continues counting (same game session)
-    --   - On fresh login: GetTime() resets to near 0 (new game session)
-    -- This is more reliable than PLAYER_LOGOUT which fires on /reload in some clients
+    -- Session reset logic: Daily reset + reload detection
+    -- Session = "today's stats" - resets at midnight, persists across /reload
     local now = time()
     local currentGameTime = GetTime()
     local lastGameTime = HonorLogCharDB.lastGameTime or 0
+    local lastSessionDate = HonorLogCharDB.sessionDate or 0
 
-    -- Debug: show what values we're comparing
-    print("|cff00ff00[HonorLog]|r InitializeDB - currentGameTime: " .. string.format("%.1f", currentGameTime) .. ", lastGameTime: " .. string.format("%.1f", lastGameTime))
+    -- Get today's date as YYYYMMDD number for easy comparison
+    local today = tonumber(date("%Y%m%d", now))
 
-    -- If current GetTime() is less than stored GetTime(), this is a fresh login
-    -- (the game client restarted, so the timer reset)
-    -- Also treat it as fresh login if lastGameTime was never set (first install)
-    if currentGameTime < lastGameTime or lastGameTime == 0 then
-        -- Fresh login after logout/quit - reset session and BG state
-        print("|cff00ff00[HonorLog]|r Fresh login detected (client restarted) - resetting session")
-        HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
+    -- Check if we need to reset session
+    local shouldResetSession = false
+    local resetReason = ""
+
+    -- Reset if it's a new day
+    if lastSessionDate ~= today then
+        shouldResetSession = true
+        resetReason = "new day"
+    -- Reset if client was restarted (GetTime() reset)
+    elseif currentGameTime < lastGameTime and lastGameTime > 0 then
+        -- Client restart on same day keeps session (daily stats)
+        -- But we do need to clear BG state since that's mid-game tracking
         HonorLogCharDB.bgState = DeepCopy(DEFAULTS.char.bgState)
-        HonorLogCharDB.sessionStartTime = now
-        HonorLogCharDB.lastUpdateTime = now
-        HonorLogCharDB.wasLogout = false
         self.isReload = false
+        resetReason = "client restart (keeping daily session)"
     else
-        -- This is a /reload - keep existing session data and BG state
-        -- currentGameTime > lastGameTime means the timer continued (same session)
-        print("|cff00ff00[HonorLog]|r Reload detected (same session) - keeping session (games: " .. tostring(HonorLogCharDB.session and HonorLogCharDB.session.AV and HonorLogCharDB.session.AV.played or "nil") .. ")")
-        HonorLogCharDB.lastUpdateTime = now
+        -- This is a /reload - keep everything
         self.isReload = true
     end
 
-    -- Update lastGameTime for next check
+    if shouldResetSession then
+        print("|cff00ff00[HonorLog]|r New day detected - resetting session for " .. date("%Y-%m-%d", now))
+        HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
+        HonorLogCharDB.bgState = DeepCopy(DEFAULTS.char.bgState)
+        HonorLogCharDB.sessionStartTime = now
+        HonorLogCharDB.sessionDate = today
+        self.isReload = false
+    else
+        HonorLogCharDB.lastUpdateTime = now
+    end
+
+    -- Update tracking values
     HonorLogCharDB.lastGameTime = currentGameTime
+    if not HonorLogCharDB.sessionDate then
+        HonorLogCharDB.sessionDate = today
+    end
 
     -- Track this character
     local charKey = UnitName("player") .. "-" .. GetRealmName()

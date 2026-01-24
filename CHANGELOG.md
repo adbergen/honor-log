@@ -6,6 +6,14 @@
 - Minimap button using LibDBIcon for quick access
 - Toggle minimap button via `/honorlog minimap` or Options panel
 
+### Fixed
+- BG timer and honor counter now reset properly when entering a new battleground
+- BG tracking state resets immediately when game ends (no longer persists across /reload)
+
+### Changed
+- Session stats now reset daily at midnight instead of on logout
+- Session represents "today's stats" - persists across /reload but resets each new day
+
 ## [1.0.0] - 2025-01-23
 
 ### Added
