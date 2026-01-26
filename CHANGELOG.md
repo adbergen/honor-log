@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.2] - 2025-01-26
+
+### Fixed
+- **Goal Card Checkmark**: Complete checkmark icon now positioned left of remove button instead of overlapping it
+
 ## [1.1.1] - 2025-01-26
 
 ### Added

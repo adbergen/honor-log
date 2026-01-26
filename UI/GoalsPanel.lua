@@ -267,7 +267,7 @@ local function CreateGoalCard(parent, index)
     -- Complete indicator (shown when goal is achieved)
     local completeIcon = card:CreateTexture(nil, "OVERLAY")
     completeIcon:SetSize(12, 12)
-    completeIcon:SetPoint("TOPRIGHT", -4, -4) -- Anchor to card corner instead of text
+    completeIcon:SetPoint("RIGHT", removeBtn, "LEFT", -4, 0) -- Position left of remove button
     completeIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
     completeIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
     completeIcon:Hide()
