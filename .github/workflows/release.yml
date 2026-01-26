@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   release:
@@ -21,7 +21,7 @@ jobs:
         uses: itsmeow/curseforge-upload@v3
         with:
           token: ${{ secrets.CURSEFORGE_TOKEN }}
-          project_id: 1234567  # Replace with your actual CurseForge project ID
+          project_id: 1442154 # Replace with your actual CurseForge project ID
           game_endpoint: wow
           file_path: release/HonorLog-${{ github.ref_name }}.zip
           changelog: "See CHANGELOG.md for details"
