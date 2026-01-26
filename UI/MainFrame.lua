@@ -149,6 +149,8 @@ local function CreateMainFrame()
     frame:SetSize(FRAME_WIDTH, FRAME_HEIGHT_COMPACT)
     frame:SetPoint("CENTER", 0, 0)
     frame:SetMovable(true)
+    frame:SetResizable(true)
+    frame:SetResizeBounds(220, 60, 450, 500) -- Min width/height, max width/height (scroll handles overflow)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetClampedToScreen(true)
@@ -220,7 +222,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.0")
+    versionBadge:SetText("v1.1.1")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)
@@ -281,12 +283,12 @@ local function CreateMainFrame()
     frame.sessionQuick = sessionQuick
 
     ----------------------------------------------------------------------------
-    -- EXPANDED VIEW
+    -- EXPANDED VIEW (with scroll support)
     ----------------------------------------------------------------------------
     local expanded = CreateFrame("Frame", nil, frame)
     expanded:SetPoint("TOPLEFT", compact, "BOTTOMLEFT", 0, -2)
     expanded:SetPoint("TOPRIGHT", compact, "BOTTOMRIGHT", 0, -2)
-    expanded:SetHeight(180)
+    expanded:SetPoint("BOTTOM", frame, "BOTTOM", 0, 5)
     expanded:EnableMouse(true)
     -- Right-click handler set at end of CreateMainFrame
     expanded:Hide()
@@ -299,12 +301,30 @@ local function CreateMainFrame()
     topSep:SetPoint("TOPRIGHT", -PADDING, 0)
     topSep:SetColorTexture(unpack(COLORS.separator))
 
+    -- Scroll Frame for content
+    local scrollFrame = CreateFrame("ScrollFrame", nil, expanded, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", 0, -2)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 0)
+    frame.scrollFrame = scrollFrame
+
+    -- Hide scroll bar when not needed
+    local scrollBar = scrollFrame.ScrollBar or _G[scrollFrame:GetName() .. "ScrollBar"]
+    if scrollBar then
+        scrollBar:SetAlpha(0.6)
+    end
+
+    -- Scroll content container
+    local scrollContent = CreateFrame("Frame", nil, scrollFrame)
+    scrollContent:SetWidth(FRAME_WIDTH - 22)
+    scrollFrame:SetScrollChild(scrollContent)
+    frame.scrollContent = scrollContent
+
     -- BG Stats Cards
     frame.bgCards = {}
-    local yOffset = -8
+    local yOffset = -6
 
     for _, bgType in ipairs({"AV", "AB", "WSG", "EotS"}) do
-        local card = CreateFrame("Frame", nil, expanded, "BackdropTemplate")
+        local card = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
         card:SetHeight(CARD_HEIGHT)
         card:SetPoint("TOPLEFT", PADDING, yOffset)
         card:SetPoint("TOPRIGHT", -PADDING, yOffset)
@@ -393,7 +413,7 @@ local function CreateMainFrame()
     end
 
     -- Session Summary Panel
-    local sessionPanel = CreateFrame("Frame", nil, expanded, "BackdropTemplate")
+    local sessionPanel = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
     sessionPanel:SetHeight(36)
     sessionPanel:SetPoint("TOPLEFT", PADDING, yOffset - 3)
     sessionPanel:SetPoint("TOPRIGHT", -PADDING, yOffset - 3)
@@ -433,6 +453,120 @@ local function CreateMainFrame()
     sessionRewards:SetPoint("RIGHT", -8, 0)
     sessionRewards:SetJustifyH("LEFT")
     frame.sessionRewards = sessionRewards
+
+    -- Set scroll content height (4 cards + session panel + padding)
+    local contentHeight = (4 * CARD_HEIGHT) + (3 * CARD_SPACING) + 36 + 15
+    scrollContent:SetHeight(contentHeight)
+
+    -- Function to update scroll content width when frame is resized
+    function frame:UpdateScrollContentWidth()
+        local frameWidth = self:GetWidth()
+        if self.scrollContent then
+            self.scrollContent:SetWidth(frameWidth - 22)
+        end
+    end
+
+    -- Function to update scroll bar visibility
+    function frame:UpdateScrollBarVisibility()
+        if not self.scrollFrame or not self.scrollContent then return end
+
+        local scrollBar = self.scrollFrame.ScrollBar or _G[self.scrollFrame:GetName() .. "ScrollBar"]
+        if not scrollBar then return end
+
+        local viewHeight = self.scrollFrame:GetHeight()
+        local contentHeight = self.scrollContent:GetHeight()
+
+        if contentHeight > viewHeight then
+            scrollBar:Show()
+            scrollBar:SetAlpha(0.6)
+        else
+            scrollBar:Hide()
+            self.scrollFrame:SetVerticalScroll(0)
+        end
+    end
+
+    -- Update on size change
+    frame:SetScript("OnSizeChanged", function(self, width, height)
+        self:UpdateScrollContentWidth()
+        -- Delay scroll bar update to next frame for proper layout
+        C_Timer.After(0, function()
+            if self.UpdateScrollBarVisibility then
+                self:UpdateScrollBarVisibility()
+            end
+        end)
+    end)
+
+    ----------------------------------------------------------------------------
+    -- RESIZE GRIP
+    ----------------------------------------------------------------------------
+    local resizeGrip = CreateFrame("Button", nil, frame)
+    resizeGrip:SetSize(16, 16)
+    resizeGrip:SetPoint("BOTTOMRIGHT", -2, 2)
+    resizeGrip:SetFrameLevel(frame:GetFrameLevel() + 10)
+    resizeGrip:EnableMouse(true)
+
+    -- Resize grip texture (diagonal lines pattern)
+    local gripTexture = resizeGrip:CreateTexture(nil, "ARTWORK")
+    gripTexture:SetAllPoints()
+    gripTexture:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    resizeGrip.texture = gripTexture
+
+    -- Highlight texture on hover
+    local gripHighlight = resizeGrip:CreateTexture(nil, "HIGHLIGHT")
+    gripHighlight:SetAllPoints()
+    gripHighlight:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+
+    -- Resize cursor on hover
+    resizeGrip:SetScript("OnEnter", function(self)
+        if HonorLog.db.settings.frameResizable and not HonorLog.db.settings.frameLocked then
+            self.texture:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+        end
+    end)
+
+    resizeGrip:SetScript("OnLeave", function(self)
+        self.texture:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    end)
+
+    -- Resize functionality
+    resizeGrip:SetScript("OnMouseDown", function(self, button)
+        if button == "LeftButton" and HonorLog.db.settings.frameResizable and not HonorLog.db.settings.frameLocked then
+            frame:StartSizing("BOTTOMRIGHT")
+            frame.isResizing = true
+        end
+    end)
+
+    resizeGrip:SetScript("OnMouseUp", function(self, button)
+        if frame.isResizing then
+            frame:StopMovingOrSizing()
+            frame.isResizing = false
+
+            -- Save the new size
+            local width, height = frame:GetSize()
+            HonorLog.db.settings.frameSize = { width, height }
+
+            -- Update scroll content width
+            if frame.UpdateScrollContentWidth then
+                frame:UpdateScrollContentWidth()
+            end
+
+            -- Update content layout
+            if HonorLog.UpdateFrameLayout then
+                HonorLog:UpdateFrameLayout()
+            end
+        end
+    end)
+
+    -- Hide/show resize grip based on settings
+    frame.resizeGrip = resizeGrip
+
+    function frame:UpdateResizeGrip()
+        if HonorLog.db.settings.frameResizable and not HonorLog.db.settings.frameLocked then
+            self.resizeGrip:Show()
+            self.resizeGrip:SetAlpha(0.6)
+        else
+            self.resizeGrip:Hide()
+        end
+    end
 
     ----------------------------------------------------------------------------
     -- INTERACTIONS
@@ -498,6 +632,13 @@ function HonorLog:InitializeMainFrame()
     -- Restore scale
     self.mainFrame:SetScale(self.db.settings.frameScale or 1.0)
 
+    -- Restore custom size if saved
+    local savedSize = self.db.settings.frameSize
+    if savedSize and savedSize[1] and savedSize[2] then
+        -- Only apply width, height is determined by expanded state
+        self.savedWidth = savedSize[1]
+    end
+
     -- Restore visibility
     if self.db.settings.frameVisible then
         self.mainFrame:Show()
@@ -510,8 +651,40 @@ function HonorLog:InitializeMainFrame()
         self:SetExpanded(true)
     end
 
+    -- Update resize grip visibility
+    if self.mainFrame.UpdateResizeGrip then
+        self.mainFrame:UpdateResizeGrip()
+    end
+
+    -- Update scroll content width and visibility
+    if self.mainFrame.UpdateScrollContentWidth then
+        self.mainFrame:UpdateScrollContentWidth()
+    end
+    C_Timer.After(0.1, function()
+        if self.mainFrame and self.mainFrame.UpdateScrollBarVisibility then
+            self.mainFrame:UpdateScrollBarVisibility()
+        end
+    end)
+
     -- Initial update
     self:UpdateMainFrame()
+end
+
+-- Reset frame size to defaults
+function HonorLog:ResetFrameSize()
+    self.db.settings.frameSize = nil
+    self.savedWidth = nil
+
+    if self.mainFrame then
+        self.mainFrame:SetWidth(FRAME_WIDTH)
+        if self.db.settings.frameExpanded then
+            self.mainFrame:SetHeight(FRAME_HEIGHT_EXPANDED)
+        else
+            self.mainFrame:SetHeight(FRAME_HEIGHT_COMPACT)
+        end
+    end
+
+    print("|cff40d860HonorLog|r Frame size reset to default.")
 end
 
 --------------------------------------------------------------------------------
@@ -535,13 +708,24 @@ end
 function HonorLog:SetExpanded(expanded)
     self.db.settings.frameExpanded = expanded
 
+    -- Get saved width or use default
+    local savedSize = self.db.settings.frameSize
+    local width = (savedSize and savedSize[1]) or FRAME_WIDTH
+
     if expanded then
         self.mainFrame.expanded:Show()
-        self.mainFrame:SetHeight(FRAME_HEIGHT_EXPANDED)
+        self.mainFrame:SetSize(width, FRAME_HEIGHT_EXPANDED)
         self.mainFrame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
+
+        -- Update scroll bar visibility after showing
+        C_Timer.After(0, function()
+            if self.mainFrame and self.mainFrame.UpdateScrollBarVisibility then
+                self.mainFrame:UpdateScrollBarVisibility()
+            end
+        end)
     else
         self.mainFrame.expanded:Hide()
-        self.mainFrame:SetHeight(FRAME_HEIGHT_COMPACT)
+        self.mainFrame:SetSize(width, FRAME_HEIGHT_COMPACT)
         self.mainFrame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
     end
 end
@@ -719,6 +903,31 @@ local function InitializeMenu(frame, level, menuList)
         info.func = function()
             HonorLog.db.settings.frameLocked = not HonorLog.db.settings.frameLocked
             print("|cff40d860HonorLog|r Frame " .. (HonorLog.db.settings.frameLocked and "locked" or "unlocked"))
+            if HonorLog.mainFrame and HonorLog.mainFrame.UpdateResizeGrip then
+                HonorLog.mainFrame:UpdateResizeGrip()
+            end
+        end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Enable/Disable Resizing
+        info = UIDropDownMenu_CreateInfo()
+        info.text = HonorLog.db.settings.frameResizable and "Disable Resizing" or "Enable Resizing"
+        info.notCheckable = true
+        info.func = function()
+            HonorLog.db.settings.frameResizable = not HonorLog.db.settings.frameResizable
+            print("|cff40d860HonorLog|r Frame resizing " .. (HonorLog.db.settings.frameResizable and "enabled" or "disabled"))
+            if HonorLog.mainFrame and HonorLog.mainFrame.UpdateResizeGrip then
+                HonorLog.mainFrame:UpdateResizeGrip()
+            end
+        end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- Reset Frame Size
+        info = UIDropDownMenu_CreateInfo()
+        info.text = "Reset Frame Size"
+        info.notCheckable = true
+        info.func = function()
+            HonorLog:ResetFrameSize()
         end
         UIDropDownMenu_AddButton(info, level)
 

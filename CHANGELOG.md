@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.1.1] - 2025-01-26
+
+### Added
+- **Window Resizer**: Drag the bottom-right corner to resize the frame
+  - Resize grip in bottom-right corner (visible when unlocked)
+  - Custom size saved across sessions
+  - Minimum size: 220x60, Maximum size: 450x500
+  - Toggle resizing via right-click menu or `/honorlog resize toggle`
+  - Reset to default size via right-click menu or `/honorlog resize`
+  - Scrollable content in both Stats and Goals views when frame is resized smaller
+- **Goals Total Summary**: Shows combined progress toward all goals at bottom of Goals panel
+  - XP-style progress bar showing overall completion percentage
+  - Current/needed display for honor, arena points, and marks
+  - Color-coded: green when currency requirement is met
+
+### Fixed
+- **Responsive Progress Bars**: Progress bar fill now updates correctly when frame is resized
+- **Goal Card Text Overflow**: Currency and estimate text no longer overflows card boundaries
+- **Goal Card Layout**: Reduced extra empty space at bottom of goal cards
+- **Goals Panel Layout**: Add button properly aligned with totals bar, removed redundant session stats row
+
 ## [1.1.0] - 2025-01-26
 
 ### Added

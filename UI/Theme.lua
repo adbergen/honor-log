@@ -108,7 +108,7 @@ HonorLog.Layout = {
     -- Component sizes
     HEADER_HEIGHT = 28,
     CARD_HEIGHT = 36,
-    GOAL_CARD_HEIGHT = 70,
+    GOAL_CARD_HEIGHT = 62,
     GOAL_CARD_SPACING = 4,
     ITEM_ROW_HEIGHT = 56,
     TAB_WIDTH = 38,

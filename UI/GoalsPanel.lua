@@ -180,6 +180,7 @@ local function CreateGoalCard(parent, index)
     itemName:SetJustifyH("LEFT")
     itemName:SetTextColor(unpack(COLORS.textPrimary))
     itemName:SetWordWrap(false)
+    itemName:SetMaxLines(1)
     card.itemName = itemName
 
     -- XP-style progress bar container (below name)
@@ -229,6 +230,17 @@ local function CreateGoalCard(parent, index)
     progressSpark:SetAlpha(0.7)
     card.progressSpark = progressSpark
 
+    -- Handle resize to update progress bar fill width
+    barContainer:SetScript("OnSizeChanged", function(self)
+        local percent = card.progressPercent or 0
+        local containerWidth = self:GetWidth()
+        if containerWidth > 2 then
+            local fillWidth = math.max(1, (containerWidth - 2) * (percent / 100))
+            card.progressFill:SetWidth(fillWidth)
+            card.progressShine:SetWidth(fillWidth)
+        end
+    end)
+
     -- Reference for positioning
     card.progressBg = barContainer
 
@@ -238,6 +250,8 @@ local function CreateGoalCard(parent, index)
     currencyLine:SetPoint("RIGHT", -6, 0)
     currencyLine:SetJustifyH("LEFT")
     currencyLine:SetTextColor(unpack(COLORS.textSecondary))
+    currencyLine:SetWordWrap(false)
+    currencyLine:SetMaxLines(1)
     card.currencyLine = currencyLine
 
     -- Games estimate line (bottom)
@@ -246,12 +260,14 @@ local function CreateGoalCard(parent, index)
     gamesLine:SetPoint("RIGHT", -6, 0)
     gamesLine:SetJustifyH("LEFT")
     gamesLine:SetTextColor(unpack(COLORS.textTertiary))
+    gamesLine:SetWordWrap(false)
+    gamesLine:SetMaxLines(1)
     card.gamesLine = gamesLine
 
     -- Complete indicator (shown when goal is achieved)
     local completeIcon = card:CreateTexture(nil, "OVERLAY")
     completeIcon:SetSize(12, 12)
-    completeIcon:SetPoint("LEFT", progressText, "RIGHT", 2, 0)
+    completeIcon:SetPoint("TOPRIGHT", -4, -4) -- Anchor to card corner instead of text
     completeIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
     completeIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
     completeIcon:Hide()
@@ -322,6 +338,9 @@ local function CreateGoalCard(parent, index)
                 end
             end
         end
+
+        -- Store progress percent for responsive resize
+        self.progressPercent = overallPercent
 
         -- Update XP-style progress bar
         local containerWidth = self.barContainer:GetWidth()
@@ -407,19 +426,30 @@ local function CreateGoalsPanel(parent)
     emptyHint:SetText("Click + to add a gear goal")
     emptyHint:SetTextColor(unpack(COLORS.textMuted))
 
-    -- Goals container (scrollable area)
-    local goalsContainer = CreateFrame("Frame", nil, panel)
-    goalsContainer:SetPoint("TOPLEFT", PADDING, -8)
-    goalsContainer:SetPoint("TOPRIGHT", -PADDING, -8)
-    goalsContainer:SetHeight(180)
+    -- Scroll frame for goals (handles overflow when frame is resized)
+    local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", 0, -8)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 42) -- Leave room for totals bar (32px at y=6) + add button
+    panel.scrollFrame = scrollFrame
+
+    -- Hide scroll bar when not needed
+    local scrollBar = scrollFrame.ScrollBar or _G[scrollFrame:GetName() .. "ScrollBar"]
+    if scrollBar then
+        scrollBar:SetAlpha(0.6)
+    end
+
+    -- Goals container (scroll content)
+    local goalsContainer = CreateFrame("Frame", nil, scrollFrame)
+    goalsContainer:SetWidth(260) -- Will be updated dynamically
+    scrollFrame:SetScrollChild(goalsContainer)
     panel.goalsContainer = goalsContainer
 
     -- Goal cards (max 5)
     panel.goalCards = {}
     for i = 1, 5 do
         local card = CreateGoalCard(goalsContainer, i)
-        card:SetPoint("TOPLEFT", 0, -((i - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
-        card:SetPoint("TOPRIGHT", 0, -((i - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
+        card:SetPoint("TOPLEFT", PADDING, -((i - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
+        card:SetPoint("TOPRIGHT", -PADDING, -((i - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
         card:Hide()
 
         -- Remove button handler
@@ -435,10 +465,122 @@ local function CreateGoalsPanel(parent)
         panel.goalCards[i] = card
     end
 
-    -- Add Goal button
+    -- Set scroll content height (5 cards max + padding)
+    local contentHeight = (5 * GOAL_CARD_HEIGHT) + (4 * GOAL_CARD_SPACING) + 10
+    goalsContainer:SetHeight(contentHeight)
+
+    -- Function to update scroll content width
+    function panel:UpdateScrollWidth()
+        local panelWidth = self:GetWidth()
+        if self.goalsContainer and panelWidth > 22 then
+            self.goalsContainer:SetWidth(panelWidth - 22)
+        end
+    end
+
+    -- Function to update scroll bar visibility
+    function panel:UpdateScrollBarVisibility()
+        if not self.scrollFrame or not self.goalsContainer then return end
+
+        local scrollBar = self.scrollFrame.ScrollBar or _G[self.scrollFrame:GetName() .. "ScrollBar"]
+        if not scrollBar then return end
+
+        local viewHeight = self.scrollFrame:GetHeight()
+        local contentHeight = self.goalsContainer:GetHeight()
+
+        if contentHeight > viewHeight then
+            scrollBar:Show()
+            scrollBar:SetAlpha(0.6)
+        else
+            scrollBar:Hide()
+            self.scrollFrame:SetVerticalScroll(0)
+        end
+    end
+
+    -- Totals bar (shows combined cost of all goals with progress bar)
+    local totalsBar = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    totalsBar:SetHeight(32)
+    totalsBar:SetPoint("BOTTOMLEFT", PADDING, 6)
+    totalsBar:SetPoint("BOTTOMRIGHT", -PADDING - 36, 6) -- Leave room for add button
+    totalsBar:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    totalsBar:SetBackdropColor(unpack(COLORS.bgCard))
+    totalsBar:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    panel.totalsBar = totalsBar
+
+    -- "Total" label
+    local totalsLabel = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalsLabel:SetPoint("TOPLEFT", 6, -4)
+    totalsLabel:SetText("Total")
+    totalsLabel:SetTextColor(unpack(COLORS.textPrimary))
+    panel.totalsLabel = totalsLabel
+
+    -- Progress bar container (XP-style)
+    local totalsBarContainer = CreateFrame("Frame", nil, totalsBar, "BackdropTemplate")
+    totalsBarContainer:SetHeight(8)
+    totalsBarContainer:SetPoint("TOPLEFT", totalsLabel, "TOPRIGHT", 6, 2)
+    totalsBarContainer:SetPoint("RIGHT", -40, 0)
+    totalsBarContainer:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    totalsBarContainer:SetBackdropColor(0.08, 0.08, 0.10, 0.95)
+    totalsBarContainer:SetBackdropBorderColor(0.3, 0.3, 0.35, 1)
+    panel.totalsBarContainer = totalsBarContainer
+
+    -- Handle resize to update progress bar fill width
+    totalsBarContainer:SetScript("OnSizeChanged", function(self)
+        local percent = panel.totalsProgressPercent or 0
+        local containerWidth = self:GetWidth()
+        if containerWidth > 2 then
+            local fillWidth = math.max(1, (containerWidth - 2) * (percent / 100))
+            panel.totalsFill:SetWidth(fillWidth)
+            panel.totalsShine:SetWidth(fillWidth)
+        end
+    end)
+
+    -- Progress bar fill
+    local totalsFill = totalsBarContainer:CreateTexture(nil, "ARTWORK")
+    totalsFill:SetHeight(6)
+    totalsFill:SetPoint("TOPLEFT", 1, -1)
+    totalsFill:SetPoint("BOTTOMLEFT", 1, 1)
+    totalsFill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    totalsFill:SetWidth(1)
+    panel.totalsFill = totalsFill
+
+    -- Shine overlay
+    local totalsShine = totalsBarContainer:CreateTexture(nil, "ARTWORK", nil, 1)
+    totalsShine:SetHeight(3)
+    totalsShine:SetPoint("TOPLEFT", totalsFill, "TOPLEFT", 0, 0)
+    totalsShine:SetPoint("TOPRIGHT", totalsFill, "TOPRIGHT", 0, 0)
+    totalsShine:SetTexture("Interface\\Buttons\\WHITE8x8")
+    totalsShine:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0.15), CreateColor(1, 1, 1, 0))
+    panel.totalsShine = totalsShine
+
+    -- Progress percentage
+    local totalsPercent = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalsPercent:SetPoint("LEFT", totalsBarContainer, "RIGHT", 4, 0)
+    totalsPercent:SetWidth(32)
+    totalsPercent:SetJustifyH("RIGHT")
+    panel.totalsPercent = totalsPercent
+
+    -- Currency totals text (below progress bar)
+    local totalsText = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalsText:SetPoint("BOTTOMLEFT", 6, 4)
+    totalsText:SetPoint("RIGHT", -6, 0)
+    totalsText:SetJustifyH("LEFT")
+    totalsText:SetTextColor(unpack(COLORS.textSecondary))
+    totalsText:SetWordWrap(false)
+    totalsText:SetMaxLines(1)
+    panel.totalsText = totalsText
+
+    -- Add Goal button (aligned with totals bar)
     local addBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
     addBtn:SetSize(28, 28)
-    addBtn:SetPoint("BOTTOMRIGHT", -PADDING, 6)
+    addBtn:SetPoint("BOTTOMRIGHT", -PADDING, 8) -- Vertically centered with 32px totals bar at y=6
     addBtn:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -469,18 +611,6 @@ local function CreateGoalsPanel(parent)
         HonorLog:ShowGoalPicker()
     end)
 
-    -- Session stats bar (shows hourly rate)
-    local sessionBar = CreateFrame("Frame", nil, panel)
-    sessionBar:SetHeight(18)
-    sessionBar:SetPoint("BOTTOMLEFT", PADDING, 6)
-    sessionBar:SetPoint("RIGHT", addBtn, "LEFT", -8, 0)
-    panel.sessionBar = sessionBar
-
-    local sessionText = sessionBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sessionText:SetPoint("LEFT", 0, 0)
-    sessionText:SetJustifyH("LEFT")
-    sessionText:SetTextColor(unpack(COLORS.textMuted))
-    panel.sessionText = sessionText
 
     -- Update function
     function panel:Update()
@@ -488,13 +618,15 @@ local function CreateGoalsPanel(parent)
 
         if #goals == 0 then
             self.emptyState:Show()
-            self.goalsContainer:Hide()
+            self.scrollFrame:Hide()
+            self.totalsBar:Hide()
             for _, card in ipairs(self.goalCards) do
                 card:Hide()
             end
         else
             self.emptyState:Hide()
-            self.goalsContainer:Show()
+            self.scrollFrame:Show()
+            self.totalsBar:Show()
 
             for i, card in ipairs(self.goalCards) do
                 if goals[i] then
@@ -503,7 +635,114 @@ local function CreateGoalsPanel(parent)
                     card:Hide()
                 end
             end
+
+            -- Update scroll content height based on actual goals
+            local contentHeight = (#goals * GOAL_CARD_HEIGHT) + ((#goals - 1) * GOAL_CARD_SPACING) + 10
+            self.goalsContainer:SetHeight(contentHeight)
+
+            -- Calculate totals from all goals (both current and needed)
+            local totalHonorNeeded = 0
+            local totalHonorCurrent = 0
+            local totalArenaNeeded = 0
+            local totalArenaCurrent = 0
+            local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+            local totalMarksCurrent = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+
+            for _, goal in ipairs(goals) do
+                if goal.honor.needed > 0 then
+                    totalHonorNeeded = totalHonorNeeded + goal.honor.needed
+                    totalHonorCurrent = totalHonorCurrent + math.min(goal.honor.current, goal.honor.needed)
+                end
+                if goal.arena.needed > 0 then
+                    totalArenaNeeded = totalArenaNeeded + goal.arena.needed
+                    totalArenaCurrent = totalArenaCurrent + math.min(goal.arena.current, goal.arena.needed)
+                end
+                for bgType, markData in pairs(goal.marks) do
+                    if markData.needed > 0 then
+                        totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
+                        totalMarksCurrent[bgType] = totalMarksCurrent[bgType] + math.min(markData.current, markData.needed)
+                    end
+                end
+            end
+
+            -- Calculate overall progress (weighted average based on total currency needed)
+            local totalNeeded = 0
+            local totalCurrent = 0
+
+            if totalHonorNeeded > 0 then
+                totalNeeded = totalNeeded + totalHonorNeeded
+                totalCurrent = totalCurrent + totalHonorCurrent
+            end
+            if totalArenaNeeded > 0 then
+                totalNeeded = totalNeeded + totalArenaNeeded
+                totalCurrent = totalCurrent + totalArenaCurrent
+            end
+            local bgOrder = { "AV", "AB", "WSG", "EotS" }
+            for _, bgType in ipairs(bgOrder) do
+                if totalMarksNeeded[bgType] > 0 then
+                    -- Weight marks by 100 to make them comparable to honor values
+                    totalNeeded = totalNeeded + (totalMarksNeeded[bgType] * 100)
+                    totalCurrent = totalCurrent + (totalMarksCurrent[bgType] * 100)
+                end
+            end
+
+            local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
+
+            -- Store progress percent for responsive resize
+            self.totalsProgressPercent = overallPercent
+
+            -- Update progress bar
+            local containerWidth = self.totalsBarContainer:GetWidth()
+            local fillWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
+            self.totalsFill:SetWidth(fillWidth)
+            self.totalsShine:SetWidth(fillWidth)
+
+            -- Update progress bar color and percentage text
+            if overallPercent >= 100 then
+                self.totalsFill:SetVertexColor(unpack(COLORS.progressFull))
+                self.totalsPercent:SetText("100%")
+                self.totalsPercent:SetTextColor(unpack(COLORS.progressFull))
+            elseif overallPercent >= 50 then
+                self.totalsFill:SetVertexColor(unpack(COLORS.progressPartial))
+                self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
+                self.totalsPercent:SetTextColor(unpack(COLORS.progressPartial))
+            else
+                self.totalsFill:SetVertexColor(unpack(COLORS.progressLow))
+                self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
+                self.totalsPercent:SetTextColor(unpack(COLORS.progressLow))
+            end
+
+            -- Build currency totals text (current/needed format)
+            local totalParts = {}
+            if totalHonorNeeded > 0 then
+                local color = totalHonorCurrent >= totalHonorNeeded and "40d860" or "ffd700"
+                table.insert(totalParts, string.format("|cff%s%s/%s|r H", color, BreakUpLargeNumbers(totalHonorCurrent), BreakUpLargeNumbers(totalHonorNeeded)))
+            end
+            if totalArenaNeeded > 0 then
+                local color = totalArenaCurrent >= totalArenaNeeded and "40d860" or "aa55ff"
+                table.insert(totalParts, string.format("|cff%s%d/%d|r A", color, totalArenaCurrent, totalArenaNeeded))
+            end
+            for _, bgType in ipairs(bgOrder) do
+                if totalMarksNeeded[bgType] > 0 then
+                    local color = totalMarksCurrent[bgType] >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
+                    table.insert(totalParts, string.format("|cff%s%d/%d|r %s", color, totalMarksCurrent[bgType], totalMarksNeeded[bgType], bgType))
+                end
+            end
+
+            if #totalParts > 0 then
+                self.totalsText:SetText(table.concat(totalParts, "  "))
+            else
+                self.totalsText:SetText("")
+            end
         end
+
+        -- Update scroll width and visibility
+        self:UpdateScrollWidth()
+        C_Timer.After(0, function()
+            if self and self.UpdateScrollBarVisibility then
+                self:UpdateScrollBarVisibility()
+            end
+        end)
 
         -- Update add button state
         if HonorLog:CanAddGoal() then
@@ -518,16 +757,27 @@ local function CreateGoalsPanel(parent)
             self.addBtn.icon:SetAlpha(0.3)
         end
 
-        -- Update session stats bar with hourly rate
-        local session = HonorLog:GetTotalSessionStats()
-        if session.played > 0 and session.hourlyRate > 0 then
-            self.sessionText:SetText(string.format("|cffffd700%d|r honor/hr  |cff888888·|r  |cff40d860+%d|r this session", session.hourlyRate, session.honor))
-        elseif session.played > 0 then
-            self.sessionText:SetText(string.format("|cff40d860+%d|r honor this session", session.honor))
-        else
-            self.sessionText:SetText("")
-        end
     end
+
+    -- Update scroll on show
+    panel:SetScript("OnShow", function(self)
+        self:UpdateScrollWidth()
+        C_Timer.After(0.1, function()
+            if self and self.UpdateScrollBarVisibility then
+                self:UpdateScrollBarVisibility()
+            end
+        end)
+    end)
+
+    -- Update scroll on size change
+    panel:SetScript("OnSizeChanged", function(self, width, height)
+        self:UpdateScrollWidth()
+        C_Timer.After(0, function()
+            if self and self.UpdateScrollBarVisibility then
+                self:UpdateScrollBarVisibility()
+            end
+        end)
+    end)
 
     return panel
 end
@@ -806,6 +1056,7 @@ local function CreateGoalPicker()
         name:SetPoint("RIGHT", addBtn, "LEFT", -8, 0)
         name:SetJustifyH("LEFT")
         name:SetWordWrap(false)
+        name:SetMaxLines(1)
         row.name = name
 
         -- Cost line (below name)
@@ -814,13 +1065,18 @@ local function CreateGoalPicker()
         costLine:SetPoint("RIGHT", addBtn, "LEFT", -8, 0)
         costLine:SetJustifyH("LEFT")
         costLine:SetTextColor(unpack(COLORS.textSecondary))
+        costLine:SetWordWrap(false)
+        costLine:SetMaxLines(1)
         row.costLine = costLine
 
         -- Slot indicator (below cost, muted)
         local slotText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         slotText:SetPoint("TOPLEFT", costLine, "BOTTOMLEFT", 0, -2)
+        slotText:SetPoint("RIGHT", addBtn, "LEFT", -8, 0)
         slotText:SetJustifyH("LEFT")
         slotText:SetTextColor(unpack(COLORS.textMuted))
+        slotText:SetWordWrap(false)
+        slotText:SetMaxLines(1)
         row.slotText = slotText
 
         -- Track shift state for compare tooltip

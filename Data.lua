@@ -65,6 +65,8 @@ local DEFAULTS = {
         frameLocked = false,
         framePoint = { "CENTER", nil, "CENTER", 0, 0 },
         frameScale = 1.0,
+        frameSize = nil, -- nil = use default, or { width, height } for custom size
+        frameResizable = true, -- Allow frame resizing
         viewMode = "character", -- "character" or "account"
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,

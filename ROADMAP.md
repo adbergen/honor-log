@@ -1,6 +1,17 @@
 # HonorLog Roadmap
 
-## Current Version: 1.1.0
+## Current Version: 1.1.1
+
+---
+
+## Completed: Window Resizer (v1.1.1)
+
+### Features Delivered
+- Drag-to-resize via bottom-right grip
+- Custom size persistence across sessions
+- Min/max size constraints (220-450 width, 60-400 height)
+- Toggle resizing via context menu or slash command
+- Reset to default size option
 
 ---
 

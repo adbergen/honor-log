@@ -1149,6 +1149,21 @@ function HonorLog:HandleSlashCommand(msg)
         end
 
         print("|cff888888Tip: If values show 0 but you have currency, please report which APIs are available.|r")
+    elseif cmd == "resize" then
+        local subCmd = arg:lower()
+        if subCmd == "reset" or subCmd == "" then
+            self:ResetFrameSize()
+        elseif subCmd == "toggle" then
+            self.db.settings.frameResizable = not self.db.settings.frameResizable
+            print("|cff40d860HonorLog|r Frame resizing " .. (self.db.settings.frameResizable and "enabled" or "disabled"))
+            if self.mainFrame and self.mainFrame.UpdateResizeGrip then
+                self.mainFrame:UpdateResizeGrip()
+            end
+        else
+            print("|cff00ff00HonorLog|r Resize commands:")
+            print("  |cffffffff/honorlog resize|r - Reset frame size to default")
+            print("  |cffffffff/honorlog resize toggle|r - Toggle resizing on/off")
+        end
     else
         print("|cff00ff00HonorLog|r Unknown command. Type /honorlog help for options.")
     end
@@ -1168,6 +1183,8 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog goal list|r - List current goals")
     print("  |cffffffff/honorlog goal clear|r - Clear all goals")
     print("  |cffffffff/honorlog minimap|r - Toggle minimap button")
+    print("  |cffffffff/honorlog resize|r - Reset frame to default size")
+    print("  |cffffffff/honorlog resize toggle|r - Enable/disable resizing")
     print("  |cffffffff/honorlog config|r - Open options")
     print("  |cffffffff/honorlog status|r - Show tracking status")
     print("  |cffffffff/honorlog debug|r - Toggle debug mode")
