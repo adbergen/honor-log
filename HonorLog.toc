@@ -2,7 +2,7 @@
 ## Title: HonorLog
 ## Notes: Battleground statistics tracker for BCC Anniversary - tracks wins, losses, honor, marks, and more
 ## Author: You
-## Version: 1.2.0
+## Version: 1.1.0
 ## SavedVariables: HonorLogDB
 ## SavedVariablesPerCharacter: HonorLogCharDB
 

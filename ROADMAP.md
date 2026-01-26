@@ -1,6 +1,6 @@
 # HonorLog Roadmap
 
-## Current Version: 1.2.0
+## Current Version: 1.1.0
 
 ---
 
@@ -263,7 +263,7 @@ end
 
 ---
 
-## Completed: Honor/Hour Analytics (v1.2.0)
+## Completed: Honor/Hour Analytics (v1.1.0)
 
 ### Features Delivered
 - Hourly honor rate calculation based on session duration

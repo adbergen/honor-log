@@ -1,16 +1,5 @@
 # Changelog
 
-## [1.2.0] - 2025-01-26
-
-### Added
-- **Hourly Honor Rate**: See your honor-per-hour across session panel, minimap tooltip, and goals panel
-- **Session Stats Bar**: Goals panel now shows session honor rate and total gains
-
-### Fixed
-- **High Warlord's Gear Database**: Corrected mark types for level 70 HANDS (AB, not AV) and LEGS (AB, not WSG) items across all 9 classes
-- **Currency Display**: Show current/needed format even when you have enough currency (displays in green when complete)
-- **Session Panel Layout**: Two-line layout prevents text overlap on smaller frames
-
 ## [1.1.0] - 2025-01-25
 
 ### Added
@@ -45,8 +34,13 @@
   - `/honorlog goal clear` - Clear all goals
   - `/honorlog goal picker` - Open goal picker
 - **Goal Completion Notifications**: Alert when you can afford a goal item
+- **Hourly Honor Rate**: See your honor-per-hour across session panel, minimap tooltip, and goals panel
+- **Session Stats Bar**: Goals panel now shows session honor rate and total gains
 
 ### Fixed
+- **High Warlord's Gear Database**: Corrected mark types for level 70 HANDS (AB, not AV) and LEGS (AB, not WSG) items across all 9 classes
+- **Currency Display**: Show current/needed format even when you have enough currency (displays in green when complete)
+- **Session Panel Layout**: Two-line layout prevents text overlap on smaller frames
 - **Gear Database Accuracy**: Comprehensive audit and verification
   - All item IDs verified against Wowhead TBC Classic database
   - Fixed duplicate item ID conflicts
