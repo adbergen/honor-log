@@ -1251,7 +1251,7 @@ function HonorLog:InitializeLDB()
 
     self.ldb = LDB:NewDataObject("HonorLog", {
         type = "data source",
-        icon = "Interface\\Icons\\Achievement_BG_KillFlagCarriers_grabFlag_capit",
+        icon = "Interface\\Icons\\Spell_Holy_ChampionsBond",
         text = "HonorLog",
         label = "HonorLog",
 
