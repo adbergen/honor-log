@@ -207,7 +207,7 @@ local function CreateMainFrame()
     local icon = header:CreateTexture(nil, "ARTWORK")
     icon:SetSize(20, 20)
     icon:SetPoint("LEFT", 6, 0)
-    icon:SetTexture("Interface\\Icons\\INV_Misc_Token_HonorHold")
+    icon:SetTexture("Interface\\Icons\\Spell_Holy_ChampionsBond")
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     -- Title with brand color
