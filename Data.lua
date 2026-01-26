@@ -29,6 +29,16 @@ local DEFAULTS = {
         },
         history = {}, -- Per-character history
         historyLimit = 50,
+        -- Gear Goals system
+        goals = {
+            items = {}, -- Array of { itemID, addedAt, priority }
+            settings = {
+                autoRemoveCompleted = false,
+                showInLDB = true,
+                celebrateCompletion = true,
+            },
+            maxGoals = 5,
+        },
         -- Session data (persists across /reload, resets on actual logout)
         session = {
             AV = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
@@ -425,6 +435,8 @@ function HonorLog:GetTotalSessionStats()
         losses = 0,
         honor = 0,
         marks = 0,
+        hourlyRate = 0,
+        sessionDuration = 0,
     }
 
     for bgType, session in pairs(self.db.char.session) do
@@ -437,5 +449,401 @@ function HonorLog:GetTotalSessionStats()
 
     total.winrate = total.played > 0 and (total.wins / total.played * 100) or 0
 
+    -- Calculate hourly rate based on session duration
+    local sessionStart = self.db.char.sessionStartTime or 0
+    if sessionStart > 0 and total.honor > 0 then
+        local now = time()
+        total.sessionDuration = now - sessionStart
+        -- Only calculate rate if we have at least 1 minute of data
+        if total.sessionDuration >= 60 then
+            local hours = total.sessionDuration / 3600
+            total.hourlyRate = math.floor(total.honor / hours)
+        end
+    end
+
     return total
+end
+
+--[[
+============================================================================
+CURRENCY APIs - For Gear Goal Tracking
+============================================================================
+--]]
+
+-- Get current honor points
+function HonorLog:GetCurrentHonor()
+    -- Try C_CurrencyInfo API first (TBC Classic Anniversary uses this)
+    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+        -- Honor currency ID 1901 is used in TBC Classic Anniversary
+        local info = C_CurrencyInfo.GetCurrencyInfo(1901)
+        if info and info.quantity and info.quantity > 0 then
+            return info.quantity
+        end
+        -- Try other known honor currency IDs as fallback
+        local currencyIDs = {1792, 392, 43308}
+        for _, currencyID in ipairs(currencyIDs) do
+            info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+            if info and info.quantity and info.quantity > 0 then
+                return info.quantity
+            end
+        end
+    end
+
+    -- TBC Classic (original) uses GetHonorCurrency
+    if GetHonorCurrency then
+        local honor = GetHonorCurrency()
+        if honor and honor > 0 then
+            return honor
+        end
+    end
+
+    -- Fallback: GetPVPCurrency (older Classic)
+    if GetPVPCurrency then
+        local _, honor = GetPVPCurrency()
+        if honor and honor > 0 then
+            return honor
+        end
+    end
+
+    return 0
+end
+
+-- Get current arena points
+function HonorLog:GetCurrentArenaPoints()
+    -- Try C_CurrencyInfo API first (TBC Classic Anniversary)
+    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+        -- Arena Points currency ID 1900 in TBC Classic Anniversary
+        local info = C_CurrencyInfo.GetCurrencyInfo(1900)
+        if info and info.quantity and info.quantity > 0 then
+            return info.quantity
+        end
+    end
+
+    -- TBC Classic (original) uses GetArenaCurrency
+    if GetArenaCurrency then
+        return GetArenaCurrency()
+    end
+
+    return 0
+end
+
+-- Get current marks for a specific BG type
+function HonorLog:GetCurrentMarks(bgType)
+    if not self.MARK_ITEMS then return 0 end
+    local itemID = self.MARK_ITEMS[bgType]
+    if itemID then
+        return GetItemCount(itemID, true) -- true = include bank
+    end
+    return 0
+end
+
+-- Get all current marks
+function HonorLog:GetAllCurrentMarks()
+    return {
+        AV = self:GetCurrentMarks("AV"),
+        AB = self:GetCurrentMarks("AB"),
+        WSG = self:GetCurrentMarks("WSG"),
+        EotS = self:GetCurrentMarks("EotS"),
+    }
+end
+
+--[[
+============================================================================
+AVERAGE CALCULATION APIs - For Game Estimates
+============================================================================
+--]]
+
+-- Get average honor per game (based on lifetime stats)
+function HonorLog:GetAverageHonorPerGame(scope)
+    scope = scope or "character"
+    local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
+
+    local totalHonor = 0
+    local totalGames = 0
+
+    for bgType, bgStats in pairs(stats) do
+        totalHonor = totalHonor + bgStats.honorLifetime
+        totalGames = totalGames + bgStats.played
+    end
+
+    if totalGames > 0 then
+        return totalHonor / totalGames
+    end
+    return 0
+end
+
+-- Get average marks per game for a specific BG
+function HonorLog:GetAverageMarksPerGame(bgType, scope)
+    scope = scope or "character"
+    local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
+    local bgStats = stats[bgType]
+
+    if bgStats and bgStats.played > 0 then
+        return bgStats.marksLifetime / bgStats.played
+    end
+    return 0
+end
+
+-- Get average honor per game for a specific BG
+function HonorLog:GetAverageHonorPerBG(bgType, scope)
+    scope = scope or "character"
+    local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
+    local bgStats = stats[bgType]
+
+    if bgStats and bgStats.played > 0 then
+        return bgStats.honorLifetime / bgStats.played
+    end
+    return 0
+end
+
+--[[
+============================================================================
+GOAL MANAGEMENT APIs
+============================================================================
+--]]
+
+-- Get all goals
+function HonorLog:GetGoals()
+    return self.db.char.goals.items or {}
+end
+
+-- Get goal count
+function HonorLog:GetGoalCount()
+    return #(self.db.char.goals.items or {})
+end
+
+-- Get max goals allowed
+function HonorLog:GetMaxGoals()
+    return self.db.char.goals.maxGoals or 5
+end
+
+-- Check if can add more goals
+function HonorLog:CanAddGoal()
+    return self:GetGoalCount() < self:GetMaxGoals()
+end
+
+-- Check if item is already a goal
+function HonorLog:IsGoal(itemID)
+    for _, goal in ipairs(self.db.char.goals.items) do
+        if goal.itemID == itemID then
+            return true
+        end
+    end
+    return false
+end
+
+-- Add a goal
+function HonorLog:AddGoal(itemID)
+    if not self:CanAddGoal() then
+        return false, "Maximum goals reached"
+    end
+
+    if self:IsGoal(itemID) then
+        return false, "Item is already a goal"
+    end
+
+    local item = self:GetGearItem(itemID)
+    if not item then
+        return false, "Item not found in gear database"
+    end
+
+    table.insert(self.db.char.goals.items, {
+        itemID = itemID,
+        addedAt = time(),
+        priority = self:GetGoalCount() + 1,
+    })
+
+    if self.OnDataUpdated then
+        self:OnDataUpdated()
+    end
+
+    return true
+end
+
+-- Remove a goal
+function HonorLog:RemoveGoal(itemID)
+    local goals = self.db.char.goals.items
+    for i, goal in ipairs(goals) do
+        if goal.itemID == itemID then
+            table.remove(goals, i)
+            -- Re-prioritize remaining goals
+            for j = i, #goals do
+                goals[j].priority = j
+            end
+            if self.OnDataUpdated then
+                self:OnDataUpdated()
+            end
+            return true
+        end
+    end
+    return false
+end
+
+-- Reorder a goal
+function HonorLog:ReorderGoal(itemID, newPosition)
+    local goals = self.db.char.goals.items
+    local oldIndex = nil
+
+    -- Find current position
+    for i, goal in ipairs(goals) do
+        if goal.itemID == itemID then
+            oldIndex = i
+            break
+        end
+    end
+
+    if not oldIndex then return false end
+    if newPosition < 1 or newPosition > #goals then return false end
+    if oldIndex == newPosition then return true end
+
+    -- Remove from old position and insert at new position
+    local goal = table.remove(goals, oldIndex)
+    table.insert(goals, newPosition, goal)
+
+    -- Update priorities
+    for i, g in ipairs(goals) do
+        g.priority = i
+    end
+
+    if self.OnDataUpdated then
+        self:OnDataUpdated()
+    end
+
+    return true
+end
+
+-- Get goal progress for a specific item
+function HonorLog:GetGoalProgress(itemID)
+    local item = self:GetGearItem(itemID)
+    if not item then return nil end
+
+    local result = {
+        itemID = itemID,
+        name = item.name,
+        slot = item.slot,
+        honor = {
+            needed = item.honor or 0,
+            current = self:GetCurrentHonor(),
+            remaining = 0,
+            percent = 0,
+            games = 0,
+        },
+        arena = {
+            needed = item.arena or 0,
+            current = self:GetCurrentArenaPoints(),
+            remaining = 0,
+            percent = 0,
+            weeks = 0,
+        },
+        marks = {},
+        isComplete = true,
+        totalGamesNeeded = 0,
+    }
+
+    -- Honor calculation
+    if item.honor > 0 then
+        result.honor.remaining = math.max(0, item.honor - result.honor.current)
+        result.honor.percent = math.min(100, (result.honor.current / item.honor) * 100)
+
+        local avgHonor = self:GetAverageHonorPerGame()
+        if avgHonor > 0 and result.honor.remaining > 0 then
+            result.honor.games = math.ceil(result.honor.remaining / avgHonor)
+            result.totalGamesNeeded = math.max(result.totalGamesNeeded, result.honor.games)
+        end
+
+        if result.honor.remaining > 0 then
+            result.isComplete = false
+        end
+    end
+
+    -- Arena calculation
+    if item.arena > 0 then
+        result.arena.remaining = math.max(0, item.arena - result.arena.current)
+        result.arena.percent = math.min(100, (result.arena.current / item.arena) * 100)
+
+        if result.arena.remaining > 0 then
+            result.isComplete = false
+        end
+    end
+
+    -- Marks calculation
+    if item.marks then
+        for bgType, needed in pairs(item.marks) do
+            if needed > 0 then
+                local current = self:GetCurrentMarks(bgType)
+                local remaining = math.max(0, needed - current)
+                local percent = math.min(100, (current / needed) * 100)
+                local games = 0
+
+                local avgMarks = self:GetAverageMarksPerGame(bgType)
+                if avgMarks > 0 and remaining > 0 then
+                    games = math.ceil(remaining / avgMarks)
+                    result.totalGamesNeeded = math.max(result.totalGamesNeeded, games)
+                end
+
+                result.marks[bgType] = {
+                    needed = needed,
+                    current = current,
+                    remaining = remaining,
+                    percent = percent,
+                    games = games,
+                }
+
+                if remaining > 0 then
+                    result.isComplete = false
+                end
+            end
+        end
+    end
+
+    return result
+end
+
+-- Get all goals with progress
+function HonorLog:GetAllGoalsProgress()
+    local results = {}
+    for _, goal in ipairs(self.db.char.goals.items) do
+        local progress = self:GetGoalProgress(goal.itemID)
+        if progress then
+            progress.addedAt = goal.addedAt
+            progress.priority = goal.priority
+            table.insert(results, progress)
+        end
+    end
+    return results
+end
+
+-- Check and handle completed goals
+function HonorLog:CheckCompletedGoals()
+    local completed = {}
+    local goals = self.db.char.goals.items
+
+    for i = #goals, 1, -1 do
+        local progress = self:GetGoalProgress(goals[i].itemID)
+        if progress and progress.isComplete then
+            table.insert(completed, progress)
+            if self.db.char.goals.settings.autoRemoveCompleted then
+                table.remove(goals, i)
+            end
+        end
+    end
+
+    -- Notify about completions
+    if #completed > 0 and self.db.char.goals.settings.celebrateCompletion then
+        for _, item in ipairs(completed) do
+            print(string.format("|cff00ff00[HonorLog]|r Goal complete! You can now purchase: %s", item.name))
+        end
+    end
+
+    return completed
+end
+
+-- Get goals settings
+function HonorLog:GetGoalsSetting(key)
+    return self.db.char.goals.settings[key]
+end
+
+-- Set goals setting
+function HonorLog:SetGoalsSetting(key, value)
+    self.db.char.goals.settings[key] = value
 end

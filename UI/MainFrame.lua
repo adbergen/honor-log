@@ -4,68 +4,11 @@
 local ADDON_NAME, HonorLog = ...
 
 --------------------------------------------------------------------------------
--- ENTERPRISE COLOR SYSTEM
+-- THEME (from shared UI/Theme.lua)
 --------------------------------------------------------------------------------
-local COLORS = {
-    -- Background layers (dark theme with depth)
-    bgPrimary = { 0.08, 0.08, 0.10, 0.98 },
-    bgSecondary = { 0.10, 0.10, 0.13, 0.95 },
-    bgTertiary = { 0.14, 0.14, 0.18, 0.90 },
-    bgCard = { 0.12, 0.12, 0.16, 0.95 },
-    bgCardHover = { 0.16, 0.16, 0.22, 1 },
-
-    -- Accent gradients
-    headerGradientTop = { 0.18, 0.18, 0.24, 1 },
-    headerGradientBot = { 0.10, 0.10, 0.14, 1 },
-    accentGlow = { 0.30, 0.70, 0.95, 0.15 },
-
-    -- Borders
-    borderDark = { 0.06, 0.06, 0.08, 1 },
-    borderLight = { 0.30, 0.30, 0.38, 0.8 },
-    borderGlow = { 0.40, 0.75, 1.0, 0.25 },
-    borderAccent = { 0.35, 0.65, 0.90, 0.6 },
-
-    -- Status colors
-    win = { 0.30, 0.90, 0.40, 1 },
-    winGlow = { 0.20, 0.80, 0.30, 0.4 },
-    winDark = { 0.15, 0.50, 0.20, 0.8 },
-    loss = { 0.95, 0.35, 0.35, 1 },
-    lossGlow = { 0.85, 0.25, 0.25, 0.4 },
-    lossDark = { 0.50, 0.18, 0.18, 0.8 },
-    neutral = { 1.0, 0.85, 0.25, 1 },
-    neutralDim = { 0.80, 0.68, 0.20, 0.7 },
-
-    -- Text hierarchy
-    textPrimary = { 0.98, 0.98, 1.0, 1 },
-    textSecondary = { 0.75, 0.75, 0.80, 1 },
-    textTertiary = { 0.50, 0.50, 0.58, 1 },
-    textMuted = { 0.38, 0.38, 0.45, 1 },
-
-    -- Brand accent
-    accent = { 0.35, 0.78, 1.0, 1 },
-    accentDim = { 0.25, 0.55, 0.75, 0.8 },
-    brand = { 0.25, 0.85, 0.45, 1 },
-    brandDim = { 0.18, 0.60, 0.32, 0.8 },
-
-    -- Separators
-    separator = { 0.25, 0.25, 0.32, 0.6 },
-    separatorGlow = { 0.35, 0.65, 0.90, 0.2 },
-}
-
--- BG-specific colors (refined palette)
-local BG_COLORS = {
-    AV = { 0.45, 0.75, 1.0, 1 },   -- Ice blue
-    AB = { 1.0, 0.78, 0.28, 1 },   -- Rich gold
-    WSG = { 1.0, 0.38, 0.38, 1 },  -- Vibrant red
-    EotS = { 0.75, 0.45, 1.0, 1 }, -- Deep purple
-}
-
-local BG_GLOW_COLORS = {
-    AV = { 0.35, 0.65, 0.90, 0.3 },
-    AB = { 0.90, 0.68, 0.18, 0.3 },
-    WSG = { 0.90, 0.28, 0.28, 0.3 },
-    EotS = { 0.65, 0.35, 0.90, 0.3 },
-}
+local COLORS = HonorLog.Theme
+local BG_COLORS = HonorLog.BG_COLORS
+local BG_GLOW_COLORS = HonorLog.BG_GLOW_COLORS
 
 -- Full BG names
 local BG_NAMES = {
@@ -75,25 +18,26 @@ local BG_NAMES = {
     EotS = "Eye of the Storm",
 }
 
--- Premium icons
+-- Mark of Honor icons (TBC Classic mark item icons)
 local BG_ICONS = {
-    AV = "Interface\\Icons\\Spell_Frost_FreezingBreath",
-    AB = "Interface\\Icons\\INV_BannerPVP_02",
-    WSG = "Interface\\Icons\\INV_Misc_Rune_07",
-    EotS = "Interface\\Icons\\Spell_Arcane_PortalStormwind",
+    AV = "Interface\\Icons\\INV_Jewelry_Necklace_21",   -- Alterac Valley Mark (blue crystal)
+    AB = "Interface\\Icons\\INV_Jewelry_Amulet_07",  -- Arathi Basin Mark
+    WSG = "Interface\\Icons\\INV_Misc_Rune_07",  -- Warsong Gulch Mark (green medallion)
+    EotS = "Interface\\Icons\\Spell_Nature_EyeOfTheStorm",        -- Eye of the Storm Mark (purple)
 }
 
 --------------------------------------------------------------------------------
--- LAYOUT CONSTANTS
+-- LAYOUT CONSTANTS (from shared UI/Theme.lua)
 --------------------------------------------------------------------------------
-local FRAME_WIDTH = 290
-local FRAME_HEIGHT_COMPACT = 60
-local FRAME_HEIGHT_EXPANDED = 262
-local HEADER_HEIGHT = 28
-local CARD_HEIGHT = 36
-local CARD_SPACING = 2
-local PADDING = 8
-local INNER_PADDING = 6
+local Layout = HonorLog.Layout
+local FRAME_WIDTH = Layout.FRAME_WIDTH
+local FRAME_HEIGHT_COMPACT = Layout.FRAME_HEIGHT_COMPACT
+local FRAME_HEIGHT_EXPANDED = Layout.FRAME_HEIGHT_EXPANDED
+local HEADER_HEIGHT = Layout.HEADER_HEIGHT
+local CARD_HEIGHT = Layout.CARD_HEIGHT
+local CARD_SPACING = Layout.CARD_SPACING
+local PADDING = Layout.PADDING
+local INNER_PADDING = Layout.INNER_PADDING
 
 --------------------------------------------------------------------------------
 -- UTILITY FUNCTIONS
@@ -276,7 +220,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.0.1")
+    versionBadge:SetText("v1.1.0")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)
@@ -450,7 +394,7 @@ local function CreateMainFrame()
 
     -- Session Summary Panel
     local sessionPanel = CreateFrame("Frame", nil, expanded, "BackdropTemplate")
-    sessionPanel:SetHeight(28)
+    sessionPanel:SetHeight(36)
     sessionPanel:SetPoint("TOPLEFT", PADDING, yOffset - 3)
     sessionPanel:SetPoint("TOPRIGHT", -PADDING, yOffset - 3)
     sessionPanel:SetBackdrop({
@@ -466,7 +410,7 @@ local function CreateMainFrame()
 
     -- Session label
     local sessionLabel = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    sessionLabel:SetPoint("LEFT", 8, 0)
+    sessionLabel:SetPoint("TOPLEFT", 8, -3)
     sessionLabel:SetText("Session:")
     sessionLabel:SetTextColor(unpack(COLORS.accent))
 
@@ -476,10 +420,18 @@ local function CreateMainFrame()
     sessionStats:SetJustifyH("LEFT")
     frame.sessionStats = sessionStats
 
-    -- Session rewards (right side)
+    -- Hourly rate (right side of top line)
+    local sessionRate = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sessionRate:SetPoint("TOPRIGHT", -8, -3)
+    sessionRate:SetJustifyH("RIGHT")
+    sessionRate:SetTextColor(1, 0.84, 0, 1) -- Gold
+    frame.sessionRate = sessionRate
+
+    -- Session rewards (second line)
     local sessionRewards = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sessionRewards:SetPoint("BOTTOMLEFT", 8, 3)
     sessionRewards:SetPoint("RIGHT", -8, 0)
-    sessionRewards:SetJustifyH("RIGHT")
+    sessionRewards:SetJustifyH("LEFT")
     frame.sessionRewards = sessionRewards
 
     ----------------------------------------------------------------------------
@@ -708,12 +660,21 @@ function HonorLog:UpdateMainFrame()
             totalSession.wins, totalSession.losses, totalSession.winrate))
         frame.sessionStats:SetTextColor(unpack(color))
 
-        frame.sessionRewards:SetText(string.format("+%d Honor | +%d Marks",
+        -- Hourly rate (right side)
+        if totalSession.hourlyRate > 0 then
+            frame.sessionRate:SetText(string.format("%d/hr", totalSession.hourlyRate))
+        else
+            frame.sessionRate:SetText("")
+        end
+
+        -- Rewards on second line
+        frame.sessionRewards:SetText(string.format("+%d Honor  +%d Marks",
             totalSession.honor, totalSession.marks))
         frame.sessionRewards:SetTextColor(unpack(COLORS.neutral))
     else
         frame.sessionStats:SetText("No games yet")
         frame.sessionStats:SetTextColor(unpack(COLORS.textTertiary))
+        frame.sessionRate:SetText("")
         frame.sessionRewards:SetText("")
     end
 end

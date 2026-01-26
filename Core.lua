@@ -39,6 +39,16 @@ local lastBGLeaveTime = nil
 local eventFrame = CreateFrame("Frame", "HonorLogEventFrame")
 HonorLog.eventFrame = eventFrame
 
+-- Safe initialization wrapper with error boundary
+local function SafeInit(name, func)
+    local success, err = pcall(func)
+    if not success then
+        print("|cffff0000[HonorLog ERROR]|r Failed to initialize " .. name .. ": " .. tostring(err))
+        return false
+    end
+    return true
+end
+
 -- Event handler
 local function OnEvent(self, event, ...)
     if HonorLog[event] then
@@ -110,12 +120,15 @@ function HonorLog:ADDON_LOADED(addon)
         self:RestoreBGState()
     end
 
-    -- Initialize UI
-    self:InitializeMainFrame()
-    self:InitializeOptions()
-    self:InitializeLDB()
+    -- Initialize UI with error boundaries
+    local uiOK = SafeInit("MainFrame", function() self:InitializeMainFrame() end)
+    if uiOK then
+        SafeInit("GoalsUI", function() self:InitializeGoalsUI() end)
+    end
+    SafeInit("Options", function() self:InitializeOptions() end)
+    SafeInit("LDB", function() self:InitializeLDB() end)
 
-    -- Register slash commands
+    -- Register slash commands (always works even if UI fails)
     self:RegisterSlashCommands()
 
     -- Unregister this event
@@ -974,6 +987,168 @@ function HonorLog:HandleSlashCommand(msg)
         else
             print("|cff00ff00HonorLog|r Invalid BG. Use: /honorlog test [AV|AB|WSG|EotS]")
         end
+    elseif cmd == "goals" or cmd == "goal" then
+        -- Goal management commands
+        local subCmd, subArg = arg:match("^(%S*)%s*(.*)$")
+        subCmd = (subCmd or ""):lower()
+
+        if subCmd == "" or subCmd == "show" then
+            -- Switch to goals tab
+            self:SwitchTab("goals")
+            if not self.mainFrame:IsShown() then
+                self:ToggleMainFrame()
+            end
+        elseif subCmd == "add" then
+            -- Add goal by item link or ID
+            local itemID = nil
+            -- Try to parse item link
+            local linkedID = subArg:match("item:(%d+)")
+            if linkedID then
+                itemID = tonumber(linkedID)
+            else
+                -- Try direct ID
+                itemID = tonumber(subArg)
+            end
+
+            if itemID then
+                local success, err = self:AddGoal(itemID)
+                if success then
+                    local item = self:GetGearItem(itemID)
+                    print("|cff00ff00[HonorLog]|r Added goal: " .. (item and item.name or "Item " .. itemID))
+                else
+                    print("|cffff0000[HonorLog]|r " .. (err or "Could not add goal"))
+                end
+            else
+                print("|cff00ff00HonorLog|r Usage: /honorlog goal add [itemlink or itemID]")
+            end
+        elseif subCmd == "list" then
+            -- List current goals
+            local goals = self:GetAllGoalsProgress()
+            if #goals == 0 then
+                print("|cff00ff00[HonorLog]|r No goals set. Use /honorlog goal add to add one.")
+            else
+                print("|cff00ff00[HonorLog Goals]|r (" .. #goals .. "/" .. self:GetMaxGoals() .. ")")
+                for i, goal in ipairs(goals) do
+                    local statusColor = goal.isComplete and "|cff00ff00" or "|cffffff00"
+                    local status = goal.isComplete and "READY" or string.format("%.0f%%", math.min(goal.honor.percent, goal.arena.percent > 0 and goal.arena.percent or 100))
+                    print(string.format("  %d. %s%s|r - %s", i, statusColor, goal.name, status))
+                end
+            end
+        elseif subCmd == "clear" then
+            -- Clear all goals
+            self.db.char.goals.items = {}
+            print("|cff00ff00[HonorLog]|r All goals cleared.")
+            self:UpdateGoalsPanel()
+        elseif subCmd == "picker" then
+            self:ShowGoalPicker()
+        else
+            print("|cff00ff00HonorLog|r Goal commands:")
+            print("  |cffffffff/honorlog goal|r - Show goals panel")
+            print("  |cffffffff/honorlog goal add [itemlink]|r - Add a goal")
+            print("  |cffffffff/honorlog goal list|r - List current goals")
+            print("  |cffffffff/honorlog goal clear|r - Clear all goals")
+            print("  |cffffffff/honorlog goal picker|r - Open goal picker")
+        end
+    elseif cmd == "currency" or cmd == "cur" then
+        -- Diagnostic: show current honor and marks detection
+        print("|cff00ff00HonorLog Currency Diagnostic:|r")
+
+        -- Honor APIs
+        print("|cffffd700Honor APIs:|r")
+        print("  GetHonorCurrency exists: " .. tostring(GetHonorCurrency ~= nil))
+        print("  GetPVPCurrency exists: " .. tostring(GetPVPCurrency ~= nil))
+        print("  C_CurrencyInfo exists: " .. tostring(C_CurrencyInfo ~= nil))
+
+        if GetHonorCurrency then
+            local honor = GetHonorCurrency()
+            print("  GetHonorCurrency() = " .. tostring(honor))
+        end
+        if GetPVPCurrency then
+            local _, honor = GetPVPCurrency()
+            print("  GetPVPCurrency() = " .. tostring(honor))
+        end
+        if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+            -- Try common honor currency IDs
+            local currencyIDs = {1792, 392, 43308, 1901}
+            for _, currencyID in ipairs(currencyIDs) do
+                local info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+                if info then
+                    print(string.format("  C_CurrencyInfo(%d) = %s: %d",
+                        currencyID, info.name or "?", info.quantity or 0))
+                end
+            end
+        end
+
+        -- Arena API
+        print("|cffaa55ffArena APIs:|r")
+        print("  GetArenaCurrency exists: " .. tostring(GetArenaCurrency ~= nil))
+        if GetArenaCurrency then
+            print("  GetArenaCurrency() = " .. tostring(GetArenaCurrency()))
+        end
+
+        -- Our wrapper functions
+        print("|cff00ff00HonorLog Values:|r")
+        print("  GetCurrentHonor() = " .. tostring(self:GetCurrentHonor()))
+        print("  GetCurrentArenaPoints() = " .. tostring(self:GetCurrentArenaPoints()))
+
+        -- Marks
+        print("|cff55bbffMarks:|r")
+        local markItems = self.MARK_ITEMS
+        if markItems then
+            for bgType, itemID in pairs(markItems) do
+                local count = GetItemCount(itemID, true)
+                local itemName = GetItemInfo(itemID)
+                print(string.format("  %s (ID %d): %d marks%s",
+                    bgType, itemID, count,
+                    itemName and (" - " .. itemName) or " - (item not cached)"))
+            end
+        else
+            print("  MARK_ITEMS not defined!")
+        end
+
+        -- Check bag contents for marks manually
+        print("|cff888888Scanning bags for mark items...|r")
+        local foundMarks = false
+        for bag = 0, 4 do
+            local numSlots
+            if C_Container and C_Container.GetContainerNumSlots then
+                numSlots = C_Container.GetContainerNumSlots(bag)
+            elseif GetContainerNumSlots then
+                numSlots = GetContainerNumSlots(bag)
+            else
+                numSlots = 0
+            end
+            for slot = 1, numSlots do
+                local slotItemID
+                if C_Container and C_Container.GetContainerItemID then
+                    slotItemID = C_Container.GetContainerItemID(bag, slot)
+                elseif GetContainerItemID then
+                    slotItemID = GetContainerItemID(bag, slot)
+                end
+                if slotItemID then
+                    -- Check if it's a mark (20558=WSG, 20559=AB, 20560=AV, 29024=EotS)
+                    if slotItemID == 20558 or slotItemID == 20559 or slotItemID == 20560 or slotItemID == 29024 then
+                        local itemName = GetItemInfo(slotItemID)
+                        local count = 0
+                        if C_Container and C_Container.GetContainerItemInfo then
+                            local info = C_Container.GetContainerItemInfo(bag, slot)
+                            count = info and info.stackCount or 0
+                        elseif GetContainerItemInfo then
+                            local _, stackCount = GetContainerItemInfo(bag, slot)
+                            count = stackCount or 0
+                        end
+                        print(string.format("  Found: %s x%d in bag %d slot %d",
+                            itemName or slotItemID, count, bag, slot))
+                        foundMarks = true
+                    end
+                end
+            end
+        end
+        if not foundMarks then
+            print("  No mark items found in bags")
+        end
+
+        print("|cff888888Tip: If values show 0 but you have currency, please report which APIs are available.|r")
     else
         print("|cff00ff00HonorLog|r Unknown command. Type /honorlog help for options.")
     end
@@ -988,10 +1163,15 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog reset account|r - Reset account-wide stats")
     print("  |cffffffff/honorlog export [text|csv]|r - Export stats")
     print("  |cffffffff/honorlog view [character|account]|r - Switch view mode")
+    print("  |cffffffff/honorlog goal|r - Show goals panel")
+    print("  |cffffffff/honorlog goal add [itemlink]|r - Add gear goal")
+    print("  |cffffffff/honorlog goal list|r - List current goals")
+    print("  |cffffffff/honorlog goal clear|r - Clear all goals")
     print("  |cffffffff/honorlog minimap|r - Toggle minimap button")
     print("  |cffffffff/honorlog config|r - Open options")
     print("  |cffffffff/honorlog status|r - Show tracking status")
     print("  |cffffffff/honorlog debug|r - Toggle debug mode")
+    print("  |cffffffff/honorlog currency|r - Show currency diagnostic")
     print("  |cffffffff/honorlog test [bg]|r - Test record a game")
     print("  |cffffffff/honorlog help|r - Show this help")
 end
@@ -1191,7 +1371,12 @@ function HonorLog:BuildLDBTooltip(tooltip)
             1, 1, 1,
             1, 1, 1
         )
-        tooltip:AddDoubleLine("Honor", string.format("+%d", session.honor), 1, 1, 1, 1, 0.82, 0)
+        -- Honor with hourly rate
+        local honorText = string.format("+%d", session.honor)
+        if session.hourlyRate > 0 then
+            honorText = string.format("+%d |cff888888(%d/hr)|r", session.honor, session.hourlyRate)
+        end
+        tooltip:AddDoubleLine("Honor", honorText, 1, 1, 1, 1, 0.82, 0)
         tooltip:AddDoubleLine("Marks", string.format("+%d", session.marks), 1, 1, 1, 0.5, 0.5, 1)
     end
 
