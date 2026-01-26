@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0] - 2025-01-25
+## [1.1.0] - 2025-01-26
 
 ### Added
 - **Gear Goal Tracker**: Track progress toward purchasing PvP gear
@@ -36,25 +36,15 @@
 - **Goal Completion Notifications**: Alert when you can afford a goal item
 - **Hourly Honor Rate**: See your honor-per-hour across session panel, minimap tooltip, and goals panel
 - **Session Stats Bar**: Goals panel now shows session honor rate and total gains
+- **Minimap Button**: Quick access via LibDBIcon, toggle with `/honorlog minimap`
 
 ### Fixed
 - **High Warlord's Gear Database**: Corrected mark types for level 70 HANDS (AB, not AV) and LEGS (AB, not WSG) items across all 9 classes
 - **Currency Display**: Show current/needed format even when you have enough currency (displays in green when complete)
 - **Session Panel Layout**: Two-line layout prevents text overlap on smaller frames
-- **Gear Database Accuracy**: Comprehensive audit and verification
-  - All item IDs verified against Wowhead TBC Classic database
-  - Fixed duplicate item ID conflicts
-  - Corrected incorrect item IDs for several pieces
-
-## [1.0.1] - 2025-01-23
-
-### Added
-- Minimap button using LibDBIcon for quick access
-- Toggle minimap button via `/honorlog minimap` or Options panel
-
-### Fixed
-- BG timer and honor counter now reset properly when entering a new battleground
-- BG tracking state resets immediately when game ends (no longer persists across /reload)
+- **Gear Database Accuracy**: All item IDs verified against Wowhead TBC Classic database
+- **BG Tracking**: Timer and honor counter reset properly when entering a new battleground
+- **BG State**: Tracking state resets immediately when game ends (no longer persists across /reload)
 
 ### Changed
 - Session stats now reset daily at midnight instead of on logout
