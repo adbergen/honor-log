@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.4] - 2025-01-27
+
+### Added
+- **Expanded Gear Database**: ~400 prepatch PvP items including BG reputation rewards
+  - WSG, AB, and AV reputation gear (boots, belts, shoulders, weapons, trinkets)
+  - All armor types supported (Cloth, Leather, Mail, Plate)
+- **Useable Filter**: Goal picker checkbox to show only items your class can equip
+- **Vendor Scanner**: Dev tool to scan PvP vendors (`/honorlog scan`)
+
 ## [1.1.3] - 2025-01-26
 
 ### Fixed
