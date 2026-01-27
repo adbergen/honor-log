@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.8] - 2025-01-27
+
+### Added
+- **Alliance AB Cloak**: Added Cloak of the Honor Guard (Alliance equivalent of Deathguard's Cloak)
+
 ## [1.1.7] - 2025-01-27
 
 ### Added
