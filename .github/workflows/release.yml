@@ -30,7 +30,7 @@ jobs:
           changelog: "See CHANGELOG.md for details"
           changelog_type: text
           display_name: HonorLog ${{ github.ref_name }}
-          game_versions: "WoW Burning Crusade Classic,2.5.4"
+          game_versions: "WoW Burning Crusade Classic,2.5.5"
           release_type: release
 
       - name: Create GitHub Release
