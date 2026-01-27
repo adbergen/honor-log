@@ -1,6 +1,6 @@
 # HonorLog Roadmap
 
-## Current Version: 1.1.5
+## Current Version: 1.1.7
 
 ---
 
