@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.7] - 2025-01-27
+
+### Added
+- **Waterfall Progress Mode**: New option to fill goals from top to bottom sequentially
+  - When enabled, currency is allocated to goals in priority order
+  - First goal fills completely before second goal starts filling
+  - Shows "what can I buy next" more intuitively
+  - Toggle in Options panel under Goals Settings
+- **Drag to Reorder Goals**: Drag the grip handle on the left side of goal cards to reorder priorities
+  - Visual feedback: card "lifts" and follows cursor while dragging
+  - Gold drop indicator shows where card will land
+
+### Fixed
+- **Options Panel**: Fixed sliders not visible (custom slider implementation for TBC Classic compatibility)
+- **Options Navigation**: `/honorlog options` now opens directly to HonorLog settings instead of general game options
+
 ## [1.1.6] - 2025-01-27
 
 ### Added

@@ -16,16 +16,61 @@ local function CreateCheckbox(parent, name, label, tooltip, onClick)
 end
 
 local function CreateSlider(parent, name, label, minVal, maxVal, step, tooltip)
-    local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
+    -- Create slider frame manually for TBC Classic compatibility
+    local slider = CreateFrame("Slider", name, parent, "BackdropTemplate")
     slider:SetWidth(200)
-    slider:SetHeight(20)
+    slider:SetHeight(17)
+    slider:SetOrientation("HORIZONTAL")
     slider:SetMinMaxValues(minVal, maxVal)
     slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
-    _G[name.."Low"]:SetText(minVal)
-    _G[name.."High"]:SetText(maxVal)
-    _G[name.."Text"]:SetText(label)
+
+    -- Set up backdrop for slider track
+    slider:SetBackdrop({
+        bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+        edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left = 3, right = 3, top = 6, bottom = 6 }
+    })
+
+    -- Create thumb texture
+    local thumb = slider:CreateTexture(nil, "ARTWORK")
+    thumb:SetTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+    thumb:SetSize(32, 32)
+    slider:SetThumbTexture(thumb)
+
+    -- Create label text above slider
+    local labelText = slider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    labelText:SetPoint("BOTTOM", slider, "TOP", 0, 3)
+    labelText:SetText(label)
+    slider.labelText = labelText
+
+    -- Create min value text
+    local lowText = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    lowText:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", 0, 0)
+    lowText:SetText(minVal)
+    slider.lowText = lowText
+
+    -- Create max value text
+    local highText = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    highText:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", 0, 0)
+    highText:SetText(maxVal)
+    slider.highText = highText
+
     slider.tooltipText = tooltip
+
+    -- Enable mouse interaction
+    slider:EnableMouse(true)
+    slider:SetScript("OnEnter", function(self)
+        if self.tooltipText then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(self.tooltipText, nil, nil, nil, nil, true)
+        end
+    end)
+    slider:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
     return slider
 end
 
@@ -73,7 +118,7 @@ function HonorLog:InitializeOptions()
 
     -- General section
     local generalHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    generalHeader:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -20)
+    generalHeader:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -16)
     generalHeader:SetText("|cffffd700General Settings|r")
 
     -- View Mode dropdown
@@ -84,7 +129,7 @@ function HonorLog:InitializeOptions()
         self.db.settings.viewMode = value
         self:UpdateMainFrame()
     end)
-    viewModeDropdown:SetPoint("TOPLEFT", generalHeader, "BOTTOMLEFT", -13, -10)
+    viewModeDropdown:SetPoint("TOPLEFT", generalHeader, "BOTTOMLEFT", -13, -24)
     viewModeDropdown.setting = "viewMode"
     UIDropDownMenu_SetSelectedValue(viewModeDropdown, self.db.settings.viewMode)
     UIDropDownMenu_SetText(viewModeDropdown, self.db.settings.viewMode == "account" and "Account-wide" or "Character")
@@ -105,33 +150,33 @@ function HonorLog:InitializeOptions()
 
     -- History Limit slider
     local historySlider = CreateSlider(panel, "HonorLogHistorySlider", "History Limit", 10, 100, 10, "Number of games to store in history")
-    historySlider:SetPoint("TOPLEFT", viewModeDropdown, "BOTTOMLEFT", 20, -35)
+    historySlider:SetPoint("TOPLEFT", viewModeDropdown, "BOTTOMLEFT", 20, -40)
     historySlider:SetValue(self.db.char.historyLimit or 50)
     historySlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value)
-        _G[self:GetName().."Text"]:SetText("History Limit: " .. value)
+        self.labelText:SetText("History Limit: " .. value)
         HonorLog:SetHistoryLimit(value)
     end)
-    _G[historySlider:GetName().."Text"]:SetText("History Limit: " .. (self.db.char.historyLimit or 50))
+    historySlider.labelText:SetText("History Limit: " .. (self.db.char.historyLimit or 50))
     panel.historySlider = historySlider
 
     -- Frame section
     local frameHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frameHeader:SetPoint("TOPLEFT", historySlider, "BOTTOMLEFT", -20, -30)
+    frameHeader:SetPoint("TOPLEFT", historySlider, "BOTTOMLEFT", -20, -25)
     frameHeader:SetText("|cffffd700Frame Settings|r")
 
     -- Frame Scale slider
     local scaleSlider = CreateSlider(panel, "HonorLogScaleSlider", "Frame Scale", 0.5, 2.0, 0.1, "Size of the stats frame")
-    scaleSlider:SetPoint("TOPLEFT", frameHeader, "BOTTOMLEFT", 20, -15)
+    scaleSlider:SetPoint("TOPLEFT", frameHeader, "BOTTOMLEFT", 20, -20)
     scaleSlider:SetValue(self.db.settings.frameScale or 1.0)
     scaleSlider:SetScript("OnValueChanged", function(self, value)
-        _G[self:GetName().."Text"]:SetText(string.format("Frame Scale: %.1f", value))
+        self.labelText:SetText(string.format("Frame Scale: %.1f", value))
         HonorLog.db.settings.frameScale = value
         if HonorLog.mainFrame then
             HonorLog.mainFrame:SetScale(value)
         end
     end)
-    _G[scaleSlider:GetName().."Text"]:SetText(string.format("Frame Scale: %.1f", self.db.settings.frameScale or 1.0))
+    scaleSlider.labelText:SetText(string.format("Frame Scale: %.1f", self.db.settings.frameScale or 1.0))
     panel.scaleSlider = scaleSlider
 
     -- Lock Frame checkbox
@@ -144,7 +189,7 @@ function HonorLog:InitializeOptions()
 
     -- Notifications section
     local notifyHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    notifyHeader:SetPoint("TOPLEFT", lockCheck, "BOTTOMLEFT", 4, -20)
+    notifyHeader:SetPoint("TOPLEFT", lockCheck, "BOTTOMLEFT", 4, -12)
     notifyHeader:SetText("|cffffd700Notifications|r")
 
     -- Enable Notifications checkbox
@@ -155,9 +200,25 @@ function HonorLog:InitializeOptions()
     notifyCheck:SetChecked(self.db.settings.notificationsEnabled)
     panel.notifyCheck = notifyCheck
 
+    -- Goals section
+    local goalsHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    goalsHeader:SetPoint("TOPLEFT", notifyCheck, "BOTTOMLEFT", 4, -12)
+    goalsHeader:SetText("|cffffd700Goals Settings|r")
+
+    -- Waterfall Progress checkbox
+    local waterfallCheck = CreateCheckbox(panel, "HonorLogWaterfallCheck", "Waterfall Progress Mode", "Fill goals from top to bottom sequentially instead of showing equal percentage across all goals", function(checked)
+        HonorLog.db.settings.goalProgressMode = checked and "waterfall" or "shared"
+        if HonorLog.OnDataUpdated then
+            HonorLog:OnDataUpdated()
+        end
+    end)
+    waterfallCheck:SetPoint("TOPLEFT", goalsHeader, "BOTTOMLEFT", -4, -10)
+    waterfallCheck:SetChecked(self.db.settings.goalProgressMode == "waterfall")
+    panel.waterfallCheck = waterfallCheck
+
     -- LDB section
     local ldbHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ldbHeader:SetPoint("TOPLEFT", notifyCheck, "BOTTOMLEFT", 4, -20)
+    ldbHeader:SetPoint("TOPLEFT", waterfallCheck, "BOTTOMLEFT", 4, -12)
     ldbHeader:SetText("|cffffd700Data Broker|r")
 
     -- Enable LDB checkbox
@@ -189,7 +250,7 @@ function HonorLog:InitializeOptions()
 
     -- Reset buttons section
     local resetHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    resetHeader:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 4, -30)
+    resetHeader:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 4, -15)
     resetHeader:SetText("|cffffd700Data Management|r")
 
     -- Reset Session button
@@ -221,8 +282,9 @@ function HonorLog:InitializeOptions()
 
     -- Register with Blizzard options
     if Settings and Settings.RegisterCanvasLayoutCategory then
-        -- Dragonflight+ style
+        -- Modern Settings API (Anniversary/Retail)
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+        category.ID = panel.name  -- Set ID to match name for OpenToCategory lookup
         Settings.RegisterAddOnCategory(category)
         self.optionsCategory = category
     else
@@ -233,9 +295,11 @@ end
 
 function HonorLog:OpenOptions()
     if Settings and Settings.OpenToCategory then
-        Settings.OpenToCategory(self.optionsCategory or self.optionsPanel.name)
+        -- Use string name for lookup (matches category.ID we set during registration)
+        Settings.OpenToCategory("HonorLog")
     else
+        -- TBC Classic fallback (pre-Settings API)
         InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
-        InterfaceOptionsFrame_OpenToCategory(self.optionsPanel) -- Called twice to ensure proper opening
+        InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
     end
 end

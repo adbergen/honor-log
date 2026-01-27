@@ -89,6 +89,75 @@ end
 --------------------------------------------------------------------------------
 -- GOAL CARD CREATION
 --------------------------------------------------------------------------------
+-- Drag state for reordering
+local draggedCard = nil
+local dragStartY = 0
+local originalIndex = 0
+local dragFrame = nil -- Floating drag frame
+local dropIndicator = nil -- Shows where item will drop
+
+-- Create the floating drag frame (created once, reused)
+local function GetDragFrame()
+    if not dragFrame then
+        dragFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        dragFrame:SetFrameStrata("TOOLTIP")
+        dragFrame:SetSize(200, GOAL_CARD_HEIGHT)
+        dragFrame:SetBackdrop({
+            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        dragFrame:SetBackdropColor(0.15, 0.15, 0.20, 0.95)
+        dragFrame:SetBackdropBorderColor(1, 0.8, 0, 1) -- Gold border
+        dragFrame:Hide()
+
+        -- Icon
+        local icon = dragFrame:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(32, 32)
+        icon:SetPoint("LEFT", 8, 0)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        dragFrame.icon = icon
+
+        -- Name
+        local name = dragFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+        name:SetPoint("RIGHT", -8, 0)
+        name:SetJustifyH("LEFT")
+        dragFrame.itemName = name
+    end
+    return dragFrame
+end
+
+-- Create drop indicator line
+local function GetDropIndicator(parent)
+    if not dropIndicator then
+        dropIndicator = CreateFrame("Frame", nil, parent)
+        dropIndicator:SetHeight(3)
+
+        local line = dropIndicator:CreateTexture(nil, "OVERLAY")
+        line:SetAllPoints()
+        line:SetColorTexture(1, 0.8, 0, 0.8) -- Gold line
+
+        -- Left arrow
+        local leftArrow = dropIndicator:CreateTexture(nil, "OVERLAY")
+        leftArrow:SetSize(8, 8)
+        leftArrow:SetPoint("RIGHT", dropIndicator, "LEFT", 2, 0)
+        leftArrow:SetTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight")
+        leftArrow:SetRotation(math.rad(90))
+
+        -- Right arrow
+        local rightArrow = dropIndicator:CreateTexture(nil, "OVERLAY")
+        rightArrow:SetSize(8, 8)
+        rightArrow:SetPoint("LEFT", dropIndicator, "RIGHT", -2, 0)
+        rightArrow:SetTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Highlight")
+        rightArrow:SetRotation(math.rad(-90))
+
+        dropIndicator:Hide()
+    end
+    dropIndicator:SetParent(parent)
+    return dropIndicator
+end
+
 local function CreateGoalCard(parent, index)
     local card = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     card:SetHeight(GOAL_CARD_HEIGHT)
@@ -120,29 +189,174 @@ local function CreateGoalCard(parent, index)
     end
 
     card:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(unpack(COLORS.bgCardHover))
-        self:SetBackdropBorderColor(unpack(COLORS.borderAccent))
-        ShowCardTooltip(self)
+        if not draggedCard then
+            self:SetBackdropColor(unpack(COLORS.bgCardHover))
+            self:SetBackdropBorderColor(unpack(COLORS.borderAccent))
+            ShowCardTooltip(self)
+        end
     end)
     card:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(unpack(COLORS.bgCard))
-        self:SetBackdropBorderColor(unpack(COLORS.borderDark))
-        GameTooltip:Hide()
-        if ShoppingTooltip1 then ShoppingTooltip1:Hide() end
-        if ShoppingTooltip2 then ShoppingTooltip2:Hide() end
+        if not draggedCard then
+            self:SetBackdropColor(unpack(COLORS.bgCard))
+            self:SetBackdropBorderColor(unpack(COLORS.borderDark))
+            GameTooltip:Hide()
+            if ShoppingTooltip1 then ShoppingTooltip1:Hide() end
+            if ShoppingTooltip2 then ShoppingTooltip2:Hide() end
+        end
     end)
     card:SetScript("OnUpdate", function(self)
         if not self:IsMouseOver() then return end
+        if draggedCard then return end
         local shiftDown = IsShiftKeyDown()
         if shiftDown ~= self.shiftWasDown then
             ShowCardTooltip(self)
         end
     end)
 
-    -- Item icon
+    -- Drag handle (left side grip)
+    local dragHandle = CreateFrame("Button", nil, card)
+    dragHandle:SetSize(16, GOAL_CARD_HEIGHT - 4)
+    dragHandle:SetPoint("LEFT", 2, 0)
+
+    -- Grip lines texture (3 horizontal lines)
+    for i = 1, 3 do
+        local line = dragHandle:CreateTexture(nil, "ARTWORK")
+        line:SetSize(8, 2)
+        line:SetPoint("CENTER", 0, (i - 2) * 6)
+        line:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+    end
+
+    dragHandle:SetScript("OnEnter", function(self)
+        for i = 1, 3 do
+            local line = select(i, self:GetRegions())
+            if line and line.SetColorTexture then
+                line:SetColorTexture(0.8, 0.8, 0.8, 0.8)
+            end
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Drag to reorder")
+        GameTooltip:Show()
+    end)
+    dragHandle:SetScript("OnLeave", function(self)
+        for i = 1, 3 do
+            local line = select(i, self:GetRegions())
+            if line and line.SetColorTexture then
+                line:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+            end
+        end
+        GameTooltip:Hide()
+    end)
+
+    dragHandle:SetScript("OnMouseDown", function(self, button)
+        if button == "LeftButton" and card.cardIndex then
+            draggedCard = card
+            originalIndex = card.cardIndex
+            dragStartY = select(2, GetCursorPosition()) / card:GetEffectiveScale()
+            GameTooltip:Hide()
+
+            -- Fade the original card
+            card:SetAlpha(0.3)
+
+            -- Show and populate the floating drag frame
+            local df = GetDragFrame()
+            local itemName, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(card.itemID)
+            df.icon:SetTexture(itemTexture or "Interface\\Icons\\INV_Misc_QuestionMark")
+            df.itemName:SetText(card.itemName:GetText() or itemName or "Unknown")
+            df:SetWidth(card:GetWidth())
+            df:Show()
+
+            -- Position drag frame at cursor
+            local cursorX, cursorY = GetCursorPosition()
+            local scale = df:GetEffectiveScale()
+            df:ClearAllPoints()
+            df:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cursorX / scale, cursorY / scale)
+
+            -- Initialize drop indicator
+            local goalsPanel = HonorLog.mainFrame and HonorLog.mainFrame.goalsPanel
+            if goalsPanel and goalsPanel.goalsContainer then
+                local indicator = GetDropIndicator(goalsPanel.goalsContainer)
+                indicator:SetPoint("LEFT", PADDING, 0)
+                indicator:SetPoint("RIGHT", -PADDING, 0)
+                indicator:Show()
+            end
+        end
+    end)
+
+    dragHandle:SetScript("OnUpdate", function(self)
+        if draggedCard ~= card then return end
+
+        local df = GetDragFrame()
+        if df:IsShown() then
+            -- Move drag frame with cursor
+            local cursorX, cursorY = GetCursorPosition()
+            local scale = df:GetEffectiveScale()
+            df:ClearAllPoints()
+            df:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cursorX / scale, cursorY / scale)
+
+            -- Update drop indicator position
+            local goalsPanel = HonorLog.mainFrame and HonorLog.mainFrame.goalsPanel
+            if goalsPanel and goalsPanel.goalsContainer then
+                local indicator = GetDropIndicator(goalsPanel.goalsContainer)
+                local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
+
+                -- Calculate which position the cursor is over
+                local containerY = select(2, goalsPanel.goalsContainer:GetCenter()) * goalsPanel.goalsContainer:GetEffectiveScale()
+                local containerTop = containerY + (goalsPanel.goalsContainer:GetHeight() / 2) * goalsPanel.goalsContainer:GetEffectiveScale()
+                local relativeY = (containerTop - cursorY) / goalsPanel.goalsContainer:GetEffectiveScale()
+
+                local targetIndex = math.floor(relativeY / cardHeight) + 1
+                local goalCount = HonorLog:GetGoalCount()
+                targetIndex = math.max(1, math.min(goalCount + 1, targetIndex))
+
+                -- Position indicator between cards
+                local indicatorY = -((targetIndex - 1) * cardHeight) + 1
+                indicator:ClearAllPoints()
+                indicator:SetPoint("LEFT", PADDING, 0)
+                indicator:SetPoint("RIGHT", -PADDING, 0)
+                indicator:SetPoint("TOP", goalsPanel.goalsContainer, "TOP", 0, indicatorY)
+
+                -- Store target index for drop
+                draggedCard.targetIndex = targetIndex > originalIndex and targetIndex - 1 or targetIndex
+            end
+        end
+    end)
+
+    dragHandle:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and draggedCard == card then
+            -- Hide visual elements
+            local df = GetDragFrame()
+            df:Hide()
+
+            if dropIndicator then
+                dropIndicator:Hide()
+            end
+
+            -- Restore card opacity
+            card:SetAlpha(1)
+
+            -- Get target position
+            local newIndex = card.targetIndex or originalIndex
+
+            -- Clamp to valid range
+            local goalCount = HonorLog:GetGoalCount()
+            newIndex = math.max(1, math.min(goalCount, newIndex))
+
+            if newIndex ~= originalIndex and card.itemID then
+                HonorLog:ReorderGoal(card.itemID, newIndex)
+            end
+
+            draggedCard = nil
+            card.targetIndex = nil
+            HonorLog:UpdateGoalsPanel()
+        end
+    end)
+
+    card.dragHandle = dragHandle
+
+    -- Item icon (shifted right to make room for drag handle)
     local icon = card:CreateTexture(nil, "ARTWORK")
     icon:SetSize(40, 40)
-    icon:SetPoint("TOPLEFT", 8, -8)
+    icon:SetPoint("TOPLEFT", 22, -8)
     icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     card.icon = icon
@@ -274,13 +488,17 @@ local function CreateGoalCard(parent, index)
     card.completeIcon = completeIcon
 
     -- Update function
-    function card:Update(goalProgress)
+    function card:Update(goalProgress, cardIndex)
         if not goalProgress then
             self:Hide()
             return
         end
 
         self:Show()
+
+        -- Store itemID and index for drag/drop reordering
+        self.itemID = goalProgress.itemID
+        self.cardIndex = cardIndex or goalProgress.priority or 1
 
         -- Get item info
         local itemID = goalProgress.itemID
@@ -634,7 +852,7 @@ local function CreateGoalsPanel(parent)
             -- Update or create cards for each goal
             for i, goal in ipairs(goals) do
                 local card = self:GetOrCreateCard(i)
-                card:Update(goal)
+                card:Update(goal, i)
             end
 
             -- Hide any extra cards beyond current goal count
@@ -776,6 +994,21 @@ local function CreateGoalsPanel(parent)
                 self:UpdateScrollBarVisibility()
             end
         end)
+    end)
+
+    -- Clean up drag state when panel hides
+    panel:SetScript("OnHide", function(self)
+        if draggedCard then
+            draggedCard:SetAlpha(1)
+            draggedCard.targetIndex = nil
+            draggedCard = nil
+        end
+        if dragFrame then
+            dragFrame:Hide()
+        end
+        if dropIndicator then
+            dropIndicator:Hide()
+        end
     end)
 
     -- Update scroll on size change
@@ -1122,7 +1355,7 @@ local function CreateGoalPicker()
         -- Owned badge (shown when player has the item)
         local ownedBadge = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         ownedBadge:SetPoint("LEFT", slotText, "RIGHT", 6, 0)
-        ownedBadge:SetText("|cff40d860✓ Owned|r")
+        ownedBadge:SetText("|cff40d860|TInterface\\RAIDFRAME\\ReadyCheck-Ready:0|t Owned|r")
         ownedBadge:Hide()
         row.ownedBadge = ownedBadge
 

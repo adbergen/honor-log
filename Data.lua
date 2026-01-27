@@ -74,6 +74,7 @@ local DEFAULTS = {
         minimapButton = {
             hide = false,
         },
+        goalProgressMode = "shared", -- "shared" (all show same %) or "waterfall" (fills top-to-bottom)
     },
 }
 
@@ -798,6 +799,13 @@ end
 
 -- Get all goals with progress
 function HonorLog:GetAllGoalsProgress()
+    local progressMode = self.db.settings.goalProgressMode or "shared"
+
+    if progressMode == "waterfall" then
+        return self:GetAllGoalsProgressWaterfall()
+    end
+
+    -- Default "shared" mode - all goals show same percentage based on current currency
     local results = {}
     for _, goal in ipairs(self.db.char.goals.items) do
         local progress = self:GetGoalProgress(goal.itemID)
@@ -807,6 +815,123 @@ function HonorLog:GetAllGoalsProgress()
             table.insert(results, progress)
         end
     end
+    return results
+end
+
+-- Get all goals with waterfall-style progress (currency fills goals top-to-bottom)
+function HonorLog:GetAllGoalsProgressWaterfall()
+    local results = {}
+    local goals = self.db.char.goals.items
+
+    -- Get current currency totals
+    local remainingHonor = self:GetCurrentHonor()
+    local remainingArena = self:GetCurrentArenaPoints()
+    local remainingMarks = {
+        AV = self:GetCurrentMarks("AV"),
+        AB = self:GetCurrentMarks("AB"),
+        WSG = self:GetCurrentMarks("WSG"),
+        EotS = self:GetCurrentMarks("EotS"),
+    }
+
+    -- Process goals in order, allocating currency top-to-bottom
+    for _, goal in ipairs(goals) do
+        local item = self:GetGearItem(goal.itemID)
+        if item then
+            local result = {
+                itemID = goal.itemID,
+                name = item.name,
+                slot = item.slot,
+                addedAt = goal.addedAt,
+                priority = goal.priority,
+                honor = {
+                    needed = item.honor or 0,
+                    current = 0,
+                    remaining = 0,
+                    percent = 0,
+                    games = 0,
+                },
+                arena = {
+                    needed = item.arena or 0,
+                    current = 0,
+                    remaining = 0,
+                    percent = 0,
+                    weeks = 0,
+                },
+                marks = {},
+                isComplete = true,
+                totalGamesNeeded = 0,
+            }
+
+            -- Honor allocation (waterfall style)
+            if item.honor > 0 then
+                local allocated = math.min(remainingHonor, item.honor)
+                remainingHonor = remainingHonor - allocated
+
+                result.honor.current = allocated
+                result.honor.remaining = math.max(0, item.honor - allocated)
+                result.honor.percent = math.min(100, (allocated / item.honor) * 100)
+
+                local avgHonor = self:GetAverageHonorPerGame()
+                if avgHonor > 0 and result.honor.remaining > 0 then
+                    result.honor.games = math.ceil(result.honor.remaining / avgHonor)
+                    result.totalGamesNeeded = math.max(result.totalGamesNeeded, result.honor.games)
+                end
+
+                if result.honor.remaining > 0 then
+                    result.isComplete = false
+                end
+            end
+
+            -- Arena allocation (waterfall style)
+            if item.arena > 0 then
+                local allocated = math.min(remainingArena, item.arena)
+                remainingArena = remainingArena - allocated
+
+                result.arena.current = allocated
+                result.arena.remaining = math.max(0, item.arena - allocated)
+                result.arena.percent = math.min(100, (allocated / item.arena) * 100)
+
+                if result.arena.remaining > 0 then
+                    result.isComplete = false
+                end
+            end
+
+            -- Marks allocation (waterfall style)
+            if item.marks then
+                for bgType, needed in pairs(item.marks) do
+                    if needed > 0 then
+                        local allocated = math.min(remainingMarks[bgType] or 0, needed)
+                        remainingMarks[bgType] = (remainingMarks[bgType] or 0) - allocated
+
+                        local remaining = math.max(0, needed - allocated)
+                        local percent = math.min(100, (allocated / needed) * 100)
+                        local games = 0
+
+                        local avgMarks = self:GetAverageMarksPerGame(bgType)
+                        if avgMarks > 0 and remaining > 0 then
+                            games = math.ceil(remaining / avgMarks)
+                            result.totalGamesNeeded = math.max(result.totalGamesNeeded, games)
+                        end
+
+                        result.marks[bgType] = {
+                            needed = needed,
+                            current = allocated,
+                            remaining = remaining,
+                            percent = percent,
+                            games = games,
+                        }
+
+                        if remaining > 0 then
+                            result.isComplete = false
+                        end
+                    end
+                end
+            end
+
+            table.insert(results, result)
+        end
+    end
+
     return results
 end
 
