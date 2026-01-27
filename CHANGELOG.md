@@ -1,9 +1,14 @@
 # Changelog
 
-## [1.1.9] - 2025-01-27
+## [1.1.10] - 2025-01-27
 
 ### Fixed
 - **CurseForge Release**: Fixed game version for TBC Anniversary
+
+## [1.1.9] - 2025-01-27
+
+### Fixed
+- **CurseForge Release**: Attempted game version fix (failed)
 
 ## [1.1.8] - 2025-01-27
 
