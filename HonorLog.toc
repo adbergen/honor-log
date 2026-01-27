@@ -1,8 +1,8 @@
-## Interface: 20504
+## Interface: 20505
 ## Title: HonorLog
 ## Notes: Battleground statistics tracker for BCC Anniversary - tracks wins, losses, honor, marks, and more
 ## Author: You
-## Version: 1.1.2
+## Version: 1.1.3
 ## SavedVariables: HonorLogDB
 ## SavedVariablesPerCharacter: HonorLogCharDB
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.3] - 2025-01-26
+
+### Fixed
+- **Out of Date Addon**: Updated Interface version to 20505 for TBC Classic Anniversary
+
 ## [1.1.2] - 2025-01-26
 
 ### Fixed
