@@ -1,6 +1,6 @@
 # HonorLog Roadmap
 
-## Current Version: 1.1.4
+## Current Version: 1.1.5
 
 ---
 
@@ -23,7 +23,7 @@ Allow players to set gear goals and track progress toward purchasing PvP items. 
 ### User Stories
 1. As a PvP player, I want to set a gear piece as my goal so I can see how close I am
 2. As a PvP player, I want to see estimated games remaining based on MY average honor gains
-3. As a PvP player, I want to track multiple goals simultaneously (up to 5)
+3. As a PvP player, I want to track multiple goals simultaneously (unlimited)
 4. As a PvP player, I want the addon to know PvP gear costs without manual entry
 5. As a PvP player, I want to track arena gear goals alongside honor gear
 
@@ -151,7 +151,7 @@ HonorLogCharDB.goals = {
         showInLDB = true,
         celebrateCompletion = true,
     },
-    maxGoals = 5,
+    -- No goal limit (unlimited)
 }
 ```
 

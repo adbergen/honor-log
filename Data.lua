@@ -37,7 +37,7 @@ local DEFAULTS = {
                 showInLDB = true,
                 celebrateCompletion = true,
             },
-            maxGoals = 5,
+            -- No goal limit
         },
         -- Session data (persists across /reload, resets on actual logout)
         session = {
@@ -614,14 +614,9 @@ function HonorLog:GetGoalCount()
     return #(self.db.char.goals.items or {})
 end
 
--- Get max goals allowed
-function HonorLog:GetMaxGoals()
-    return self.db.char.goals.maxGoals or 5
-end
-
--- Check if can add more goals
+-- Check if can add more goals (no limit)
 function HonorLog:CanAddGoal()
-    return self:GetGoalCount() < self:GetMaxGoals()
+    return true
 end
 
 -- Check if item is already a goal

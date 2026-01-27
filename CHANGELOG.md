@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.5] - 2025-01-27
+
+### Added
+- **Unlimited Goals**: Track as many gear goals as you need (was limited to 5)
+
 ## [1.1.4] - 2025-01-27
 
 ### Added

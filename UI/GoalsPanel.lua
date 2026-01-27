@@ -444,30 +444,33 @@ local function CreateGoalsPanel(parent)
     scrollFrame:SetScrollChild(goalsContainer)
     panel.goalsContainer = goalsContainer
 
-    -- Goal cards (max 5)
+    -- Goal cards (created dynamically as needed)
     panel.goalCards = {}
-    for i = 1, 5 do
-        local card = CreateGoalCard(goalsContainer, i)
-        card:SetPoint("TOPLEFT", PADDING, -((i - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
-        card:SetPoint("TOPRIGHT", -PADDING, -((i - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
-        card:Hide()
 
-        -- Remove button handler
-        card.removeBtn:SetScript("OnClick", function()
-            if card.itemID then
-                HonorLog:RemoveGoal(card.itemID)
-                HonorLog:UpdateGoalsPanel()
-                -- Open picker so user can add a replacement
-                HonorLog:ShowGoalPicker()
-            end
-        end)
+    -- Function to get or create a goal card
+    function panel:GetOrCreateCard(index)
+        if not self.goalCards[index] then
+            local card = CreateGoalCard(self.goalsContainer, index)
+            card:SetPoint("TOPLEFT", PADDING, -((index - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
+            card:SetPoint("TOPRIGHT", -PADDING, -((index - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
+            card:Hide()
 
-        panel.goalCards[i] = card
+            -- Remove button handler
+            card.removeBtn:SetScript("OnClick", function()
+                if card.itemID then
+                    HonorLog:RemoveGoal(card.itemID)
+                    HonorLog:UpdateGoalsPanel()
+                    HonorLog:ShowGoalPicker()
+                end
+            end)
+
+            self.goalCards[index] = card
+        end
+        return self.goalCards[index]
     end
 
-    -- Set scroll content height (5 cards max + padding)
-    local contentHeight = (5 * GOAL_CARD_HEIGHT) + (4 * GOAL_CARD_SPACING) + 10
-    goalsContainer:SetHeight(contentHeight)
+    -- Initial container height (will be updated dynamically)
+    goalsContainer:SetHeight(10)
 
     -- Function to update scroll content width
     function panel:UpdateScrollWidth()
@@ -628,12 +631,15 @@ local function CreateGoalsPanel(parent)
             self.scrollFrame:Show()
             self.totalsBar:Show()
 
-            for i, card in ipairs(self.goalCards) do
-                if goals[i] then
-                    card:Update(goals[i])
-                else
-                    card:Hide()
-                end
+            -- Update or create cards for each goal
+            for i, goal in ipairs(goals) do
+                local card = self:GetOrCreateCard(i)
+                card:Update(goal)
+            end
+
+            -- Hide any extra cards beyond current goal count
+            for i = #goals + 1, #self.goalCards do
+                self.goalCards[i]:Hide()
             end
 
             -- Update scroll content height based on actual goals

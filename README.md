@@ -11,10 +11,10 @@ A battleground statistics tracker for WoW TBC Classic Anniversary.
 - **Dual scope**: View stats per-character or account-wide
 - **Match history**: Stores your last 50 games with timestamps
 - **Gear Goal Tracker**: Set PvP gear goals and track progress
-  - Track up to 5 goals simultaneously
+  - Track unlimited goals simultaneously
   - Shows honor and marks progress for each goal
   - Estimates games remaining based on your average gains
-  - 280+ prepatch PvP items (Classic rank 10-14 gear, accessories, weapons)
+  - ~400 prepatch PvP items (rank gear, BG reputation rewards, accessories)
   - TBC arena gear database ready for when seasons unlock
 - **Export**: Copy stats to clipboard in text or CSV format
 - **LDB support**: Works with Titan Panel, ChocolateBar, Bazooka, etc.
