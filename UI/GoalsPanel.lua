@@ -839,6 +839,21 @@ local function CreateGoalPicker()
     UIDropDownMenu_SetWidth(seasonDropdown, 90)
     frame.seasonDropdown = seasonDropdown
 
+    -- Filter: Useable checkbox
+    local useableCheck = CreateFrame("CheckButton", "HonorLogUseableCheck", frame, "UICheckButtonTemplate")
+    useableCheck:SetSize(24, 24)
+    useableCheck:SetPoint("LEFT", seasonDropdown, "RIGHT", 0, 0)
+    useableCheck:SetChecked(true) -- Default to checked
+    useableCheck.text = useableCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    useableCheck.text:SetPoint("LEFT", useableCheck, "RIGHT", 0, 0)
+    useableCheck.text:SetText("Useable")
+    useableCheck.text:SetTextColor(unpack(COLORS.textSecondary))
+    useableCheck:SetScript("OnClick", function(self)
+        frame.filterUseable = self:IsChecked()
+        frame:RefreshItems()
+    end)
+    frame.useableCheck = useableCheck
+
     -- Filter row 2: Search box (full width below dropdowns)
     local searchLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     searchLabel:SetPoint("TOPLEFT", 16, -68)
@@ -894,6 +909,7 @@ local function CreateGoalPicker()
     -- Filter state
     frame.filterSlot = nil
     frame.filterSeason = nil
+    frame.filterUseable = true -- Default to useable only
     frame.searchText = ""
 
     -- Initialize dropdowns
@@ -1135,26 +1151,67 @@ local function CreateGoalPicker()
             playerFaction = hordeRaces[playerRace] and "Horde" or "Alliance"
         end
 
+        -- Armor type usability by class
+        local armorTypes = {
+            WARRIOR = { Plate = true, Mail = true, Leather = true, Cloth = true },
+            PALADIN = { Plate = true, Mail = true, Leather = true, Cloth = true },
+            HUNTER = { Mail = true, Leather = true, Cloth = true },
+            SHAMAN = { Mail = true, Leather = true, Cloth = true },
+            ROGUE = { Leather = true, Cloth = true },
+            DRUID = { Leather = true, Cloth = true },
+            MAGE = { Cloth = true },
+            WARLOCK = { Cloth = true },
+            PRIEST = { Cloth = true },
+        }
+
+        -- Detect armor type from item name
+        local function GetArmorType(name)
+            if not name then return nil end
+            -- Plate keywords
+            if name:find("Plate") or name:find("Lamellar") or name:find("Berserker") then return "Plate" end
+            -- Mail keywords
+            if name:find("Chain") or name:find("Mail") or name:find("Ringmail") or name:find("Windtalker") then return "Mail" end
+            -- Leather keywords
+            if name:find("Leather") or name:find("Lizardhide") or name:find("Dragonhide") or name:find("Forest Stalker") then return "Leather" end
+            -- Cloth keywords
+            if name:find("Cloth") or name:find("Silk") or name:find("Satin") or name:find("Mooncloth") or name:find("Dryad") or name:find("Epaulets") then return "Cloth" end
+            return nil -- Unknown or universal (weapons, trinkets, etc.)
+        end
+
         -- Filter items
         local filteredItems = {}
         for itemID, data in pairs(HonorLog.GearDB or {}) do
             local passFilter = true
 
-            -- Class filter (only show usable items)
-            if data.class and data.class ~= playerClass then
+            -- Class filter (only show usable items if filter is enabled)
+            if self.filterUseable and data.class and data.class ~= playerClass then
                 passFilter = false
+            end
+
+            -- Armor type filter (only if useable filter is enabled)
+            if passFilter and self.filterUseable then
+                local armorType = GetArmorType(data.name)
+                if armorType then
+                    local canWear = armorTypes[playerClass]
+                    if canWear and not canWear[armorType] then
+                        passFilter = false
+                    end
+                end
             end
 
             -- Faction filter for faction-specific PvP gear
             if passFilter and data.name then
                 local itemName = data.name
-                -- Horde-only items: High Warlord (R14), Warlord's (R12-13), Defiler (AB), Outrider (WSG), Frostwolf (AV)
-                if itemName:find("High Warlord") or itemName:find("Warlord's") or itemName:find("Defiler") or itemName:find("Outrider") or itemName:find("Frostwolf") then
+                -- Horde-only items: High Warlord (R14), Warlord's (R12-13), Defiler (AB), Outrider/Legionnaire/Advisor/Scout (WSG), Frostwolf (AV)
+                if itemName:find("High Warlord") or itemName:find("Warlord's") or itemName:find("Defiler") or
+                   itemName:find("Outrider") or itemName:find("Legionnaire") or itemName:find("Advisor") or itemName:find("Scout's") or
+                   itemName:find("Frostwolf") or itemName:find("Warsong Battle") or itemName:find("Deathguard") then
                     if playerFaction ~= "Horde" then
                         passFilter = false
                     end
-                -- Alliance-only items: Grand Marshal (R14), Field Marshal (R12-13), Highlander (AB), Sentinel (WSG), Stormpike (AV)
-                elseif itemName:find("Grand Marshal") or itemName:find("Field Marshal") or itemName:find("Highlander") or itemName:find("Sentinel") or itemName:find("Stormpike") then
+                -- Alliance-only items: Grand Marshal (R14), Field Marshal (R12-13), Highlander (AB), Sentinel/Silverwing (WSG), Stormpike (AV)
+                elseif itemName:find("Grand Marshal") or itemName:find("Field Marshal") or itemName:find("Highlander") or
+                       itemName:find("Sentinel") or itemName:find("Silverwing") or itemName:find("Stormpike") then
                     if playerFaction ~= "Alliance" then
                         passFilter = false
                     end
