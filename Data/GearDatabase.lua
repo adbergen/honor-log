@@ -755,8 +755,9 @@ HonorLog.GearDB = {
     ============================================================================
     --]]
 
-    -- BACK - Deathguard's Cloak
+    -- BACK - Deathguard's Cloak (Horde) / Cloak of the Honor Guard (Alliance)
     [20068] = { slot = "BACK", class = nil, honor = 4590, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Deathguard's Cloak" },
+    [20073] = { slot = "BACK", class = nil, honor = 4590, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Cloak of the Honor Guard" },
 
     -- TRINKET - Defiler's Talisman (all levels)
     [20072] = { slot = "TRINKET", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Talisman" },

@@ -1569,7 +1569,7 @@ local function CreateGoalPicker()
                 local isAllianceItem = itemName:find("Grand Marshal") or itemName:find("Marshal's") or
                     itemName:find("Highlander") or itemName:find("Sentinel") or itemName:find("Silverwing") or
                     itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
-                    itemName:find("Insignia of the Alliance")
+                    itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance")
 
                 if isHordeItem and playerFaction ~= "Horde" then
                     passFilter = false
