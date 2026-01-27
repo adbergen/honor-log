@@ -1164,6 +1164,21 @@ function HonorLog:HandleSlashCommand(msg)
             print("  |cffffffff/honorlog resize|r - Reset frame size to default")
             print("  |cffffffff/honorlog resize toggle|r - Toggle resizing on/off")
         end
+    elseif cmd == "scan" then
+        local subCmd = arg:lower()
+        if subCmd == "" then
+            self:ScanCurrentVendor()
+        elseif subCmd == "export" then
+            self:ExportScannedData()
+        elseif subCmd == "clear" then
+            self:ClearScannedData()
+        elseif subCmd == "status" then
+            self:ShowScanStatus()
+        elseif subCmd == "debug" then
+            self:ToggleScannerDebug()
+        else
+            self:ShowScanStatus()
+        end
     else
         print("|cff00ff00HonorLog|r Unknown command. Type /honorlog help for options.")
     end
@@ -1190,6 +1205,8 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog debug|r - Toggle debug mode")
     print("  |cffffffff/honorlog currency|r - Show currency diagnostic")
     print("  |cffffffff/honorlog test [bg]|r - Test record a game")
+    print("  |cffffffff/honorlog scan|r - Scan current PvP vendor (dev)")
+    print("  |cffffffff/honorlog scan export|r - Export scanned data as Lua")
     print("  |cffffffff/honorlog help|r - Show this help")
 end
 

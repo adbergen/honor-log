@@ -2,7 +2,7 @@
 ## Title: HonorLog
 ## Notes: Battleground statistics tracker for BCC Anniversary - tracks wins, losses, honor, marks, and more
 ## Author: You
-## Version: 1.1.3
+## Version: 1.1.4
 ## SavedVariables: HonorLogDB
 ## SavedVariablesPerCharacter: HonorLogCharDB
 
@@ -27,6 +27,7 @@ Modules\AV.lua
 Modules\AB.lua
 Modules\WSG.lua
 Modules\EotS.lua
+Modules\VendorScanner.lua
 
 # UI
 UI\Theme.lua
