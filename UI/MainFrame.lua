@@ -97,8 +97,12 @@ local function CreateProgressBar(parent, height)
     fill:SetWidth(1)
     container.fill = fill
 
+    -- Store current values for resize recalculation
+    container.currentPercent = 0
+
     function container:SetProgress(percent, isWin)
-        local maxWidth = container:GetWidth()
+        self.currentPercent = percent
+        local maxWidth = self:GetWidth()
         local width = math.max(1, maxWidth * (percent / 100))
         fill:SetWidth(width)
 
@@ -108,6 +112,15 @@ local function CreateProgressBar(parent, height)
             fill:SetVertexColor(0.90, 0.30, 0.30, 1)
         end
     end
+
+    -- Handle resize to update fill width
+    container:SetScript("OnSizeChanged", function(self)
+        local maxWidth = self:GetWidth()
+        if maxWidth > 0 then
+            local width = math.max(1, maxWidth * (self.currentPercent / 100))
+            fill:SetWidth(width)
+        end
+    end)
 
     return container
 end
@@ -222,7 +235,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.5")
+    versionBadge:SetText("v1.1.6")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)

@@ -646,29 +646,32 @@ local function CreateGoalsPanel(parent)
             local contentHeight = (#goals * GOAL_CARD_HEIGHT) + ((#goals - 1) * GOAL_CARD_SPACING) + 10
             self.goalsContainer:SetHeight(contentHeight)
 
-            -- Calculate totals from all goals (both current and needed)
+            -- Calculate totals from all goals
+            -- Sum up what's NEEDED from each goal
             local totalHonorNeeded = 0
-            local totalHonorCurrent = 0
             local totalArenaNeeded = 0
-            local totalArenaCurrent = 0
             local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
-            local totalMarksCurrent = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
 
             for _, goal in ipairs(goals) do
                 if goal.honor.needed > 0 then
                     totalHonorNeeded = totalHonorNeeded + goal.honor.needed
-                    totalHonorCurrent = totalHonorCurrent + math.min(goal.honor.current, goal.honor.needed)
                 end
                 if goal.arena.needed > 0 then
                     totalArenaNeeded = totalArenaNeeded + goal.arena.needed
-                    totalArenaCurrent = totalArenaCurrent + math.min(goal.arena.current, goal.arena.needed)
                 end
                 for bgType, markData in pairs(goal.marks) do
                     if markData.needed > 0 then
                         totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
-                        totalMarksCurrent[bgType] = totalMarksCurrent[bgType] + math.min(markData.current, markData.needed)
                     end
                 end
+            end
+
+            -- Get actual player currency (not multiplied per goal)
+            local totalHonorCurrent = math.min(HonorLog:GetCurrentHonor(), totalHonorNeeded)
+            local totalArenaCurrent = math.min(HonorLog:GetCurrentArenaPoints(), totalArenaNeeded)
+            local totalMarksCurrent = {}
+            for bgType, needed in pairs(totalMarksNeeded) do
+                totalMarksCurrent[bgType] = math.min(HonorLog:GetCurrentMarks(bgType), needed)
             end
 
             -- Calculate overall progress (weighted average based on total currency needed)
@@ -845,22 +848,7 @@ local function CreateGoalPicker()
     UIDropDownMenu_SetWidth(seasonDropdown, 90)
     frame.seasonDropdown = seasonDropdown
 
-    -- Filter: Useable checkbox
-    local useableCheck = CreateFrame("CheckButton", "HonorLogUseableCheck", frame, "UICheckButtonTemplate")
-    useableCheck:SetSize(24, 24)
-    useableCheck:SetPoint("LEFT", seasonDropdown, "RIGHT", 0, 0)
-    useableCheck:SetChecked(true) -- Default to checked
-    useableCheck.text = useableCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    useableCheck.text:SetPoint("LEFT", useableCheck, "RIGHT", 0, 0)
-    useableCheck.text:SetText("Useable")
-    useableCheck.text:SetTextColor(unpack(COLORS.textSecondary))
-    useableCheck:SetScript("OnClick", function(self)
-        frame.filterUseable = self:IsChecked()
-        frame:RefreshItems()
-    end)
-    frame.useableCheck = useableCheck
-
-    -- Filter row 2: Search box (full width below dropdowns)
+    -- Filter row 2: Search box
     local searchLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     searchLabel:SetPoint("TOPLEFT", 16, -68)
     searchLabel:SetText("Search:")
@@ -869,6 +857,36 @@ local function CreateGoalPicker()
     local searchBox = CreateFrame("EditBox", "HonorLogSearchBox", frame, "InputBoxTemplate")
     searchBox:SetSize(200, 20)
     searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 8, 0)
+
+    -- Filter row 3: Checkboxes (below search)
+    local useableCheck = CreateFrame("CheckButton", "HonorLogUseableCheck", frame, "UICheckButtonTemplate")
+    useableCheck:SetSize(24, 24)
+    useableCheck:SetPoint("TOPLEFT", 16, -92)
+    useableCheck:SetChecked(true)
+    useableCheck.text = useableCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    useableCheck.text:SetPoint("LEFT", useableCheck, "RIGHT", 0, 0)
+    useableCheck.text:SetText("Useable")
+    useableCheck.text:SetTextColor(unpack(COLORS.textSecondary))
+    useableCheck:SetScript("OnClick", function(self)
+        frame.filterUseable = self:GetChecked()
+        frame:RefreshItems()
+    end)
+    frame.useableCheck = useableCheck
+
+    local hideOwnedCheck = CreateFrame("CheckButton", "HonorLogHideOwnedCheck", frame, "UICheckButtonTemplate")
+    hideOwnedCheck:SetSize(24, 24)
+    hideOwnedCheck:SetPoint("LEFT", useableCheck, "RIGHT", 70, 0)
+    hideOwnedCheck:SetChecked(false)
+    hideOwnedCheck.text = hideOwnedCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hideOwnedCheck.text:SetPoint("LEFT", hideOwnedCheck, "RIGHT", 0, 0)
+    hideOwnedCheck.text:SetText("Hide Owned")
+    hideOwnedCheck.text:SetTextColor(unpack(COLORS.textSecondary))
+    hideOwnedCheck:SetScript("OnClick", function(self)
+        frame.filterHideOwned = self:GetChecked()
+        frame:RefreshItems()
+    end)
+    frame.hideOwnedCheck = hideOwnedCheck
+
     searchBox:SetAutoFocus(false)
     searchBox:SetMaxLetters(50)
     searchBox:SetTextInsets(4, 4, 0, 0)
@@ -891,9 +909,9 @@ local function CreateGoalPicker()
 
     frame.searchBox = searchBox
 
-    -- Scroll frame for items (adjusted to start below search row)
+    -- Scroll frame for items (adjusted to start below checkbox row)
     local scrollFrame = CreateFrame("ScrollFrame", "HonorLogGoalPickerScroll", frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 12, -95)
+    scrollFrame:SetPoint("TOPLEFT", 12, -118)
     scrollFrame:SetPoint("BOTTOMRIGHT", -28, 12)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -916,6 +934,7 @@ local function CreateGoalPicker()
     frame.filterSlot = nil
     frame.filterSeason = nil
     frame.filterUseable = true -- Default to useable only
+    frame.filterHideOwned = false -- Default to showing all items
     frame.searchText = ""
 
     -- Initialize dropdowns
@@ -1094,12 +1113,18 @@ local function CreateGoalPicker()
         -- Slot indicator (below cost, muted)
         local slotText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         slotText:SetPoint("TOPLEFT", costLine, "BOTTOMLEFT", 0, -2)
-        slotText:SetPoint("RIGHT", addBtn, "LEFT", -8, 0)
         slotText:SetJustifyH("LEFT")
         slotText:SetTextColor(unpack(COLORS.textMuted))
         slotText:SetWordWrap(false)
         slotText:SetMaxLines(1)
         row.slotText = slotText
+
+        -- Owned badge (shown when player has the item)
+        local ownedBadge = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        ownedBadge:SetPoint("LEFT", slotText, "RIGHT", 6, 0)
+        ownedBadge:SetText("|cff40d860✓ Owned|r")
+        ownedBadge:Hide()
+        row.ownedBadge = ownedBadge
 
         -- Track shift state for compare tooltip
         row.shiftWasDown = false
@@ -1184,6 +1209,73 @@ local function CreateGoalPicker()
             return nil -- Unknown or universal (weapons, trinkets, etc.)
         end
 
+        -- Weapon subtype usability by class (matches GetItemInfo() itemSubType values)
+        local weaponSubtypes = {
+            WARRIOR = {
+                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
+                ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true,
+                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
+                ["Daggers"] = true, ["Fist Weapons"] = true, ["Polearms"] = true,
+                ["Staves"] = true, ["Bows"] = true, ["Crossbows"] = true, ["Guns"] = true,
+                ["Thrown"] = true,
+            },
+            PALADIN = {
+                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
+                ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true,
+                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
+                ["Polearms"] = true,
+            },
+            HUNTER = {
+                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
+                ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true,
+                ["Daggers"] = true, ["Fist Weapons"] = true, ["Polearms"] = true,
+                ["Staves"] = true, ["Bows"] = true, ["Crossbows"] = true, ["Guns"] = true,
+                ["Thrown"] = true,
+            },
+            SHAMAN = {
+                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
+                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
+                ["Daggers"] = true, ["Fist Weapons"] = true, ["Staves"] = true,
+            },
+            ROGUE = {
+                ["One-Handed Swords"] = true, ["One-Handed Maces"] = true,
+                ["Daggers"] = true, ["Fist Weapons"] = true,
+                ["Bows"] = true, ["Crossbows"] = true, ["Guns"] = true, ["Thrown"] = true,
+            },
+            DRUID = {
+                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
+                ["Daggers"] = true, ["Fist Weapons"] = true, ["Polearms"] = true,
+                ["Staves"] = true,
+            },
+            MAGE = {
+                ["One-Handed Swords"] = true, ["Daggers"] = true, ["Staves"] = true,
+                ["Wands"] = true,
+            },
+            WARLOCK = {
+                ["One-Handed Swords"] = true, ["Daggers"] = true, ["Staves"] = true,
+                ["Wands"] = true,
+            },
+            PRIEST = {
+                ["One-Handed Maces"] = true, ["Daggers"] = true, ["Staves"] = true,
+                ["Wands"] = true,
+            },
+        }
+
+        -- Get weapon subtype from item using WoW API
+        local function GetWeaponSubtype(itemID, slot)
+            if not itemID or not slot then return nil end
+            -- Only check weapon slots
+            if slot ~= "MAIN_HAND" and slot ~= "OFF_HAND" and slot ~= "TWO_HAND" and slot ~= "RANGED" then
+                return nil
+            end
+            -- GetItemInfo returns: name, link, quality, ilvl, minLevel, type, subType, ...
+            local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemID)
+            if itemType == "Weapon" then
+                return itemSubType
+            end
+            return nil
+        end
+
         -- Filter items
         local filteredItems = {}
         for itemID, data in pairs(HonorLog.GearDB or {}) do
@@ -1205,22 +1297,51 @@ local function CreateGoalPicker()
                 end
             end
 
-            -- Faction filter for faction-specific PvP gear
+            -- Weapon type filter (only if useable filter is enabled)
+            if passFilter and self.filterUseable then
+                local weaponSubtype = GetWeaponSubtype(itemID, data.slot)
+                if weaponSubtype then
+                    local canUse = weaponSubtypes[playerClass]
+                    if canUse and not canUse[weaponSubtype] then
+                        passFilter = false
+                    end
+                end
+            end
+
+            -- Faction filter for faction-specific PvP gear (ALWAYS applied regardless of Useable filter)
             if passFilter and data.name then
                 local itemName = data.name
-                -- Horde-only items: High Warlord (R14), Warlord's (R12-13), Defiler (AB), Outrider/Legionnaire/Advisor/Scout (WSG), Frostwolf (AV)
-                if itemName:find("High Warlord") or itemName:find("Warlord's") or itemName:find("Defiler") or
-                   itemName:find("Outrider") or itemName:find("Legionnaire") or itemName:find("Advisor") or itemName:find("Scout's") or
-                   itemName:find("Frostwolf") or itemName:find("Warsong Battle") or itemName:find("Deathguard") then
-                    if playerFaction ~= "Horde" then
-                        passFilter = false
-                    end
-                -- Alliance-only items: Grand Marshal (R14), Field Marshal (R12-13), Highlander (AB), Sentinel/Silverwing (WSG), Stormpike (AV)
-                elseif itemName:find("Grand Marshal") or itemName:find("Field Marshal") or itemName:find("Highlander") or
-                       itemName:find("Sentinel") or itemName:find("Silverwing") or itemName:find("Stormpike") then
-                    if playerFaction ~= "Alliance" then
-                        passFilter = false
-                    end
+                -- Horde-only items:
+                -- - High Warlord (R14 weapons), Warlord's (head/shoulder/chest)
+                -- - General's (hands/legs/feet)
+                -- - Defiler's (AB reputation)
+                -- - Outrider's, Legionnaire's, Advisor's, Scout's (WSG reputation)
+                -- - Frostwolf (AV reputation)
+                -- - Deathguard, Blood Guard
+                local isHordeItem = itemName:find("High Warlord") or itemName:find("Warlord's") or
+                    itemName:find("General's") or
+                    itemName:find("Defiler") or itemName:find("Outrider") or itemName:find("Legionnaire") or
+                    itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Frostwolf") or
+                    itemName:find("Warsong Battle") or itemName:find("Deathguard") or itemName:find("Blood Guard") or
+                    itemName:find("Insignia of the Horde")
+
+                -- Alliance-only items:
+                -- - Grand Marshal (R14 weapons), Field Marshal's (head/shoulder/chest)
+                -- - Marshal's (hands/legs/feet)
+                -- - Highlander's (AB reputation)
+                -- - Sentinel's, Silverwing (WSG reputation)
+                -- - Stormpike (AV reputation)
+                -- - Knight-, Lieutenant
+                -- - Insignia of the Alliance
+                local isAllianceItem = itemName:find("Grand Marshal") or itemName:find("Marshal's") or
+                    itemName:find("Highlander") or itemName:find("Sentinel") or itemName:find("Silverwing") or
+                    itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
+                    itemName:find("Insignia of the Alliance")
+
+                if isHordeItem and playerFaction ~= "Horde" then
+                    passFilter = false
+                elseif isAllianceItem and playerFaction ~= "Alliance" then
+                    passFilter = false
                 end
                 -- Gladiator's gear is faction-neutral, no filter needed
             end
@@ -1250,6 +1371,14 @@ local function CreateGoalPicker()
             if passFilter and self.searchText and self.searchText ~= "" then
                 local name = data.name or ""
                 if not name:lower():find(self.searchText, 1, true) then
+                    passFilter = false
+                end
+            end
+
+            -- Hide owned filter
+            if passFilter and self.filterHideOwned then
+                local ownedCount = GetItemCount(itemID, true) -- true = include bank
+                if ownedCount > 0 then
                     passFilter = false
                 end
             end
@@ -1334,6 +1463,14 @@ local function CreateGoalPicker()
                 BACK = "Back", RELIC = "Relic"
             }
             row.slotText:SetText(slotNames[data.slot] or data.slot or "")
+
+            -- Check if player owns this item
+            local ownedCount = GetItemCount(itemID, true) -- true = include bank
+            if ownedCount > 0 then
+                row.ownedBadge:Show()
+            else
+                row.ownedBadge:Hide()
+            end
 
             -- Add button handler
             row.addBtn:SetScript("OnClick", function()

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.6] - 2025-01-27
+
+### Added
+- **Owned Indicator**: Goal picker now shows "✓ Owned" badge for items you already have
+- **Hide Owned Filter**: New checkbox to filter out items you already own
+- **Weapon Filter**: Useable filter now hides weapons your class can't equip (e.g., crossbows for mages)
+
+### Fixed
+- **Totals Bar**: Fixed progress showing wrong values (was multiplying current honor by goal count)
+- **Multiple Counting**: Fixed wins/losses being counted 2-3x in AV (added session-based recording guard)
+- **Faction Filter**: Expanded to catch all Marshal's/General's rank gear and faction insignias
+- **Progress Bars**: Fixed BG card progress bars not updating on window resize
+
 ## [1.1.5] - 2025-01-27
 
 ### Added

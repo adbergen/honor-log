@@ -28,6 +28,8 @@ local lastHonorValue = nil    -- For tracking honor changes
 local isInBG = false
 local bgEnded = false
 local debugMode = false
+local lastRecordedTime = 0  -- Timestamp of last recorded game (prevents double counting)
+local gameRecordedThisSession = false  -- Absolute guard: only one recording per BG session
 
 -- Backup state for when we leave before score update arrives
 local lastBG = nil
@@ -275,6 +277,7 @@ function HonorLog:OnBattlegroundEnter(bgType)
     currentBG = bgType
     bgStartTime = GetTime()
     bgEnded = false
+    gameRecordedThisSession = false  -- Reset for new BG
 
     -- Reset honor tracking for this BG
     bgHonorAccumulated = 0
@@ -541,11 +544,29 @@ function HonorLog:OnBattlegroundEnd(winner)
         print("|cffff00ff[HonorLog Debug]|r   winner param: " .. tostring(winner))
         print("|cffff00ff[HonorLog Debug]|r   currentBG: " .. tostring(currentBG))
         print("|cffff00ff[HonorLog Debug]|r   bgStartTime: " .. tostring(bgStartTime))
+        print("|cffff00ff[HonorLog Debug]|r   gameRecordedThisSession: " .. tostring(gameRecordedThisSession))
+    end
+
+    -- Absolute guard: only one recording per BG session
+    if gameRecordedThisSession then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - game already recorded this session!")
+        end
+        return
     end
 
     if not currentBG or not bgStartTime then
         if debugMode then
             print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - missing currentBG or bgStartTime!")
+        end
+        return
+    end
+
+    -- Time-based guard as backup (30 second window)
+    local now = GetTime()
+    if (now - lastRecordedTime) < 30 then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - game already recorded " .. string.format("%.1f", now - lastRecordedTime) .. "s ago")
         end
         return
     end
@@ -613,8 +634,13 @@ function HonorLog:OnBattlegroundEnd(winner)
 
     if not success then
         print("|cffff0000[HonorLog ERROR]|r RecordGame failed: " .. tostring(err))
-    elseif debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   RecordGame completed successfully")
+    else
+        -- Mark that we successfully recorded a game (prevents double counting)
+        lastRecordedTime = GetTime()
+        gameRecordedThisSession = true
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   RecordGame completed successfully, gameRecordedThisSession = true")
+        end
     end
 
     -- Print result
@@ -632,6 +658,11 @@ function HonorLog:OnBattlegroundEnd(winner)
     bgStartHonor = nil
     bgHonorAccumulated = 0
     lastHonorValue = nil
+    -- Clear backup state to prevent double recording via UPDATE_BATTLEFIELD_SCORE
+    lastBG = nil
+    lastBGStartTime = nil
+    lastBGStartHonor = nil
+    lastBGLeaveTime = nil
     -- bgEnded stays true so OnBattlegroundLeave knows game was recorded
     SaveBGState()
 
