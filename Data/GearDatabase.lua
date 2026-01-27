@@ -1,6 +1,6 @@
 -- HonorLog Gear Database
--- TBC Classic PvP gear with VERIFIED itemIDs from Wowhead
--- Last updated: 2025-01-24
+-- TBC Classic PvP gear with VERIFIED itemIDs from Wowhead and in-game vendor scans
+-- Last updated: 2025-01-27
 
 local ADDON_NAME, HonorLog = ...
 
@@ -202,793 +202,723 @@ HonorLog.GearDB = {
 
     --[[
     ============================================================================
-    PREPATCH HONOR GEAR - High Warlord's Sets (Level 70 Rare PvP)
-    Verified itemIDs from Wowhead TBC Classic
-    Honor-only gear, no arena points required
+    PREPATCH HONOR GEAR - EPIC (Rank 12-14 equivalent)
+    Costs follow pattern: HEAD/CHEST/LEGS = 13005-13770 honor, SHOULDER/HANDS/FEET = 8415 honor
     ============================================================================
     --]]
 
-    -- WARRIOR - High Warlord's Battlegear (Plate)
-    [28851] = { slot = "CHEST", class = "WARRIOR", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Plate Chestpiece" },
-    [28852] = { slot = "HANDS", class = "WARRIOR", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Plate Gauntlets" },
-    [28853] = { slot = "HEAD", class = "WARRIOR", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Plate Helm" },
-    [28854] = { slot = "LEGS", class = "WARRIOR", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Plate Legguards" },
-    [28855] = { slot = "SHOULDER", class = "WARRIOR", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Plate Shoulders" },
-
-    -- PALADIN - High Warlord's Aegis (Lamellar Plate)
-    [28831] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Lamellar Chestpiece" },
-    [28832] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Lamellar Gauntlets" },
-    [28833] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Lamellar Helm" },
-    [28834] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Lamellar Legguards" },
-    [28835] = { slot = "SHOULDER", class = "PALADIN", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Lamellar Shoulders" },
-
-    -- HUNTER - High Warlord's Pursuit (Chain Mail)
-    [28805] = { slot = "CHEST", class = "HUNTER", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Chain Armor" },
-    [28806] = { slot = "HANDS", class = "HUNTER", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Chain Gauntlets" },
-    [28807] = { slot = "HEAD", class = "HUNTER", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Chain Helm" },
-    [28808] = { slot = "LEGS", class = "HUNTER", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Chain Leggings" },
-    [28809] = { slot = "SHOULDER", class = "HUNTER", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Chain Spaulders" },
-
-    -- SHAMAN - High Warlord's Earthshaker (Linked Mail)
-    [28841] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Linked Armor" },
-    [28842] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Linked Gauntlets" },
-    [28843] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Linked Helm" },
-    [28844] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Linked Leggings" },
-    [28845] = { slot = "SHOULDER", class = "SHAMAN", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Linked Spaulders" },
-
-    -- ROGUE - High Warlord's Vestments (Leather)
-    [28836] = { slot = "HANDS", class = "ROGUE", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Leather Gloves" },
-    [28837] = { slot = "HEAD", class = "ROGUE", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Leather Helm" },
-    [28838] = { slot = "LEGS", class = "ROGUE", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Leather Legguards" },
-    [28839] = { slot = "SHOULDER", class = "ROGUE", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Leather Spaulders" },
-    [28840] = { slot = "CHEST", class = "ROGUE", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Leather Tunic" },
-
-    -- DRUID - High Warlord's Sanctuary (Dragonhide Leather)
-    [28810] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Dragonhide Tunic" },
-    [28811] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Dragonhide Gloves" },
-    [28812] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Dragonhide Helm" },
-    [28813] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Dragonhide Legguards" },
-    [28814] = { slot = "SHOULDER", class = "DRUID", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Dragonhide Spaulders" },
-
-    -- PRIEST - High Warlord's Raiment (Satin Cloth)
-    [28856] = { slot = "HANDS", class = "PRIEST", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Satin Gloves" },
-    [28857] = { slot = "HEAD", class = "PRIEST", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Satin Hood" },
-    [28858] = { slot = "LEGS", class = "PRIEST", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Satin Leggings" },
-    [28859] = { slot = "SHOULDER", class = "PRIEST", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Satin Mantle" },
-    [28860] = { slot = "CHEST", class = "PRIEST", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Satin Robe" },
-
-    -- MAGE - High Warlord's Regalia (Silk Cloth)
-    [28866] = { slot = "SHOULDER", class = "MAGE", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Silk Amice" },
-    [28867] = { slot = "HEAD", class = "MAGE", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Silk Cowl" },
-    [28868] = { slot = "HANDS", class = "MAGE", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Silk Handguards" },
-    [28869] = { slot = "CHEST", class = "MAGE", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Silk Raiment" },
-    [28870] = { slot = "LEGS", class = "MAGE", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Silk Trousers" },
-
-    -- WARLOCK - High Warlord's Dreadgear (Dreadweave Cloth)
-    [28817] = { slot = "HANDS", class = "WARLOCK", honor = 10360, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Dreadweave Gloves" },
-    [28818] = { slot = "HEAD", class = "WARLOCK", honor = 14280, arena = 0, marks = { AV = 30 }, season = nil, name = "High Warlord's Dreadweave Hood" },
-    [28819] = { slot = "LEGS", class = "WARLOCK", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Dreadweave Leggings" },
-    [28820] = { slot = "SHOULDER", class = "WARLOCK", honor = 11424, arena = 0, marks = { AB = 20 }, season = nil, name = "High Warlord's Dreadweave Mantle" },
-    [28821] = { slot = "CHEST", class = "WARLOCK", honor = 14280, arena = 0, marks = { AB = 30 }, season = nil, name = "High Warlord's Dreadweave Robe" },
-
-    --[[
-    ============================================================================
-    HONOR WEAPONS - High Warlord's / Grand Marshal's
-    Verified from Wowhead TBC Classic
-    ============================================================================
-    --]]
-
-    -- Two-Handed Weapons (TBC Level 70 versions)
-    [28935] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { AV = 40 }, season = nil, name = "High Warlord's War Staff" },
-    [28920] = { slot = "MAIN_HAND", class = nil, honor = 25200, arena = 0, marks = { AV = 20 }, season = nil, name = "High Warlord's Cleaver" },
-    -- Note: Classic rank 14 weapons (18XXX, 16XXX, 12XXX range) are in the PREPATCH section with reduced costs
-
-    --[[
-    ============================================================================
-    ACCESSORIES - Trinkets, Rings, Necks (Verified)
-    ============================================================================
-    --]]
-
-    -- PvP Trinkets (Medallion of the Horde/Alliance - Break CC)
-    [28235] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { AB = 10, AV = 10 }, season = nil, name = "Medallion of the Horde" },
-    [28236] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { AB = 10, AV = 10 }, season = nil, name = "Medallion of the Alliance" },
-
-    -- Battlemaster Trinkets
-    [28237] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { EotS = 10, WSG = 10 }, season = nil, name = "Battlemaster's Cruelty" },
-    [28238] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { EotS = 10, WSG = 10 }, season = nil, name = "Battlemaster's Depravity" },
-    [28239] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { EotS = 10, WSG = 10 }, season = nil, name = "Battlemaster's Determination" },
-    [28240] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { EotS = 10, WSG = 10 }, season = nil, name = "Battlemaster's Audacity" },
-    [28241] = { slot = "TRINKET", class = nil, honor = 16983, arena = 0, marks = { EotS = 10, WSG = 10 }, season = nil, name = "Battlemaster's Perseverance" },
-
-    -- PvP Rings (Verified from Wowhead)
-    [28246] = { slot = "FINGER", class = nil, honor = 15300, arena = 0, marks = { AV = 10 }, season = nil, name = "Band of Triumph" },
-    [28247] = { slot = "FINGER", class = nil, honor = 15300, arena = 0, marks = { AV = 10 }, season = nil, name = "Band of Dominance" },
-
-    -- PvP Necklaces (Verified from Wowhead)
-    [28244] = { slot = "NECK", class = nil, honor = 15300, arena = 0, marks = { AB = 10 }, season = nil, name = "Pendant of Triumph" },
-    [28245] = { slot = "NECK", class = nil, honor = 15300, arena = 0, marks = { AB = 10 }, season = nil, name = "Pendant of Dominance" },
-
-    -- Sergeant's Cloaks (Verified from Wowhead)
-    [28377] = { slot = "BACK", class = nil, honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Sergeant's Heavy Cloak" },
-    [28378] = { slot = "BACK", class = nil, honor = 11794, arena = 0, marks = { EotS = 20 }, season = nil, name = "Sergeant's Heavy Cape" },
-
-    --[[
-    ============================================================================
-    VETERAN'S GEAR - Season 2 Honor Off-Pieces (Belts, Boots, Bracers)
-    Verified itemIDs from Wowhead TBC Classic
-    Honor + marks, no arena points required
-    ============================================================================
-    --]]
-
-    -- VETERAN'S CLOTH (Mage/Warlock/Priest)
-    -- Dreadweave (Warlock)
-    [32799] = { slot = "WAIST", class = "WARLOCK", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Dreadweave Belt" },
-    [32797] = { slot = "WRIST", class = "WARLOCK", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Dreadweave Cuffs" },
-    [32798] = { slot = "FEET", class = "WARLOCK", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Dreadweave Stalkers" },
-
-    -- Silk (Mage)
-    [32807] = { slot = "WAIST", class = "MAGE", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Silk Belt" },
-    [32820] = { slot = "WRIST", class = "MAGE", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Silk Cuffs" },
-    [32795] = { slot = "FEET", class = "MAGE", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Silk Footguards" },
-
-    -- Mooncloth (Priest)
-    [32803] = { slot = "WAIST", class = "PRIEST", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Mooncloth Belt" },
-    [32817] = { slot = "WRIST", class = "PRIEST", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Mooncloth Cuffs" },
-    [32791] = { slot = "FEET", class = "PRIEST", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Mooncloth Slippers" },
-
-    -- VETERAN'S LEATHER (Rogue/Druid)
-    -- Leather (Rogue)
-    [32802] = { slot = "WAIST", class = "ROGUE", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Leather Belt" },
-    [32814] = { slot = "WRIST", class = "ROGUE", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Leather Bracers" },
-    [32790] = { slot = "FEET", class = "ROGUE", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Leather Boots" },
-
-    -- Dragonhide (Druid Feral)
-    [32800] = { slot = "WAIST", class = "DRUID", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Dragonhide Belt" },
-    [32810] = { slot = "WRIST", class = "DRUID", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Dragonhide Bracers" },
-    [32786] = { slot = "FEET", class = "DRUID", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Dragonhide Boots" },
-
-    -- VETERAN'S MAIL (Hunter/Shaman)
-    -- Chain (Hunter)
-    [32788] = { slot = "WAIST", class = "HUNTER", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Chain Girdle" },
-    [32809] = { slot = "WRIST", class = "HUNTER", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Chain Bracers" },
-    [32787] = { slot = "FEET", class = "HUNTER", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Chain Sabatons" },
-
-    -- Linked (Shaman)
-    [32804] = { slot = "WAIST", class = "SHAMAN", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Linked Girdle" },
-    [32815] = { slot = "WRIST", class = "SHAMAN", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Linked Bracers" },
-    [32792] = { slot = "FEET", class = "SHAMAN", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Linked Sabatons" },
-
-    -- VETERAN'S PLATE (Warrior/Paladin)
-    -- Plate (Warrior)
-    [32805] = { slot = "WAIST", class = "WARRIOR", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Plate Belt" },
-    [32818] = { slot = "WRIST", class = "WARRIOR", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Plate Bracers" },
-    [32793] = { slot = "FEET", class = "WARRIOR", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Plate Greaves" },
-
-    -- Lamellar (Paladin)
-    [32801] = { slot = "WAIST", class = "PALADIN", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Veteran's Lamellar Belt" },
-    [32812] = { slot = "WRIST", class = "PALADIN", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Veteran's Lamellar Bracers" },
-    [32789] = { slot = "FEET", class = "PALADIN", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Veteran's Lamellar Greaves" },
-
-    --[[
-    ============================================================================
-    VINDICATOR'S GEAR - Season 3 Honor Off-Pieces (Belts, Boots, Bracers)
-    Verified itemIDs from Wowhead TBC Classic
-    Honor + marks, no arena points required
-    ============================================================================
-    --]]
-
-    -- VINDICATOR'S CLOTH (Mage/Warlock/Priest)
-    -- Dreadweave (Warlock)
-    [33882] = { slot = "WAIST", class = "WARLOCK", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Dreadweave Belt" },
-    [33883] = { slot = "WRIST", class = "WARLOCK", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Dreadweave Cuffs" },
-    [33884] = { slot = "FEET", class = "WARLOCK", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Dreadweave Stalkers" },
-
-    -- Silk (Mage)
-    [33912] = { slot = "WAIST", class = "MAGE", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Silk Belt" },
-    [33913] = { slot = "WRIST", class = "MAGE", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Silk Cuffs" },
-    [33914] = { slot = "FEET", class = "MAGE", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Silk Footguards" },
-
-    -- Mooncloth (Priest)
-    [33900] = { slot = "WAIST", class = "PRIEST", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Mooncloth Belt" },
-    [33901] = { slot = "WRIST", class = "PRIEST", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Mooncloth Cuffs" },
-    [33902] = { slot = "FEET", class = "PRIEST", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Mooncloth Slippers" },
-
-    -- VINDICATOR'S LEATHER (Rogue/Druid)
-    -- Leather (Rogue)
-    [33891] = { slot = "WAIST", class = "ROGUE", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Leather Belt" },
-    [33893] = { slot = "WRIST", class = "ROGUE", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Leather Bracers" },
-    [33892] = { slot = "FEET", class = "ROGUE", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Leather Boots" },
-
-    -- Dragonhide (Druid Feral)
-    [33879] = { slot = "WAIST", class = "DRUID", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Dragonhide Belt" },
-    [33881] = { slot = "WRIST", class = "DRUID", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Dragonhide Bracers" },
-    [33880] = { slot = "FEET", class = "DRUID", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Dragonhide Boots" },
-
-    -- VINDICATOR'S MAIL (Hunter/Shaman)
-    -- Chain (Hunter)
-    [33877] = { slot = "WAIST", class = "HUNTER", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Chain Girdle" },
-    [33876] = { slot = "WRIST", class = "HUNTER", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Chain Bracers" },
-    [33878] = { slot = "FEET", class = "HUNTER", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Chain Sabatons" },
-
-    -- Linked (Shaman)
-    [33895] = { slot = "WAIST", class = "SHAMAN", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Linked Girdle" },
-    [33894] = { slot = "WRIST", class = "SHAMAN", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Linked Bracers" },
-    [33896] = { slot = "FEET", class = "SHAMAN", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Linked Sabatons" },
-
-    -- VINDICATOR'S PLATE (Warrior/Paladin)
-    -- Plate (Warrior)
-    [33811] = { slot = "WAIST", class = "WARRIOR", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Plate Belt" },
-    [33813] = { slot = "WRIST", class = "WARRIOR", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Plate Bracers" },
-    [33812] = { slot = "FEET", class = "WARRIOR", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Plate Greaves" },
-
-    -- Lamellar (Paladin)
-    [33885] = { slot = "WAIST", class = "PALADIN", honor = 17850, arena = 0, marks = { AB = 40 }, season = nil, name = "Vindicator's Lamellar Belt" },
-    [33887] = { slot = "WRIST", class = "PALADIN", honor = 11794, arena = 0, marks = { WSG = 20 }, season = nil, name = "Vindicator's Lamellar Bracers" },
-    [33886] = { slot = "FEET", class = "PALADIN", honor = 17850, arena = 0, marks = { EotS = 40 }, season = nil, name = "Vindicator's Lamellar Greaves" },
-
-    --[[
-    ============================================================================
-    PREPATCH BG VENDOR ITEMS - Highlander's Sets (Alliance AB)
-    TBC Prepatch costs: Honor + Arathi Basin marks (no rep required)
-    ItemIDs verified from Wowhead TBC Classic set pages
-    ============================================================================
-    --]]
-
-    -- HIGHLANDER'S CLOTH (Priest/Mage/Warlock) - The Highlander's Intent
-    [20047] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Cloth Girdle" },
-    [20054] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Cloth Boots" },
-    [20061] = { slot = "SHOULDER", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Epaulets" },
-
-    -- HIGHLANDER'S LEATHER (Rogue) - The Highlander's Purpose
-    [20045] = { slot = "WAIST", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Leather Girdle" },
-    [20052] = { slot = "FEET", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Leather Boots" },
-    [20059] = { slot = "SHOULDER", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Leather Shoulders" },
-
-    -- HIGHLANDER'S LIZARDHIDE (Druid) - The Highlander's Resolve
-    [20103] = { slot = "WAIST", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Lizardhide Girdle" },
-    [20060] = { slot = "SHOULDER", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Lizardhide Shoulders" },
-
-    -- HIGHLANDER'S CHAIN (Hunter) - The Highlander's Determination
-    [20043] = { slot = "WAIST", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Chain Girdle" },
-    [20050] = { slot = "FEET", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Chain Greaves" },
-    [20055] = { slot = "SHOULDER", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Chain Pauldrons" },
-
-    -- HIGHLANDER'S MAIL (Shaman) - The Highlander's Fortitude
-    [20044] = { slot = "WAIST", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Mail Girdle" },
-    [20051] = { slot = "FEET", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Mail Greaves" },
-    [20056] = { slot = "SHOULDER", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Mail Pauldrons" },
-
-    -- HIGHLANDER'S PLATE (Warrior) - The Highlander's Resolution
-    [20041] = { slot = "WAIST", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Plate Girdle" },
-    [20127] = { slot = "FEET", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Plate Greaves" },
-    [20057] = { slot = "SHOULDER", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Plate Spaulders" },
-
-    -- HIGHLANDER'S LAMELLAR (Paladin) - The Highlander's Resolve
-    [20042] = { slot = "WAIST", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Lamellar Girdle" },
-    [20049] = { slot = "FEET", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Lamellar Greaves" },
-    [20058] = { slot = "SHOULDER", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Highlander's Lamellar Spaulders" },
-
-    --[[
-    ============================================================================
-    PREPATCH BG VENDOR ITEMS - Defiler's Sets (Horde AB)
-    TBC Prepatch costs: Honor + Arathi Basin marks (no rep required)
-    ItemIDs verified from Wowhead TBC Classic set pages
-    ============================================================================
-    --]]
-
-    -- DEFILER'S CLOTH (Priest/Mage/Warlock) - The Defiler's Intent
-    [20163] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Cloth Girdle" },
-    [20159] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Cloth Boots" },
-    [20176] = { slot = "SHOULDER", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Epaulets" },
-
-    -- DEFILER'S LEATHER (Rogue) - The Defiler's Purpose
-    [20190] = { slot = "WAIST", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Leather Girdle" },
-    [20186] = { slot = "FEET", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Leather Boots" },
-    [20194] = { slot = "SHOULDER", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Leather Shoulders" },
-
-    -- DEFILER'S LIZARDHIDE (Druid) - The Defiler's Will
-    [20171] = { slot = "WAIST", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Lizardhide Girdle" },
-    [20167] = { slot = "FEET", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Lizardhide Boots" },
-    [20175] = { slot = "SHOULDER", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Lizardhide Shoulders" },
-
-    -- DEFILER'S CHAIN (Hunter) - The Defiler's Determination
-    [20150] = { slot = "WAIST", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Chain Girdle" },
-    [20154] = { slot = "FEET", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Chain Greaves" },
-    [20158] = { slot = "SHOULDER", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Chain Pauldrons" },
-
-    -- DEFILER'S MAIL (Shaman) - The Defiler's Fortitude
-    [20195] = { slot = "WAIST", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Mail Girdle" },
-    [20203] = { slot = "SHOULDER", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Mail Pauldrons" },
-
-    -- DEFILER'S PLATE (Warrior) - The Defiler's Resolution
-    [20204] = { slot = "WAIST", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Plate Girdle" },
-    [20211] = { slot = "FEET", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Plate Greaves" },
-    [20212] = { slot = "SHOULDER", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Plate Spaulders" },
-
-    -- DEFILER'S LAMELLAR (Paladin) - The Defiler's Resolve
-    [20177] = { slot = "WAIST", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
-    [20181] = { slot = "FEET", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
-    [20184] = { slot = "SHOULDER", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Lamellar Spaulders" },
-
-    --[[
-    ============================================================================
-    PREPATCH BG VENDOR ITEMS - Sentinel's Sets (Alliance WSG)
-    TBC Prepatch costs: Honor + Warsong Gulch marks (no rep required)
-    ItemIDs verified from Wowhead TBC Classic
-    ============================================================================
-    --]]
-
-    -- SENTINEL'S SILK (Cloth - Caster)
-    [22752] = { slot = "LEGS", class = nil, honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Silk Leggings" },
-
-    -- SENTINEL'S LEATHER (Rogue)
-    [22749] = { slot = "LEGS", class = "ROGUE", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Leather Pants" },
-
-    -- SENTINEL'S LIZARDHIDE (Druid)
-    [22750] = { slot = "LEGS", class = "DRUID", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Lizardhide Pants" },
-
-    -- SENTINEL'S CHAIN (Hunter)
-    [22748] = { slot = "LEGS", class = "HUNTER", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Chain Leggings" },
-
-    -- SENTINEL'S MAIL (Shaman)
-    [30497] = { slot = "LEGS", class = "SHAMAN", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Mail Leggings" },
-
-    -- SENTINEL'S PLATE (Warrior)
-    [22672] = { slot = "LEGS", class = "WARRIOR", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Plate Legguards" },
-
-    -- SENTINEL'S LAMELLAR (Paladin)
-    [22753] = { slot = "LEGS", class = "PALADIN", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Lamellar Legguards" },
-
-    --[[
-    ============================================================================
-    PREPATCH BG VENDOR ITEMS - Outrider's Sets (Horde WSG)
-    TBC Prepatch costs: Honor + Warsong Gulch marks (no rep required)
-    ItemIDs verified from Wowhead TBC Classic
-    ============================================================================
-    --]]
-
-    -- OUTRIDER'S SILK (Cloth - Caster)
-    [22747] = { slot = "LEGS", class = nil, honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Silk Leggings" },
-
-    -- OUTRIDER'S LEATHER (Rogue)
-    [22740] = { slot = "LEGS", class = "ROGUE", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Leather Pants" },
-
-    -- OUTRIDER'S LIZARDHIDE (Druid)
-    [22741] = { slot = "LEGS", class = "DRUID", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Lizardhide Pants" },
-
-    -- OUTRIDER'S CHAIN (Hunter)
-    [22673] = { slot = "LEGS", class = "HUNTER", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Chain Leggings" },
-
-    -- OUTRIDER'S MAIL (Shaman)
-    [22676] = { slot = "LEGS", class = "SHAMAN", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Mail Leggings" },
-
-    -- OUTRIDER'S PLATE (Warrior)
-    [22651] = { slot = "LEGS", class = "WARRIOR", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Plate Legguards" },
-
-    -- OUTRIDER'S LAMELLAR (Paladin)
-    [30498] = { slot = "LEGS", class = "PALADIN", honor = 2805, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Lamellar Legguards" },
-
-    --[[
-    ============================================================================
-    PREPATCH BG VENDOR ITEMS - Stormpike Sets (Alliance AV)
-    TBC Prepatch costs: Honor + Alterac Valley marks (no rep required)
-    ItemIDs verified from Wowhead TBC Classic
-    ============================================================================
-    --]]
-
-    -- STORMPIKE CLOTH
-    [19094] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Stormpike Cloth Girdle" },
-
-    -- STORMPIKE LEATHER
-    [19093] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Stormpike Leather Girdle" },
-
-    -- STORMPIKE MAIL
-    [19092] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Stormpike Mail Girdle" },
-
-    -- STORMPIKE PLATE
-    [19091] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Stormpike Plate Girdle" },
-
-    --[[
-    ============================================================================
-    PREPATCH BG VENDOR ITEMS - Frostwolf Sets (Horde AV)
-    TBC Prepatch costs: Honor + Alterac Valley marks (no rep required)
-    ItemIDs verified from Wowhead TBC Classic
-    ============================================================================
-    --]]
-
-    -- FROSTWOLF CLOTH
-    [19090] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Frostwolf Cloth Belt" },
-
-    -- FROSTWOLF LEATHER
-    [19089] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Frostwolf Leather Belt" },
-
-    -- FROSTWOLF MAIL
-    [19088] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Frostwolf Mail Belt" },
-
-    -- FROSTWOLF PLATE
-    [19087] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Frostwolf Plate Belt" },
-
-    --[[
-    ============================================================================
-    PREPATCH RANK 12-13 EPIC SETS - Field Marshal's / Warlord's (Alliance/Horde)
-    TBC Prepatch costs based on Anniversary prepatch pricing (reduced marks)
-    Head: 13005 honor + 3 AV marks
-    Shoulders: 8415 honor + 2 AB marks
-    Chest: 13770 honor + 3 AB marks
-    Legs: 13005 honor + 3 WSG marks
-    Hands: 8415 honor + 2 AV marks
-    Feet: 8415 honor + 2 AB marks
-    ============================================================================
-    --]]
-
-    -- WARRIOR - Field Marshal's Battlegear (Alliance)
-    [16477] = { slot = "CHEST", class = "WARRIOR", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Plate Armor" },
+    -- =========================================================================
+    -- WARRIOR - EPIC SETS
+    -- =========================================================================
+
+    -- WARRIOR - Field Marshal's Battlegear (Alliance, set 384)
     [16478] = { slot = "HEAD", class = "WARRIOR", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Plate Helm" },
     [16480] = { slot = "SHOULDER", class = "WARRIOR", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Plate Shoulderguards" },
+    [16477] = { slot = "CHEST", class = "WARRIOR", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Plate Armor" },
+    [16484] = { slot = "HANDS", class = "WARRIOR", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Plate Gauntlets" },
+    [16479] = { slot = "LEGS", class = "WARRIOR", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Plate Legguards" },
     [16483] = { slot = "FEET", class = "WARRIOR", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Plate Boots" },
-    [16484] = { slot = "HANDS", class = "WARRIOR", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Plate Gauntlets" },
-    [16479] = { slot = "LEGS", class = "WARRIOR", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Plate Legguards" },
 
-    -- WARRIOR - Warlord's Battlegear (Horde)
-    [16541] = { slot = "CHEST", class = "WARRIOR", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Plate Armor" },
+    -- WARRIOR - Warlord's Battlegear (Horde, set 383)
     [16542] = { slot = "HEAD", class = "WARRIOR", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Plate Headpiece" },
     [16544] = { slot = "SHOULDER", class = "WARRIOR", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Plate Shoulders" },
+    [16541] = { slot = "CHEST", class = "WARRIOR", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Plate Armor" },
+    [16548] = { slot = "HANDS", class = "WARRIOR", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Plate Gauntlets" },
+    [16543] = { slot = "LEGS", class = "WARRIOR", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Plate Leggings" },
     [16545] = { slot = "FEET", class = "WARRIOR", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Plate Boots" },
-    [16548] = { slot = "HANDS", class = "WARRIOR", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Plate Gauntlets" },
-    [16543] = { slot = "LEGS", class = "WARRIOR", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Plate Leggings" },
 
-    -- PALADIN - Field Marshal's Aegis (Alliance)
-    [16473] = { slot = "CHEST", class = "PALADIN", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Lamellar Chestplate" },
+    -- =========================================================================
+    -- PALADIN - EPIC SETS
+    -- =========================================================================
+
+    -- PALADIN - Field Marshal's Aegis (Alliance, set 402)
     [16474] = { slot = "HEAD", class = "PALADIN", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Lamellar Faceguard" },
     [16476] = { slot = "SHOULDER", class = "PALADIN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Lamellar Pauldrons" },
+    [16473] = { slot = "CHEST", class = "PALADIN", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Lamellar Chestplate" },
+    [16471] = { slot = "HANDS", class = "PALADIN", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Lamellar Gloves" },
+    [16475] = { slot = "LEGS", class = "PALADIN", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Lamellar Legplates" },
     [16472] = { slot = "FEET", class = "PALADIN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Lamellar Boots" },
-    [16471] = { slot = "HANDS", class = "PALADIN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Lamellar Gloves" },
-    [16475] = { slot = "LEGS", class = "PALADIN", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Lamellar Legplates" },
 
-    -- SHAMAN - Warlord's Earthshaker (Horde)
-    [16577] = { slot = "CHEST", class = "SHAMAN", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Mail Armor" },
-    [16578] = { slot = "HEAD", class = "SHAMAN", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Mail Helm" },
-    [16580] = { slot = "SHOULDER", class = "SHAMAN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Mail Spaulders" },
-    [16573] = { slot = "FEET", class = "SHAMAN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Mail Boots" },
-    [16574] = { slot = "HANDS", class = "SHAMAN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Mail Gauntlets" },
-    [16579] = { slot = "LEGS", class = "SHAMAN", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Mail Leggings" },
+    -- =========================================================================
+    -- HUNTER - EPIC SETS
+    -- =========================================================================
 
-    -- HUNTER - Field Marshal's Pursuit (Alliance)
-    [16466] = { slot = "CHEST", class = "HUNTER", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Chain Breastplate" },
+    -- HUNTER - Field Marshal's Pursuit (Alliance, set 395)
     [16465] = { slot = "HEAD", class = "HUNTER", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Chain Helm" },
     [16468] = { slot = "SHOULDER", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Chain Spaulders" },
+    [16466] = { slot = "CHEST", class = "HUNTER", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Chain Breastplate" },
+    [16463] = { slot = "HANDS", class = "HUNTER", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Chain Grips" },
+    [16467] = { slot = "LEGS", class = "HUNTER", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Chain Legguards" },
     [16462] = { slot = "FEET", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Chain Boots" },
-    [16463] = { slot = "HANDS", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Chain Grips" },
-    [16467] = { slot = "LEGS", class = "HUNTER", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Chain Legguards" },
 
-    -- HUNTER - Warlord's Pursuit (Horde)
-    [16565] = { slot = "CHEST", class = "HUNTER", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Chain Chestpiece" },
+    -- HUNTER - Warlord's Pursuit (Horde, set 396)
     [16566] = { slot = "HEAD", class = "HUNTER", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Chain Helmet" },
     [16568] = { slot = "SHOULDER", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Chain Shoulders" },
-    [16569] = { slot = "FEET", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Chain Sabatons" },
-    [16571] = { slot = "HANDS", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Chain Gloves" },
-    [16567] = { slot = "LEGS", class = "HUNTER", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Chain Legguards" },
+    [16565] = { slot = "CHEST", class = "HUNTER", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Chain Chestpiece" },
+    [16571] = { slot = "HANDS", class = "HUNTER", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Chain Gloves" },
+    [16567] = { slot = "LEGS", class = "HUNTER", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Chain Legguards" },
+    [16569] = { slot = "FEET", class = "HUNTER", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Chain Boots" },
 
-    -- ROGUE - Field Marshal's Vestments (Alliance)
-    [16453] = { slot = "CHEST", class = "ROGUE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Leather Chestpiece" },
+    -- =========================================================================
+    -- SHAMAN - EPIC SETS
+    -- =========================================================================
+
+    -- SHAMAN - Warlord's Earthshaker (Horde, set 386)
+    [16578] = { slot = "HEAD", class = "SHAMAN", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Mail Helm" },
+    [16580] = { slot = "SHOULDER", class = "SHAMAN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Mail Spaulders" },
+    [16577] = { slot = "CHEST", class = "SHAMAN", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Mail Armor" },
+    [16574] = { slot = "HANDS", class = "SHAMAN", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Mail Gauntlets" },
+    [16579] = { slot = "LEGS", class = "SHAMAN", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Mail Leggings" },
+    [16573] = { slot = "FEET", class = "SHAMAN", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Mail Boots" },
+
+    -- =========================================================================
+    -- ROGUE - EPIC SETS
+    -- =========================================================================
+
+    -- ROGUE - Field Marshal's Vestments (Alliance, set 394)
     [16455] = { slot = "HEAD", class = "ROGUE", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Leather Mask" },
     [16457] = { slot = "SHOULDER", class = "ROGUE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Leather Epaulets" },
+    [16453] = { slot = "CHEST", class = "ROGUE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Leather Chestpiece" },
+    [16454] = { slot = "HANDS", class = "ROGUE", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Leather Handgrips" },
+    [16456] = { slot = "LEGS", class = "ROGUE", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Leather Leggings" },
     [16446] = { slot = "FEET", class = "ROGUE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Leather Footguards" },
-    [16454] = { slot = "HANDS", class = "ROGUE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Leather Handgrips" },
-    [16456] = { slot = "LEGS", class = "ROGUE", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Leather Leggings" },
 
-    -- ROGUE - Warlord's Vestments (Horde)
-    [16563] = { slot = "CHEST", class = "ROGUE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Leather Breastplate" },
+    -- ROGUE - Warlord's Vestments (Horde, set 393)
     [16561] = { slot = "HEAD", class = "ROGUE", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Leather Helm" },
     [16562] = { slot = "SHOULDER", class = "ROGUE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Leather Spaulders" },
+    [16563] = { slot = "CHEST", class = "ROGUE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Leather Breastplate" },
+    [16560] = { slot = "HANDS", class = "ROGUE", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Leather Mitts" },
+    [16564] = { slot = "LEGS", class = "ROGUE", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Leather Legguards" },
     [16558] = { slot = "FEET", class = "ROGUE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Leather Treads" },
-    [16560] = { slot = "HANDS", class = "ROGUE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Leather Mitts" },
-    [16564] = { slot = "LEGS", class = "ROGUE", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Leather Legguards" },
 
-    -- DRUID - Field Marshal's Sanctuary (Alliance)
-    [16452] = { slot = "CHEST", class = "DRUID", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Dragonhide Breastplate" },
-    [16451] = { slot = "HEAD", class = "DRUID", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Dragonhide Helmet" },
-    [16449] = { slot = "SHOULDER", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Dragonhide Spaulders" },
-    [16459] = { slot = "FEET", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Dragonhide Boots" },
-    [16448] = { slot = "HANDS", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Dragonhide Gauntlets" },
-    [16450] = { slot = "LEGS", class = "DRUID", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Dragonhide Legguards" },
+    -- =========================================================================
+    -- PRIEST - EPIC SETS
+    -- =========================================================================
 
-    -- DRUID - Warlord's Sanctuary (Horde)
-    [16549] = { slot = "CHEST", class = "DRUID", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Dragonhide Hauberk" },
-    [16550] = { slot = "HEAD", class = "DRUID", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Dragonhide Helmet" },
-    [16551] = { slot = "SHOULDER", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Dragonhide Epaulets" },
-    [16554] = { slot = "FEET", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Dragonhide Boots" },
-    [16555] = { slot = "HANDS", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Dragonhide Gloves" },
-    [16552] = { slot = "LEGS", class = "DRUID", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Dragonhide Leggings" },
-
-    -- MAGE - Field Marshal's Regalia (Alliance)
-    [16443] = { slot = "CHEST", class = "MAGE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Silk Vestments" },
-    [16441] = { slot = "HEAD", class = "MAGE", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Coronet" },
-    [16444] = { slot = "SHOULDER", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Silk Spaulders" },
-    [16445] = { slot = "FEET", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Silk Footwraps" },
-    [16440] = { slot = "HANDS", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Silk Gloves" },
-    [16442] = { slot = "LEGS", class = "MAGE", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Silk Leggings" },
-
-    -- MAGE - Warlord's Regalia (Horde)
-    [16535] = { slot = "CHEST", class = "MAGE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Silk Raiment" },
-    [16533] = { slot = "HEAD", class = "MAGE", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Silk Cowl" },
-    [16536] = { slot = "SHOULDER", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Silk Amice" },
-    [16539] = { slot = "FEET", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Silk Boots" },
-    [16540] = { slot = "HANDS", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Silk Handguards" },
-    [16534] = { slot = "LEGS", class = "MAGE", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Silk Trousers" },
-
-    -- WARLOCK - Field Marshal's Threads (Alliance)
-    [17581] = { slot = "CHEST", class = "WARLOCK", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Dreadweave Robe" },
-    [17578] = { slot = "HEAD", class = "WARLOCK", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Coronal" },
-    [17580] = { slot = "SHOULDER", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Dreadweave Shoulders" },
-    [17583] = { slot = "FEET", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Dreadweave Boots" },
-    [17584] = { slot = "HANDS", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Dreadweave Gloves" },
-    [17579] = { slot = "LEGS", class = "WARLOCK", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Dreadweave Leggings" },
-
-    -- WARLOCK - Warlord's Threads (Horde)
-    [17592] = { slot = "CHEST", class = "WARLOCK", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Dreadweave Robe" },
-    [17591] = { slot = "HEAD", class = "WARLOCK", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Dreadweave Hood" },
-    [17590] = { slot = "SHOULDER", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Dreadweave Mantle" },
-    [17586] = { slot = "FEET", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Dreadweave Boots" },
-    [17588] = { slot = "HANDS", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Dreadweave Gloves" },
-    [17593] = { slot = "LEGS", class = "WARLOCK", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Dreadweave Pants" },
-
-    -- PRIEST - Field Marshal's Raiment (Alliance)
-    [17605] = { slot = "CHEST", class = "PRIEST", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Satin Vestments" },
+    -- PRIEST - Field Marshal's Raiment (Alliance, set 389)
     [17602] = { slot = "HEAD", class = "PRIEST", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Headdress" },
     [17604] = { slot = "SHOULDER", class = "PRIEST", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Satin Mantle" },
+    [17605] = { slot = "CHEST", class = "PRIEST", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Satin Vestments" },
+    [17608] = { slot = "HANDS", class = "PRIEST", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Satin Gloves" },
+    [17603] = { slot = "LEGS", class = "PRIEST", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Satin Pants" },
     [17607] = { slot = "FEET", class = "PRIEST", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Satin Sandals" },
-    [17608] = { slot = "HANDS", class = "PRIEST", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Satin Gloves" },
-    [17603] = { slot = "LEGS", class = "PRIEST", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Marshal's Satin Pants" },
 
-    -- PRIEST - Warlord's Raiment (Horde)
-    [17624] = { slot = "CHEST", class = "PRIEST", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Satin Robes" },
+    -- PRIEST - Warlord's Raiment (Horde, set 390)
     [17623] = { slot = "HEAD", class = "PRIEST", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Satin Cowl" },
     [17622] = { slot = "SHOULDER", class = "PRIEST", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Satin Mantle" },
+    [17624] = { slot = "CHEST", class = "PRIEST", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Satin Robes" },
+    [17620] = { slot = "HANDS", class = "PRIEST", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Satin Gloves" },
+    [17625] = { slot = "LEGS", class = "PRIEST", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Satin Leggings" },
     [17618] = { slot = "FEET", class = "PRIEST", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Satin Boots" },
-    [17620] = { slot = "HANDS", class = "PRIEST", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Satin Gloves" },
-    [17625] = { slot = "LEGS", class = "PRIEST", honor = 13005, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "General's Satin Leggings" },
+
+    -- =========================================================================
+    -- MAGE - EPIC SETS (Verified from vendor scan)
+    -- =========================================================================
+
+    -- MAGE - Field Marshal's Regalia (Alliance, set 388)
+    [16441] = { slot = "HEAD", class = "MAGE", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Silk Cowl" },
+    [16444] = { slot = "SHOULDER", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Silk Spaulders" },
+    [16443] = { slot = "CHEST", class = "MAGE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Silk Vestments" },
+    [16440] = { slot = "HANDS", class = "MAGE", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Silk Gloves" },
+    [16442] = { slot = "LEGS", class = "MAGE", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Silk Leggings" },
+    [16437] = { slot = "FEET", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Silk Footwraps" },
+
+    -- MAGE - Warlord's Regalia (Horde, set 387) - VERIFIED FROM VENDOR SCAN
+    [16533] = { slot = "HEAD", class = "MAGE", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Silk Cowl" },
+    [16536] = { slot = "SHOULDER", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Silk Amice" },
+    [16535] = { slot = "CHEST", class = "MAGE", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Silk Raiment" },
+    [16540] = { slot = "HANDS", class = "MAGE", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Silk Handguards" },
+    [16534] = { slot = "LEGS", class = "MAGE", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Silk Trousers" },
+    [16539] = { slot = "FEET", class = "MAGE", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Silk Boots" },
+
+    -- =========================================================================
+    -- WARLOCK - EPIC SETS
+    -- =========================================================================
+
+    -- WARLOCK - Field Marshal's Threads (Alliance, set 392)
+    [17578] = { slot = "HEAD", class = "WARLOCK", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Dreadweave Hood" },
+    [17580] = { slot = "SHOULDER", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Dreadweave Shoulders" },
+    [17581] = { slot = "CHEST", class = "WARLOCK", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Dreadweave Robe" },
+    [17584] = { slot = "HANDS", class = "WARLOCK", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Dreadweave Gloves" },
+    [17579] = { slot = "LEGS", class = "WARLOCK", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Dreadweave Leggings" },
+    [17583] = { slot = "FEET", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Dreadweave Boots" },
+
+    -- WARLOCK - Warlord's Threads (Horde, set 391)
+    [17591] = { slot = "HEAD", class = "WARLOCK", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Dreadweave Hood" },
+    [17590] = { slot = "SHOULDER", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Dreadweave Mantle" },
+    [17592] = { slot = "CHEST", class = "WARLOCK", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Dreadweave Robe" },
+    [17588] = { slot = "HANDS", class = "WARLOCK", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Dreadweave Gloves" },
+    [17593] = { slot = "LEGS", class = "WARLOCK", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Dreadweave Pants" },
+    [17586] = { slot = "FEET", class = "WARLOCK", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Dreadweave Boots" },
+
+    -- =========================================================================
+    -- DRUID - EPIC SETS
+    -- =========================================================================
+
+    -- DRUID - Field Marshal's Sanctuary (Alliance, set 397)
+    [16451] = { slot = "HEAD", class = "DRUID", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Field Marshal's Dragonhide Helmet" },
+    [16449] = { slot = "SHOULDER", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Field Marshal's Dragonhide Spaulders" },
+    [16452] = { slot = "CHEST", class = "DRUID", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Field Marshal's Dragonhide Breastplate" },
+    [16448] = { slot = "HANDS", class = "DRUID", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Marshal's Dragonhide Gauntlets" },
+    [16450] = { slot = "LEGS", class = "DRUID", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Marshal's Dragonhide Legguards" },
+    [16459] = { slot = "FEET", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Marshal's Dragonhide Boots" },
+
+    -- DRUID - Warlord's Sanctuary (Horde, set 398)
+    [16550] = { slot = "HEAD", class = "DRUID", honor = 13005, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Warlord's Dragonhide Helmet" },
+    [16551] = { slot = "SHOULDER", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Warlord's Dragonhide Epaulets" },
+    [16549] = { slot = "CHEST", class = "DRUID", honor = 13770, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Warlord's Dragonhide Hauberk" },
+    [16555] = { slot = "HANDS", class = "DRUID", honor = 8415, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "General's Dragonhide Gloves" },
+    [16552] = { slot = "LEGS", class = "DRUID", honor = 13005, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "General's Dragonhide Leggings" },
+    [16554] = { slot = "FEET", class = "DRUID", honor = 8415, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "General's Dragonhide Boots" },
 
     --[[
     ============================================================================
-    PREPATCH RANK 14 WEAPONS - Grand Marshal's / High Warlord's
-    TBC Prepatch costs: 7935 honor, no marks required
+    PREPATCH HONOR GEAR - RARE (Rank 7-10 equivalent)
+    Costs follow pattern: HEAD/CHEST/LEGS = 4335-4590 honor, SHOULDER/HANDS/FEET = 2805 honor
     ============================================================================
     --]]
 
-    -- TWO-HAND SWORDS
-    [18876] = { slot = "TWO_HAND", class = "WARRIOR", honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Claymore" },
-    [18877] = { slot = "TWO_HAND", class = "WARRIOR", honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Greatsword" },
+    -- =========================================================================
+    -- WARRIOR - RARE SETS
+    -- =========================================================================
 
-    -- ONE-HAND SWORDS
+    -- WARRIOR - Lieutenant Commander's Battlearmor (Alliance, set 545)
+    [23314] = { slot = "HEAD", class = "WARRIOR", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Helm" },
+    [23315] = { slot = "SHOULDER", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Pauldrons" },
+    [23300] = { slot = "CHEST", class = "WARRIOR", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Plate Hauberk" },
+    [23286] = { slot = "HANDS", class = "WARRIOR", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Plate Gauntlets" },
+    [23301] = { slot = "LEGS", class = "WARRIOR", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Plate Leggings" },
+    [23287] = { slot = "FEET", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Plate Greaves" },
+
+    -- WARRIOR - Champion's Battlearmor (Horde, set 537)
+    [23244] = { slot = "HEAD", class = "WARRIOR", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Plate Headguard" },
+    [23243] = { slot = "SHOULDER", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Plate Pauldrons" },
+    [22872] = { slot = "CHEST", class = "WARRIOR", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Plate Hauberk" },
+    [22868] = { slot = "HANDS", class = "WARRIOR", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Plate Gauntlets" },
+    [22873] = { slot = "LEGS", class = "WARRIOR", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Plate Leggings" },
+    [22858] = { slot = "FEET", class = "WARRIOR", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Plate Greaves" },
+
+    -- =========================================================================
+    -- PALADIN - RARE SETS
+    -- =========================================================================
+
+    -- PALADIN - Lieutenant Commander's Redoubt (Alliance, set 544)
+    [23276] = { slot = "HEAD", class = "PALADIN", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Headguard" },
+    [23277] = { slot = "SHOULDER", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Shoulders" },
+    [23272] = { slot = "CHEST", class = "PALADIN", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Lamellar Breastplate" },
+    [23274] = { slot = "HANDS", class = "PALADIN", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Lamellar Gauntlets" },
+    [23273] = { slot = "LEGS", class = "PALADIN", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Lamellar Leggings" },
+    [23275] = { slot = "FEET", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Lamellar Sabatons" },
+
+    -- =========================================================================
+    -- HUNTER - RARE SETS
+    -- =========================================================================
+
+    -- HUNTER - Lieutenant Commander's Pursuance (Alliance, set 550)
+    [23306] = { slot = "HEAD", class = "HUNTER", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Helm" },
+    [23307] = { slot = "SHOULDER", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Pauldrons" },
+    [23292] = { slot = "CHEST", class = "HUNTER", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Chain Hauberk" },
+    [23279] = { slot = "HANDS", class = "HUNTER", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Chain Gauntlets" },
+    [23293] = { slot = "LEGS", class = "HUNTER", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Chain Legguards" },
+    [23278] = { slot = "FEET", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Chain Greaves" },
+
+    -- HUNTER - Champion's Pursuance (Horde, set 543)
+    [23251] = { slot = "HEAD", class = "HUNTER", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Chain Headguard" },
+    [23252] = { slot = "SHOULDER", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Chain Pauldrons" },
+    [22874] = { slot = "CHEST", class = "HUNTER", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Chain Hauberk" },
+    [22862] = { slot = "HANDS", class = "HUNTER", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Chain Gauntlets" },
+    [22875] = { slot = "LEGS", class = "HUNTER", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Chain Leggings" },
+    [22843] = { slot = "FEET", class = "HUNTER", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Chain Greaves" },
+
+    -- =========================================================================
+    -- SHAMAN - RARE SETS
+    -- =========================================================================
+
+    -- SHAMAN - Champion's Stormcaller (Horde, set 538)
+    [23259] = { slot = "HEAD", class = "SHAMAN", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Mail Headguard" },
+    [23260] = { slot = "SHOULDER", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Mail Pauldrons" },
+    [22876] = { slot = "CHEST", class = "SHAMAN", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Mail Hauberk" },
+    [22867] = { slot = "HANDS", class = "SHAMAN", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Mail Gauntlets" },
+    [22887] = { slot = "LEGS", class = "SHAMAN", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Mail Leggings" },
+    [22857] = { slot = "FEET", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Mail Greaves" },
+
+    -- =========================================================================
+    -- ROGUE - RARE SETS
+    -- =========================================================================
+
+    -- ROGUE - Lieutenant Commander's Guard (Alliance, set 548)
+    [23312] = { slot = "HEAD", class = "ROGUE", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Helm" },
+    [23313] = { slot = "SHOULDER", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Shoulders" },
+    [23298] = { slot = "CHEST", class = "ROGUE", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Leather Chestpiece" },
+    [23284] = { slot = "HANDS", class = "ROGUE", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Leather Gauntlets" },
+    [23299] = { slot = "LEGS", class = "ROGUE", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Leather Legguards" },
+    [23285] = { slot = "FEET", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Leather Walkers" },
+
+    -- ROGUE - Champion's Guard (Horde, set 522)
+    [23257] = { slot = "HEAD", class = "ROGUE", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Leather Headguard" },
+    [23258] = { slot = "SHOULDER", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Leather Mantle" },
+    [22879] = { slot = "CHEST", class = "ROGUE", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Leather Chestpiece" },
+    [22864] = { slot = "HANDS", class = "ROGUE", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Leather Treads" },
+    [22880] = { slot = "LEGS", class = "ROGUE", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Leather Leggings" },
+    [22856] = { slot = "FEET", class = "ROGUE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Leather Vices" },
+
+    -- =========================================================================
+    -- PRIEST - RARE SETS
+    -- =========================================================================
+
+    -- PRIEST - Lieutenant Commander's Investiture (Alliance, set 549)
+    [23316] = { slot = "HEAD", class = "PRIEST", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Satin Hood" },
+    [23317] = { slot = "SHOULDER", class = "PRIEST", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Satin Mantle" },
+    [23303] = { slot = "CHEST", class = "PRIEST", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Satin Tunic" },
+    [23288] = { slot = "HANDS", class = "PRIEST", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Satin Handwraps" },
+    [23302] = { slot = "LEGS", class = "PRIEST", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Satin Legguards" },
+    [23289] = { slot = "FEET", class = "PRIEST", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Satin Walkers" },
+
+    -- PRIEST - Champion's Investiture (Horde, set 540)
+    [23261] = { slot = "HEAD", class = "PRIEST", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Satin Cowl" },
+    [23262] = { slot = "SHOULDER", class = "PRIEST", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Satin Shoulderpads" },
+    [22885] = { slot = "CHEST", class = "PRIEST", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Satin Vestments" },
+    [22869] = { slot = "HANDS", class = "PRIEST", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Satin Gloves" },
+    [22882] = { slot = "LEGS", class = "PRIEST", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Satin Trousers" },
+    [22859] = { slot = "FEET", class = "PRIEST", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Satin Walkers" },
+
+    -- =========================================================================
+    -- MAGE - RARE SETS (Verified from vendor scan)
+    -- =========================================================================
+
+    -- MAGE - Lieutenant Commander's Arcanum (Alliance, set 546)
+    [23318] = { slot = "HEAD", class = "MAGE", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Cowl" },
+    [23319] = { slot = "SHOULDER", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Mantle" },
+    [23305] = { slot = "CHEST", class = "MAGE", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Silk Tunic" },
+    [23290] = { slot = "HANDS", class = "MAGE", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Silk Handwraps" },
+    [23304] = { slot = "LEGS", class = "MAGE", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Silk Legguards" },
+    [23291] = { slot = "FEET", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Silk Walkers" },
+
+    -- MAGE - Champion's Arcanum (Horde, set 542) - VERIFIED FROM VENDOR SCAN
+    [23263] = { slot = "HEAD", class = "MAGE", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Silk Cowl" },
+    [23264] = { slot = "SHOULDER", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Silk Mantle" },
+    [22886] = { slot = "CHEST", class = "MAGE", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Silk Tunic" },
+    [22870] = { slot = "HANDS", class = "MAGE", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Silk Handwraps" },
+    [22883] = { slot = "LEGS", class = "MAGE", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Silk Legguards" },
+    [22860] = { slot = "FEET", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Silk Walkers" },
+
+    -- =========================================================================
+    -- WARLOCK - RARE SETS
+    -- =========================================================================
+
+    -- WARLOCK - Lieutenant Commander's Dreadgear (Alliance, set 547)
+    [23310] = { slot = "HEAD", class = "WARLOCK", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Dreadweave Cowl" },
+    [23311] = { slot = "SHOULDER", class = "WARLOCK", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dreadweave Mantle" },
+    [23297] = { slot = "CHEST", class = "WARLOCK", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Dreadweave Tunic" },
+    [23282] = { slot = "HANDS", class = "WARLOCK", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Dreadweave Handwraps" },
+    [23296] = { slot = "LEGS", class = "WARLOCK", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Dreadweave Legguards" },
+    [23283] = { slot = "FEET", class = "WARLOCK", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Dreadweave Walkers" },
+
+    -- WARLOCK - Champion's Dreadgear (Horde, set 541)
+    [23255] = { slot = "HEAD", class = "WARLOCK", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Dreadweave Cowl" },
+    [23256] = { slot = "SHOULDER", class = "WARLOCK", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dreadweave Shoulders" },
+    [22884] = { slot = "CHEST", class = "WARLOCK", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Dreadweave Tunic" },
+    [22865] = { slot = "HANDS", class = "WARLOCK", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Dreadweave Gloves" },
+    [22881] = { slot = "LEGS", class = "WARLOCK", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Dreadweave Legguards" },
+    [22855] = { slot = "FEET", class = "WARLOCK", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Dreadweave Walkers" },
+
+    -- =========================================================================
+    -- DRUID - RARE SETS
+    -- =========================================================================
+
+    -- DRUID - Lieutenant Commander's Refuge (Alliance, set 551)
+    [23308] = { slot = "HEAD", class = "DRUID", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Headguard" },
+    [23309] = { slot = "SHOULDER", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Shoulders" },
+    [23294] = { slot = "CHEST", class = "DRUID", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Dragonhide Tunic" },
+    [23280] = { slot = "HANDS", class = "DRUID", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Dragonhide Grips" },
+    [23295] = { slot = "LEGS", class = "DRUID", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Dragonhide Leggings" },
+    [23281] = { slot = "FEET", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Dragonhide Treads" },
+
+    -- DRUID - Champion's Refuge (Horde, set 539)
+    [23253] = { slot = "HEAD", class = "DRUID", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Dragonhide Headguard" },
+    [23254] = { slot = "SHOULDER", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Shoulders" },
+    [22877] = { slot = "CHEST", class = "DRUID", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Dragonhide Chestpiece" },
+    [22863] = { slot = "HANDS", class = "DRUID", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Dragonhide Gauntlets" },
+    [22878] = { slot = "LEGS", class = "DRUID", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Dragonhide Leggings" },
+    [22852] = { slot = "FEET", class = "DRUID", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Dragonhide Treads" },
+
+    --[[
+    ============================================================================
+    PREPATCH ACCESSORIES - WRIST/CLOAK (All Classes)
+    ============================================================================
+    --]]
+
+    -- CLOTH WRIST - First Sergeant's Silk Cuffs
+    [16486] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Silk Cuffs" },
+    [18437] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Silk Cuffs" },
+
+    -- LEATHER WRIST - First Sergeant's Leather Armguards
+    [16497] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Leather Armguards" },
+    [18435] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Leather Armguards" },
+
+    -- MAIL WRIST - First Sergeant's Mail Wristguards
+    [16532] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Mail Wristguards" },
+    [18432] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Mail Wristguards" },
+
+    -- PLATE WRIST - First Sergeant's Plate Bracers
+    [18429] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Plate Bracers" },
+    [18430] = { slot = "WRIST", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Plate Bracers" },
+
+    -- DRAGONHIDE WRIST - First Sergeant's Dragonhide Armguards (Druid)
+    [18434] = { slot = "WRIST", class = "DRUID", honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Dragonhide Armguards" },
+    [18436] = { slot = "WRIST", class = "DRUID", honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "First Sergeant's Dragonhide Armguards" },
+
+    -- ALL CLASSES - Sergeant's Cloak
+    [16341] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AB = 1 }, season = "PREPATCH", name = "Sergeant's Cloak" },
+    [18427] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AB = 1 }, season = "PREPATCH", name = "Sergeant's Cloak" },
+    [18461] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AB = 1 }, season = "PREPATCH", name = "Sergeant's Cloak" },
+
+    --[[
+    ============================================================================
+    PREPATCH WEAPONS - High Warlord's / Grand Marshal's
+    ============================================================================
+    --]]
+
+    -- GRAND MARSHAL'S WEAPONS (Alliance) - 7,935 honor (1H/OH/Ranged) or 15,870 honor (2H), no marks
+    [18827] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Handaxe" },
+    [18830] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Sunderer" },
+    [18838] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Dirk" },
+    [23451] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Mageblade" },
+    [18843] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Right Hand Blade" },
+    [18847] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Left Hand Blade" },
+    [18865] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Punisher" },
+    [23454] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Warhammer" },
+    [23455] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Demolisher" },
+    [18867] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Battle Hammer" },
     [12584] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Longsword" },
-    [16345] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Blade" },
-
-    --[[
-    ============================================================================
-    PREPATCH PVP TRINKETS - Insignia of the Alliance/Horde
-    TBC Prepatch costs: Honor only (2805 estimated)
-    ============================================================================
-    --]]
-
-    -- PVP Trinkets (Warrior)
-    [18854] = { slot = "TRINKET", class = "WARRIOR", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18852] = { slot = "TRINKET", class = "WARRIOR", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Paladin)
-    [18862] = { slot = "TRINKET", class = "PALADIN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18834] = { slot = "TRINKET", class = "PALADIN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Rogue)
-    [18856] = { slot = "TRINKET", class = "ROGUE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18849] = { slot = "TRINKET", class = "ROGUE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Priest)
-    [18858] = { slot = "TRINKET", class = "PRIEST", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18851] = { slot = "TRINKET", class = "PRIEST", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Mage)
-    [18859] = { slot = "TRINKET", class = "MAGE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18845] = { slot = "TRINKET", class = "MAGE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Warlock)
-    [18857] = { slot = "TRINKET", class = "WARLOCK", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18850] = { slot = "TRINKET", class = "WARLOCK", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Hunter)
-    [18855] = { slot = "TRINKET", class = "HUNTER", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18846] = { slot = "TRINKET", class = "HUNTER", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Druid)
-    [18864] = { slot = "TRINKET", class = "DRUID", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
-    [18853] = { slot = "TRINKET", class = "DRUID", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    -- PVP Trinkets (Shaman)
-    [18847] = { slot = "TRINKET", class = "SHAMAN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
-
-    --[[
-    ============================================================================
-    PREPATCH RANK 14 WEAPONS (continued) - All weapon types
-    TBC Prepatch costs: 7935 honor, no marks required
-    ============================================================================
-    --]]
-
-    -- ONE-HAND AXES
-    [18866] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Handaxe" },
-    [18826] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Cleaver" },
-
-    -- TWO-HAND AXES
-    [18865] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Sunderer" },
-    [18831] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Pulverizer" },
-
-    -- ONE-HAND MACES
-    [18869] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Punisher" },
-    [18843] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Quickblade" },
-
-    -- TWO-HAND MACES
-    [18867] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Demolisher" },
-    [18832] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Destroyer" },
-
-    -- STAVES
-    [18874] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Stave" },
-    [18840] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's War Staff" },
-
-    -- POLEARMS
-    [18875] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Glaive" },
-    [18841] = { slot = "TWO_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Pig Sticker" },
-
-    -- DAGGERS
-    [18871] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Dirk" },
-    [18836] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Razor" },
-
-    -- FIST WEAPONS
-    [18872] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Right Hand Blade" },
-    [18838] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Right Claw" },
-    [18873] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Left Hand Blade" },
-    [18839] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Left Claw" },
-
-    -- BOWS
-    [18880] = { slot = "RANGED", class = "HUNTER", honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Bullseye" },
-    [18835] = { slot = "RANGED", class = "HUNTER", honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Recurve" },
-
-    -- CROSSBOWS
-    [18870] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Repeater" },
-    [18833] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Crossbow" },
-
-    -- GUNS
-    [18860] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Hand Cannon" },
-    [18861] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Street Sweeper" },
-
-    -- WANDS
-    [18868] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Tome of Power" },
-    [18842] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Tome of Destruction" },
-
-    -- SHIELDS
+    [23456] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Swiftblade" },
+    [18876] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Claymore" },
+    [18869] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Glaive" },
+    [18873] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Stave" },
+    [18833] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Bullseye" },
+    [18836] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Repeater" },
+    [18855] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Hand Cannon" },
     [18825] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Aegis" },
-    [18829] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Shield Wall" },
+    [23452] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Tome of Power" },
+    [23453] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "Grand Marshal's Tome of Restoration" },
+
+    -- HIGH WARLORD'S WEAPONS (Horde) - 7,935 honor (1H/OH/Ranged) or 15,870 honor (2H), no marks
+    [18828] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Cleaver" },
+    [18831] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Battle Axe" },
+    [18840] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Razor" },
+    [23466] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Spellblade" },
+    [18844] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Right Claw" },
+    [18848] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Left Claw" },
+    [18866] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Bludgeon" },
+    [23464] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Battle Mace" },
+    [23465] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Destroyer" },
+    [18868] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Pulverizer" },
+    [16345] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Blade" },
+    [23467] = { slot = "MAIN_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Quickblade" },
+    [18877] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Greatsword" },
+    [18871] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Pig Sticker" },
+    [18874] = { slot = "TWO_HAND", class = nil, honor = 15870, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's War Staff" },
+    [18835] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Recurve" },
+    [18837] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Crossbow" },
+    [18860] = { slot = "RANGED", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Street Sweeper" },
+    [18826] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Shield Wall" },
+    [23468] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Tome of Destruction" },
+    [23469] = { slot = "OFF_HAND", class = nil, honor = 7935, arena = 0, marks = nil, season = "PREPATCH", name = "High Warlord's Tome of Mending" },
 
     --[[
     ============================================================================
-    PREPATCH PVP ACCESSORIES - Cloaks and Necklaces
-    TBC Prepatch costs: Estimated 2805 honor based on similar accessories
+    PREPATCH INSIGNIAS (PvP Trinkets)
     ============================================================================
     --]]
 
-    -- SERGEANT'S CLOAKS (Rank 3 - Available to all)
-    [18440] = { slot = "BACK", class = nil, honor = 1650, arena = 0, marks = nil, season = "PREPATCH", name = "Sergeant's Cloak" },
+    -- ALLIANCE INSIGNIAS
+    [18854] = { slot = "TRINKET", class = "WARRIOR", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18856] = { slot = "TRINKET", class = "HUNTER", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18857] = { slot = "TRINKET", class = "ROGUE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18858] = { slot = "TRINKET", class = "WARLOCK", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18862] = { slot = "TRINKET", class = "PRIEST", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18863] = { slot = "TRINKET", class = "DRUID", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18864] = { slot = "TRINKET", class = "PALADIN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [18859] = { slot = "TRINKET", class = "MAGE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
 
-    -- KNIGHT-CAPTAIN/LEGIONNAIRE'S NECKLACES (Rank 7)
-    [16059] = { slot = "NECK", class = nil, honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Legionnaire's Pendant" },
-    [18457] = { slot = "NECK", class = nil, honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Knight-Captain's Pendant" },
+    -- HORDE INSIGNIAS
+    [18834] = { slot = "TRINKET", class = "WARRIOR", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18846] = { slot = "TRINKET", class = "HUNTER", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18849] = { slot = "TRINKET", class = "ROGUE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18852] = { slot = "TRINKET", class = "WARLOCK", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18851] = { slot = "TRINKET", class = "PRIEST", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18853] = { slot = "TRINKET", class = "DRUID", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18845] = { slot = "TRINKET", class = "SHAMAN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [18850] = { slot = "TRINKET", class = "MAGE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
 
     --[[
     ============================================================================
-    PREPATCH RANK 10 BLUE SETS - Lieutenant Commander's / Champion's
-    Alliance: Lieutenant Commander's Battlegear
-    Horde: Champion's Battlegear
-    TBC Prepatch costs: ~4950 honor + 2 marks per piece
+    WSG REPUTATION REWARDS - Horde (All Levels)
     ============================================================================
     --]]
 
-    -- WARRIOR - Lieutenant Commander's Battlegear (Alliance)
-    [16428] = { slot = "HEAD", class = "WARRIOR", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Helm" },
-    [16430] = { slot = "SHOULDER", class = "WARRIOR", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Shoulders" },
-    [16429] = { slot = "CHEST", class = "WARRIOR", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Hauberk" },
-    [16431] = { slot = "HANDS", class = "WARRIOR", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Gauntlets" },
-    [16432] = { slot = "LEGS", class = "WARRIOR", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Legguards" },
-    [16433] = { slot = "FEET", class = "WARRIOR", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Plate Boots" },
+    -- TABARD
+    [19505] = { slot = "TABARD", class = nil, honor = 0, arena = 0, marks = { WSG = 60 }, season = "PREPATCH", name = "Warsong Battle Tabard" },
 
-    -- WARRIOR - Champion's Battlegear (Horde)
-    [16514] = { slot = "HEAD", class = "WARRIOR", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Champion's Plate Helm" },
-    [16516] = { slot = "SHOULDER", class = "WARRIOR", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Plate Shoulders" },
-    [16515] = { slot = "CHEST", class = "WARRIOR", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Plate Hauberk" },
-    [16513] = { slot = "HANDS", class = "WARRIOR", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Plate Gauntlets" },
-    [16510] = { slot = "LEGS", class = "WARRIOR", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Plate Legguards" },
-    [16509] = { slot = "FEET", class = "WARRIOR", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Plate Boots" },
+    -- RINGS - Legionnaire's Band (all levels)
+    [19510] = { slot = "FINGER", class = nil, honor = 1530, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Legionnaire's Band" },
+    [19511] = { slot = "FINGER", class = nil, honor = 208, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Legionnaire's Band" },
+    [19512] = { slot = "FINGER", class = nil, honor = 141, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Legionnaire's Band" },
+    [19513] = { slot = "FINGER", class = nil, honor = 95, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Legionnaire's Band" },
+    [20429] = { slot = "FINGER", class = nil, honor = 65, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Legionnaire's Band" },
 
-    -- PALADIN - Lieutenant Commander's Aegis (Alliance)
-    [16434] = { slot = "HEAD", class = "PALADIN", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Headguard" },
-    [16436] = { slot = "SHOULDER", class = "PALADIN", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Shoulders" },
-    [16435] = { slot = "CHEST", class = "PALADIN", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Breastplate" },
-    [16437] = { slot = "HANDS", class = "PALADIN", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Gauntlets" },
-    [16438] = { slot = "LEGS", class = "PALADIN", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Leggings" },
-    [16439] = { slot = "FEET", class = "PALADIN", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Lamellar Sabatons" },
+    -- RINGS - Advisor's Ring (all levels)
+    [19518] = { slot = "FINGER", class = nil, honor = 1530, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Advisor's Ring" },
+    [19519] = { slot = "FINGER", class = nil, honor = 208, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Advisor's Ring" },
+    [19520] = { slot = "FINGER", class = nil, honor = 141, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Advisor's Ring" },
+    [19521] = { slot = "FINGER", class = nil, honor = 95, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Advisor's Ring" },
+    [20426] = { slot = "FINGER", class = nil, honor = 65, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Advisor's Ring" },
 
-    -- HUNTER - Lieutenant Commander's Pursuance (Alliance)
-    [16424] = { slot = "HEAD", class = "HUNTER", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Helm" },
-    [16426] = { slot = "SHOULDER", class = "HUNTER", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Shoulders" },
-    [16425] = { slot = "CHEST", class = "HUNTER", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Hauberk" },
-    [16401] = { slot = "HANDS", class = "HUNTER", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Gauntlets" },
-    [16427] = { slot = "LEGS", class = "HUNTER", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Legguards" },
-    [16403] = { slot = "FEET", class = "HUNTER", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Chain Sabatons" },
+    -- NECK - Scout's Medallion (all levels)
+    [19534] = { slot = "NECK", class = nil, honor = 1530, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Scout's Medallion" },
+    [19535] = { slot = "NECK", class = nil, honor = 208, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Scout's Medallion" },
+    [19536] = { slot = "NECK", class = nil, honor = 141, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Scout's Medallion" },
+    [19537] = { slot = "NECK", class = nil, honor = 95, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Scout's Medallion" },
+    [20442] = { slot = "NECK", class = nil, honor = 65, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Scout's Medallion" },
 
-    -- HUNTER - Champion's Pursuance (Horde)
-    [16526] = { slot = "HEAD", class = "HUNTER", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Champion's Chain Helm" },
-    [16528] = { slot = "SHOULDER", class = "HUNTER", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Chain Shoulders" },
-    [16525] = { slot = "CHEST", class = "HUNTER", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Chain Hauberk" },
-    [16530] = { slot = "HANDS", class = "HUNTER", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Chain Gauntlets" },
-    [16527] = { slot = "LEGS", class = "HUNTER", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Chain Legguards" },
-    [16529] = { slot = "FEET", class = "HUNTER", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Chain Boots" },
+    -- BACK - Battle Healer's Cloak (all levels)
+    [19526] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Battle Healer's Cloak" },
+    [19527] = { slot = "BACK", class = nil, honor = 208, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Battle Healer's Cloak" },
+    [19528] = { slot = "BACK", class = nil, honor = 141, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Battle Healer's Cloak" },
+    [19529] = { slot = "BACK", class = nil, honor = 95, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Battle Healer's Cloak" },
+    [20427] = { slot = "BACK", class = nil, honor = 65, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Battle Healer's Cloak" },
 
-    -- SHAMAN - Champion's Stormcaller (Horde)
-    [16522] = { slot = "HEAD", class = "SHAMAN", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Champion's Mail Helm" },
-    [16524] = { slot = "SHOULDER", class = "SHAMAN", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Mail Shoulders" },
-    [16521] = { slot = "CHEST", class = "SHAMAN", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Mail Hauberk" },
-    [16519] = { slot = "HANDS", class = "SHAMAN", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Mail Gauntlets" },
-    [16523] = { slot = "LEGS", class = "SHAMAN", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Mail Leggings" },
-    [16518] = { slot = "FEET", class = "SHAMAN", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Mail Boots" },
+    -- WRIST - Berserker Bracers (plate, all levels)
+    [19578] = { slot = "WRIST", class = nil, honor = 4590, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Berserker Bracers" },
+    [19580] = { slot = "WRIST", class = nil, honor = 624, arena = 0, marks = nil, season = "PREPATCH", name = "Berserker Bracers" },
+    [19581] = { slot = "WRIST", class = nil, honor = 422, arena = 0, marks = nil, season = "PREPATCH", name = "Berserker Bracers" },
 
-    -- ROGUE - Lieutenant Commander's Vestments (Alliance)
-    [16406] = { slot = "HEAD", class = "ROGUE", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Helm" },
-    [16408] = { slot = "SHOULDER", class = "ROGUE", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Shoulders" },
-    [16405] = { slot = "CHEST", class = "ROGUE", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Hauberk" },
-    [16409] = { slot = "HANDS", class = "ROGUE", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Vambraces" },
-    [16407] = { slot = "LEGS", class = "ROGUE", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Legguards" },
-    [16410] = { slot = "FEET", class = "ROGUE", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Leather Footguards" },
+    -- WRIST - Windtalker's Wristguards (mail, all levels)
+    [19582] = { slot = "WRIST", class = nil, honor = 4590, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Windtalker's Wristguards" },
+    [19583] = { slot = "WRIST", class = nil, honor = 624, arena = 0, marks = nil, season = "PREPATCH", name = "Windtalker's Wristguards" },
+    [19584] = { slot = "WRIST", class = nil, honor = 422, arena = 0, marks = nil, season = "PREPATCH", name = "Windtalker's Wristguards" },
 
-    -- ROGUE - Champion's Vestments (Horde)
-    [16498] = { slot = "HEAD", class = "ROGUE", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Champion's Leather Helm" },
-    [16507] = { slot = "SHOULDER", class = "ROGUE", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Leather Shoulders" },
-    [16505] = { slot = "CHEST", class = "ROGUE", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Leather Hauberk" },
-    [16499] = { slot = "HANDS", class = "ROGUE", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Leather Vambraces" },
-    [16506] = { slot = "LEGS", class = "ROGUE", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Leather Legguards" },
-    [16508] = { slot = "FEET", class = "ROGUE", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Leather Boots" },
+    -- WRIST - Forest Stalker's Bracers (leather, all levels)
+    [19587] = { slot = "WRIST", class = nil, honor = 4590, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Forest Stalker's Bracers" },
+    [19589] = { slot = "WRIST", class = nil, honor = 624, arena = 0, marks = nil, season = "PREPATCH", name = "Forest Stalker's Bracers" },
+    [19590] = { slot = "WRIST", class = nil, honor = 422, arena = 0, marks = nil, season = "PREPATCH", name = "Forest Stalker's Bracers" },
 
-    -- DRUID - Lieutenant Commander's Sanctuary (Alliance)
-    [16420] = { slot = "HEAD", class = "DRUID", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Headguard" },
-    [16422] = { slot = "SHOULDER", class = "DRUID", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Shoulders" },
-    [16419] = { slot = "CHEST", class = "DRUID", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Breastplate" },
-    [16423] = { slot = "HANDS", class = "DRUID", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Gloves" },
-    [16421] = { slot = "LEGS", class = "DRUID", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Trousers" },
-    [16418] = { slot = "FEET", class = "DRUID", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Dragonhide Footguards" },
+    -- WRIST - Dryad's Wrist Bindings (cloth, all levels)
+    [19595] = { slot = "WRIST", class = nil, honor = 4590, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Dryad's Wrist Bindings" },
+    [19596] = { slot = "WRIST", class = nil, honor = 624, arena = 0, marks = nil, season = "PREPATCH", name = "Dryad's Wrist Bindings" },
+    [19597] = { slot = "WRIST", class = nil, honor = 422, arena = 0, marks = nil, season = "PREPATCH", name = "Dryad's Wrist Bindings" },
 
-    -- DRUID - Champion's Sanctuary (Horde)
-    [16494] = { slot = "HEAD", class = "DRUID", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Helm" },
-    [16496] = { slot = "SHOULDER", class = "DRUID", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Shoulders" },
-    [16493] = { slot = "CHEST", class = "DRUID", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Breastplate" },
-    [16497] = { slot = "HANDS", class = "DRUID", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Gloves" },
-    [16495] = { slot = "LEGS", class = "DRUID", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Leggings" },
-    [16492] = { slot = "FEET", class = "DRUID", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Dragonhide Footguards" },
+    -- WEAPONS - Scout's Blade (dagger, all levels)
+    [19542] = { slot = "MAIN_HAND", class = nil, honor = 5100, arena = 0, marks = nil, season = "PREPATCH", name = "Scout's Blade" },
+    [19543] = { slot = "MAIN_HAND", class = nil, honor = 694, arena = 0, marks = nil, season = "PREPATCH", name = "Scout's Blade" },
+    [19544] = { slot = "MAIN_HAND", class = nil, honor = 469, arena = 0, marks = nil, season = "PREPATCH", name = "Scout's Blade" },
+    [19545] = { slot = "MAIN_HAND", class = nil, honor = 316, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Scout's Blade" },
+    [20441] = { slot = "MAIN_HAND", class = nil, honor = 214, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Scout's Blade" },
 
-    -- MAGE - Lieutenant Commander's Arcanum (Alliance)
-    [16414] = { slot = "HEAD", class = "MAGE", honor = 4950, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Cowl" },
-    [16416] = { slot = "SHOULDER", class = "MAGE", honor = 3960, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Mantle" },
-    [16413] = { slot = "CHEST", class = "MAGE", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Robes" },
-    [16415] = { slot = "HANDS", class = "MAGE", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Gloves" },
-    [16417] = { slot = "LEGS", class = "MAGE", honor = 4950, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Trousers" },
-    [16411] = { slot = "FEET", class = "MAGE", honor = 3300, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Silk Boots" },
+    -- WEAPONS - Legionnaire's Sword (2H sword, all levels)
+    [19550] = { slot = "MAIN_HAND", class = nil, honor = 10200, arena = 0, marks = nil, season = "PREPATCH", name = "Legionnaire's Sword" },
+    [19551] = { slot = "MAIN_HAND", class = nil, honor = 694, arena = 0, marks = nil, season = "PREPATCH", name = "Legionnaire's Sword" },
+    [19552] = { slot = "MAIN_HAND", class = nil, honor = 469, arena = 0, marks = nil, season = "PREPATCH", name = "Legionnaire's Sword" },
+    [19553] = { slot = "MAIN_HAND", class = nil, honor = 316, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Sword" },
+    [20430] = { slot = "MAIN_HAND", class = nil, honor = 214, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Sword" },
 
-    -- MAGE - Champion's Arcanum (Horde)
-    [16489] = { slot = "HEAD", class = "MAGE", honor = 4335, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Champion's Silk Cowl" },
-    [16491] = { slot = "SHOULDER", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Silk Mantle" },
-    [16487] = { slot = "CHEST", class = "MAGE", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Champion's Silk Robes" },
-    [16488] = { slot = "HANDS", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Silk Gloves" },
-    [16490] = { slot = "LEGS", class = "MAGE", honor = 4335, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Champion's Silk Trousers" },
-    [16486] = { slot = "FEET", class = "MAGE", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Silk Footwraps" },
+    -- WEAPONS - Outrider's Bow (ranged, all levels)
+    [19558] = { slot = "RANGED", class = nil, honor = 5100, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Bow" },
+    [19559] = { slot = "RANGED", class = nil, honor = 694, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Bow" },
+    [19560] = { slot = "RANGED", class = nil, honor = 469, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Bow" },
+    [19561] = { slot = "RANGED", class = nil, honor = 316, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Bow" },
+    [20437] = { slot = "RANGED", class = nil, honor = 214, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrider's Bow" },
 
-    -- NOTE: Rank 10 Warlock/Priest sets removed due to ID conflicts with rank 12-13 epic sets
-    -- The 17XXX IDs are shared between blue and epic versions in Classic
-    -- If rank 10 sets need to be added, they require verified unique item IDs
+    -- WEAPONS - Advisor's Gnarled Staff (staff, all levels)
+    [19566] = { slot = "TWO_HAND", class = nil, honor = 10200, arena = 0, marks = nil, season = "PREPATCH", name = "Advisor's Gnarled Staff" },
+    [19567] = { slot = "TWO_HAND", class = nil, honor = 1387, arena = 0, marks = nil, season = "PREPATCH", name = "Advisor's Gnarled Staff" },
+    [19568] = { slot = "TWO_HAND", class = nil, honor = 938, arena = 0, marks = nil, season = "PREPATCH", name = "Advisor's Gnarled Staff" },
+    [19569] = { slot = "TWO_HAND", class = nil, honor = 632, arena = 0, marks = nil, season = "PREPATCH", name = "Advisor's Gnarled Staff" },
+    [20425] = { slot = "TWO_HAND", class = nil, honor = 428, arena = 0, marks = nil, season = "PREPATCH", name = "Advisor's Gnarled Staff" },
+
+    -- TRINKET - Rune of Perfection (Priest only)
+    [21565] = { slot = "TRINKET", class = "PRIEST", honor = 258, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Rune of Perfection" },
+    [21566] = { slot = "TRINKET", class = "PRIEST", honor = 118, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Rune of Perfection" },
+
+    -- LEGS - Outrider's (all armor types)
+    [22651] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Plate Legguards" },
+    [22673] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Chain Leggings" },
+    [22676] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Mail Leggings" },
+    [22740] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Leather Pants" },
+    [22741] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Lizardhide Pants" },
+    [22747] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Silk Leggings" },
+    [30498] = { slot = "LEGS", class = nil, honor = 7905, arena = 0, marks = nil, season = "PREPATCH", name = "Outrider's Lamellar Legguards" },
+
+    --[[
+    ============================================================================
+    AB REPUTATION REWARDS - Horde (Defiler's)
+    ============================================================================
+    --]]
+
+    -- BACK - Deathguard's Cloak
+    [20068] = { slot = "BACK", class = nil, honor = 4590, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Deathguard's Cloak" },
+
+    -- TRINKET - Defiler's Talisman (all levels)
+    [20072] = { slot = "TRINKET", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Talisman" },
+    [21115] = { slot = "TRINKET", class = nil, honor = 382, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Talisman" },
+    [21116] = { slot = "TRINKET", class = nil, honor = 258, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Talisman" },
+    [21120] = { slot = "TRINKET", class = nil, honor = 175, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Defiler's Talisman" },
+
+    -- FEET - Defiler's Cloth Boots (all levels)
+    [20159] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Boots" },
+    [20160] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Boots" },
+    [20161] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Boots" },
+    [20162] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Boots" },
+
+    -- WAIST - Defiler's Cloth Girdle (all levels)
+    [20163] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Girdle" },
+    [20164] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Girdle" },
+    [20165] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Girdle" },
+    [20166] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Cloth Girdle" },
+
+    -- SHOULDER - Defiler's Epaulets (cloth)
+    [20176] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Epaulets" },
+
+    -- FEET - Defiler's Chain Greaves (Hunter/Shaman)
+    [20154] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Greaves" },
+    [20155] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Greaves" },
+    [20156] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Greaves" },
+    [20157] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Greaves" },
+
+    -- WAIST - Defiler's Chain Girdle (Hunter/Shaman)
+    [20150] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Girdle" },
+    [20151] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Girdle" },
+    [20152] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Girdle" },
+    [20153] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Chain Girdle" },
+
+    -- SHOULDER - Defiler's Chain Pauldrons (Hunter/Shaman)
+    [20158] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Chain Pauldrons" },
+
+    -- FEET - Defiler's Lizardhide Boots (Druid/Rogue)
+    [20167] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Boots" },
+    [20168] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Boots" },
+    [20169] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Boots" },
+    [20170] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Boots" },
+
+    -- WAIST - Defiler's Lizardhide Girdle (Druid/Rogue)
+    [20171] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Girdle" },
+    [20172] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Girdle" },
+    [20173] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Girdle" },
+    [20174] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lizardhide Girdle" },
+
+    -- SHOULDER - Defiler's Lizardhide Shoulders (Druid/Rogue)
+    [20175] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Lizardhide Shoulders" },
+
+    -- FEET - Defiler's Lamellar Greaves (Paladin)
+    [20177] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+    [20178] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+    [20179] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+    [20180] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+
+    -- WAIST - Defiler's Lamellar Girdle (Paladin)
+    [20181] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20182] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20183] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20184] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+
+    -- SHOULDER - Defiler's Lamellar Spaulders (Paladin)
+    [20185] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Lamellar Spaulders" },
+
+    -- FEET - Defiler's Leather Boots (Druid/Rogue)
+    [20186] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Boots" },
+    [20187] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Boots" },
+    [20188] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Boots" },
+    [20189] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Boots" },
+
+    -- WAIST - Defiler's Leather Girdle (Druid/Rogue)
+    [20190] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Girdle" },
+    [20191] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Girdle" },
+    [20192] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Girdle" },
+    [20193] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Leather Girdle" },
+
+    -- SHOULDER - Defiler's Leather Shoulders (Druid/Rogue)
+    [20194] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Leather Shoulders" },
+
+    -- FEET - Defiler's Mail Greaves (Hunter/Shaman)
+    [20199] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Greaves" },
+    [20200] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Greaves" },
+    [20201] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Greaves" },
+    [20202] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Greaves" },
+
+    -- WAIST - Defiler's Mail Girdle (Hunter/Shaman)
+    [20195] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Girdle" },
+    [20196] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Girdle" },
+    [20197] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Girdle" },
+    [20198] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Mail Girdle" },
+
+    -- SHOULDER - Defiler's Mail Pauldrons (Hunter/Shaman)
+    [20203] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Mail Pauldrons" },
+
+    -- FEET - Defiler's Plate Greaves (Warrior)
+    [20208] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Greaves" },
+    [20209] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Greaves" },
+    [20210] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Greaves" },
+    [20211] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Greaves" },
+
+    -- WAIST - Defiler's Plate Girdle (Warrior)
+    [20204] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Girdle" },
+    [20205] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Girdle" },
+    [20206] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Girdle" },
+    [20207] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Plate Girdle" },
+
+    -- SHOULDER - Defiler's Plate Spaulders (Warrior)
+    [20212] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Plate Spaulders" },
+
+    -- WEAPONS
+    [20214] = { slot = "MAIN_HAND", class = nil, honor = 8160, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Mindfang" },
+    [20220] = { slot = "TWO_HAND", class = nil, honor = 15300, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Ironbark Staff" },
+
+    --[[
+    ============================================================================
+    AV REPUTATION REWARDS - Horde (Frostwolf)
+    ============================================================================
+    --]]
+
+    -- TABARD
+    [19031] = { slot = "TABARD", class = nil, honor = 0, arena = 0, marks = { AV = 60 }, season = "PREPATCH", name = "Frostwolf Battle Tabard" },
+
+    -- BACK - Cloaks
+    [19083] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Frostwolf Legionnaire's Cloak" },
+    [19085] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Frostwolf Advisor's Cloak" },
+
+    -- NECK - Pendants
+    [19095] = { slot = "NECK", class = nil, honor = 1530, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Frostwolf Legionnaire's Pendant" },
+    [19096] = { slot = "NECK", class = nil, honor = 1530, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Frostwolf Advisor's Pendant" },
+
+    -- WAIST - Belts (all armor types)
+    [19087] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Frostwolf Plate Belt" },
+    [19088] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Frostwolf Mail Belt" },
+    [19089] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Frostwolf Leather Belt" },
+    [19090] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Frostwolf Cloth Belt" },
+
+    -- FINGER - Rings
+    [19325] = { slot = "FINGER", class = nil, honor = 4590, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Don Julio's Band" },
+    [21563] = { slot = "FINGER", class = nil, honor = 4590, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Don Rodrigo's Band" },
+
+    -- WEAPONS - Budget
+    [19099] = { slot = "MAIN_HAND", class = nil, honor = 2380, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Glacial Blade" },
+    [19101] = { slot = "TWO_HAND", class = nil, honor = 2720, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Whiteout Staff" },
+    [19103] = { slot = "MAIN_HAND", class = nil, honor = 2380, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Frostbite" },
+
+    -- WEAPONS - Epic
+    [19323] = { slot = "TWO_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "The Unstoppable Force" },
+    [19324] = { slot = "MAIN_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "The Lobotomizer" },
+
+    -- OFF_HAND - Shield
+    [19321] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "The Immovable Object" },
+
+    -- OFF_HAND - Tomes/Caster
+    [19308] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Tome of Arcane Domination" },
+    [19309] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Tome of Shadow Force" },
+    [19310] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Tome of the Ice Lord" },
+    [19311] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Tome of Fiery Arcana" },
+    [19312] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lei of the Lifegiver" },
+    [19315] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Therazane's Touch" },
 
 }
 
