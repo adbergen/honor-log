@@ -148,6 +148,10 @@ function HonorLog:InitializeDB()
     if not lastSessionDate then
         HonorLogCharDB.sessionDate = today
         lastSessionDate = today
+        -- Also set sessionStartTime if missing (needed for hourly rate calculation)
+        if not HonorLogCharDB.sessionStartTime or HonorLogCharDB.sessionStartTime == 0 then
+            HonorLogCharDB.sessionStartTime = now
+        end
         self.isReload = true
     -- Reset if it's a new day
     elseif lastSessionDate ~= today then
@@ -174,6 +178,12 @@ function HonorLog:InitializeDB()
         self.isReload = false
     else
         HonorLogCharDB.lastUpdateTime = now
+    end
+
+    -- Safety: Ensure sessionStartTime is valid for hourly rate calculation
+    -- This handles edge cases where sessionStartTime was never set
+    if not HonorLogCharDB.sessionStartTime or HonorLogCharDB.sessionStartTime == 0 then
+        HonorLogCharDB.sessionStartTime = now
     end
 
     -- Update tracking values

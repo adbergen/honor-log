@@ -235,7 +235,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.11")
+    versionBadge:SetText("v1.1.12")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)
@@ -870,8 +870,13 @@ function HonorLog:UpdateMainFrame()
     local totalSession = self:GetTotalSessionStats()
     if totalSession.played > 0 then
         local color = totalSession.winrate >= 50 and COLORS.win or COLORS.loss
-        frame.sessionQuick:SetText(string.format("%d-%d  %.0f%%",
-            totalSession.wins, totalSession.losses, totalSession.winrate))
+        local quickText = string.format("%d-%d  %.0f%%",
+            totalSession.wins, totalSession.losses, totalSession.winrate)
+        -- Add hourly rate if available
+        if totalSession.hourlyRate > 0 then
+            quickText = quickText .. string.format("  |cffffd700%d/hr|r", totalSession.hourlyRate)
+        end
+        frame.sessionQuick:SetText(quickText)
         frame.sessionQuick:SetTextColor(unpack(color))
     else
         frame.sessionQuick:SetText("--")

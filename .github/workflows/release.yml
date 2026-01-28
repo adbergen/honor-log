@@ -20,6 +20,16 @@ jobs:
           rsync -av --exclude='.git*' --exclude='.github' --exclude='release' --exclude='*.md' --exclude='ROADMAP.md' ./ release/HonorLog/
           cd release && zip -r HonorLog-${{ github.ref_name }}.zip HonorLog
 
+      - name: Extract changelog
+        id: changelog
+        run: |
+          # Use full changelog (skip the "# Changelog" header line)
+          CHANGELOG=$(tail -n +3 CHANGELOG.md)
+          # Handle multi-line output for GitHub Actions
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Upload to CurseForge
         uses: itsmeow/curseforge-upload@v3
         with:
@@ -27,8 +37,8 @@ jobs:
           project_id: 1442154 # Replace with your actual CurseForge project ID
           game_endpoint: wow
           file_path: release/HonorLog-${{ github.ref_name }}.zip
-          changelog: "See CHANGELOG.md for details"
-          changelog_type: text
+          changelog: ${{ steps.changelog.outputs.content }}
+          changelog_type: markdown
           display_name: HonorLog ${{ github.ref_name }}
           game_versions: "WoW Burning Crusade Classic,2.5.4"
           release_type: release

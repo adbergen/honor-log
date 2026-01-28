@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.12] - 2025-01-28
+
+### Added
+- **Minimized Hourly Rate**: Stats compact view now shows honor/hr alongside win-loss record
+
+### Fixed
+- **Hourly Rate Display**: Fixed hourly rate not showing after updating addon
+  - sessionStartTime was not initialized during migration from older versions
+  - Added safety check to ensure sessionStartTime is always valid
+
 ## [1.1.11] - 2025-01-27
 
 ### Fixed
