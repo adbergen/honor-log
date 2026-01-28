@@ -1,8 +1,8 @@
 ## Interface: 20505
 ## Title: HonorLog
 ## Notes: Track battleground statistics with gear goal tracking, hourly honor rates, and session/lifetime stats for TBC Classic Anniversary
-## Author: You
-## Version: 1.1.16
+## Author: adbergen
+## Version: 1.1.17
 ## SavedVariables: HonorLogDB
 ## SavedVariablesPerCharacter: HonorLogCharDB
 

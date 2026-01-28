@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.17] - 2025-01-28
+
+### Changed
+- **Version Tooltip**: Version badge moved from header to hover tooltip on the title bar
+  - Hover over the header to see version and author info
+  - Cleaner header layout with less visual clutter
+- **Author**: Set addon author to adbergen
+
 ## [1.1.16] - 2025-01-28
 
 ### Fixed

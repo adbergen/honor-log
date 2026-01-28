@@ -18,6 +18,18 @@ local BG_NAMES = {
     EotS = "Eye of the Storm",
 }
 
+-- Cache addon metadata at load time
+-- TBC Classic Anniversary uses C_AddOns.GetAddOnMetadata, not the global GetAddOnMetadata
+local function GetMeta(field)
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        return C_AddOns.GetAddOnMetadata(ADDON_NAME, field)
+    elseif GetAddOnMetadata then
+        return GetAddOnMetadata(ADDON_NAME, field)
+    end
+end
+local ADDON_VERSION = GetMeta("Version") or "?"
+local ADDON_AUTHOR = GetMeta("Author") or "Unknown"
+
 -- Mark of Honor icons (TBC Classic mark item icons)
 local BG_ICONS = {
     AV = "Interface\\Icons\\INV_Jewelry_Necklace_21",   -- Alterac Valley Mark (blue crystal)
@@ -206,6 +218,14 @@ local function CreateMainFrame()
         local point, _, relPoint, x, y = frame:GetPoint()
         HonorLog.db.settings.framePoint = { point, nil, relPoint, x, y }
     end)
+    header:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine("HonorLog v" .. ADDON_VERSION)
+        GameTooltip:AddLine("by " .. ADDON_AUTHOR, 0.7, 0.7, 0.75)
+        GameTooltip:Show()
+    end)
+    header:HookScript("OnLeave", function() GameTooltip:Hide() end)
     -- Right-click handler set at end of CreateMainFrame
     frame.header = header
 
@@ -232,16 +252,10 @@ local function CreateMainFrame()
     title:SetTextColor(unpack(COLORS.brand))
     frame.title = title
 
-    -- Version badge
-    local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.16")
-    versionBadge:SetTextColor(unpack(COLORS.accent))
-
     -- View mode indicator (pill badge)
     local viewModeBg = header:CreateTexture(nil, "ARTWORK")
     viewModeBg:SetSize(50, 16)
-    viewModeBg:SetPoint("LEFT", versionBadge, "RIGHT", 8, 0)
+    viewModeBg:SetPoint("LEFT", title, "RIGHT", 8, 0)
     viewModeBg:SetColorTexture(0.15, 0.15, 0.20, 0.8)
     frame.viewModeBg = viewModeBg
 
