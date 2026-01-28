@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.13] - 2025-01-28
+
+### Fixed
+- **Cross-Faction Class Gear**: Paladin and Shaman gear now visible regardless of faction
+  - Alliance Shamans can now see Horde-named PvP gear (Warlord's, General's, etc.)
+  - Horde Paladins can now see Alliance-named PvP gear (Field Marshal's, Marshal's, etc.)
+  - TBC prepatch added Blood Elf Paladins and Draenei Shamans, making these classes cross-faction
+
+### Added
+- **TBC Insignias**: Added missing PvP trinkets for cross-faction classes
+  - Shaman Insignia of the Alliance (for Draenei Shamans)
+  - Paladin Insignia of the Horde (for Blood Elf Paladins)
+
 ## [1.1.12] - 2025-01-28
 
 ### Added

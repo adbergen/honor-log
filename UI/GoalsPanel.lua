@@ -1542,39 +1542,49 @@ local function CreateGoalPicker()
             end
 
             -- Faction filter for faction-specific PvP gear (ALWAYS applied regardless of Useable filter)
+            -- Exception: Paladin/Shaman class gear is NOT faction-filtered because TBC prepatch
+            -- added Blood Elf Paladins (Horde) and Draenei Shamans (Alliance)
             if passFilter and data.name then
                 local itemName = data.name
-                -- Horde-only items:
-                -- - High Warlord (R14 weapons), Warlord's (head/shoulder/chest)
-                -- - General's (hands/legs/feet)
-                -- - Defiler's (AB reputation)
-                -- - Outrider's, Legionnaire's, Advisor's, Scout's (WSG reputation)
-                -- - Frostwolf (AV reputation)
-                -- - Deathguard, Blood Guard
-                local isHordeItem = itemName:find("High Warlord") or itemName:find("Warlord's") or
-                    itemName:find("General's") or
-                    itemName:find("Defiler") or itemName:find("Outrider") or itemName:find("Legionnaire") or
-                    itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Frostwolf") or
-                    itemName:find("Warsong Battle") or itemName:find("Deathguard") or itemName:find("Blood Guard") or
-                    itemName:find("Insignia of the Horde")
 
-                -- Alliance-only items:
-                -- - Grand Marshal (R14 weapons), Field Marshal's (head/shoulder/chest)
-                -- - Marshal's (hands/legs/feet)
-                -- - Highlander's (AB reputation)
-                -- - Sentinel's, Silverwing (WSG reputation)
-                -- - Stormpike (AV reputation)
-                -- - Knight-, Lieutenant
-                -- - Insignia of the Alliance
-                local isAllianceItem = itemName:find("Grand Marshal") or itemName:find("Marshal's") or
-                    itemName:find("Highlander") or itemName:find("Sentinel") or itemName:find("Silverwing") or
-                    itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
-                    itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance")
+                -- Skip faction filter for Paladin/Shaman class-specific gear (cross-faction classes in TBC)
+                -- Exception: Insignias are still faction-locked at vendors
+                local isCrossFactionClassGear = (data.class == "PALADIN" or data.class == "SHAMAN")
+                    and not itemName:find("Insignia")
 
-                if isHordeItem and playerFaction ~= "Horde" then
-                    passFilter = false
-                elseif isAllianceItem and playerFaction ~= "Alliance" then
-                    passFilter = false
+                if not isCrossFactionClassGear then
+                    -- Horde-only items:
+                    -- - High Warlord (R14 weapons), Warlord's (head/shoulder/chest)
+                    -- - General's (hands/legs/feet)
+                    -- - Defiler's (AB reputation)
+                    -- - Outrider's, Legionnaire's, Advisor's, Scout's (WSG reputation)
+                    -- - Frostwolf (AV reputation)
+                    -- - Deathguard, Blood Guard
+                    local isHordeItem = itemName:find("High Warlord") or itemName:find("Warlord's") or
+                        itemName:find("General's") or
+                        itemName:find("Defiler") or itemName:find("Outrider") or itemName:find("Legionnaire") or
+                        itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Frostwolf") or
+                        itemName:find("Warsong Battle") or itemName:find("Deathguard") or itemName:find("Blood Guard") or
+                        itemName:find("Insignia of the Horde")
+
+                    -- Alliance-only items:
+                    -- - Grand Marshal (R14 weapons), Field Marshal's (head/shoulder/chest)
+                    -- - Marshal's (hands/legs/feet)
+                    -- - Highlander's (AB reputation)
+                    -- - Sentinel's, Silverwing (WSG reputation)
+                    -- - Stormpike (AV reputation)
+                    -- - Knight-, Lieutenant
+                    -- - Insignia of the Alliance
+                    local isAllianceItem = itemName:find("Grand Marshal") or itemName:find("Marshal's") or
+                        itemName:find("Highlander") or itemName:find("Sentinel") or itemName:find("Silverwing") or
+                        itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
+                        itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance")
+
+                    if isHordeItem and playerFaction ~= "Horde" then
+                        passFilter = false
+                    elseif isAllianceItem and playerFaction ~= "Alliance" then
+                        passFilter = false
+                    end
                 end
                 -- Gladiator's gear is faction-neutral, no filter needed
             end

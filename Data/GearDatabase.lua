@@ -640,6 +640,7 @@ HonorLog.GearDB = {
     [18863] = { slot = "TRINKET", class = "DRUID", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
     [18864] = { slot = "TRINKET", class = "PALADIN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
     [18859] = { slot = "TRINKET", class = "MAGE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" },
+    [24549] = { slot = "TRINKET", class = "SHAMAN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Alliance" }, -- Draenei Shaman (TBC)
 
     -- HORDE INSIGNIAS
     [18834] = { slot = "TRINKET", class = "WARRIOR", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
@@ -650,6 +651,7 @@ HonorLog.GearDB = {
     [18853] = { slot = "TRINKET", class = "DRUID", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
     [18845] = { slot = "TRINKET", class = "SHAMAN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
     [18850] = { slot = "TRINKET", class = "MAGE", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" },
+    [24550] = { slot = "TRINKET", class = "PALADIN", honor = 2805, arena = 0, marks = nil, season = "PREPATCH", name = "Insignia of the Horde" }, -- Blood Elf Paladin (TBC)
 
     --[[
     ============================================================================
