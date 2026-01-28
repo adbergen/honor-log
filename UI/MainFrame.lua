@@ -235,7 +235,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.6")
+    versionBadge:SetText("v1.1.11")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)
@@ -294,6 +294,33 @@ local function CreateMainFrame()
     sessionQuick:SetPoint("RIGHT", -PADDING, 0)
     sessionQuick:SetJustifyH("RIGHT")
     frame.sessionQuick = sessionQuick
+
+    -- Goals compact view (shown when goals tab is active and minimized)
+    local goalsCompactContainer = CreateFrame("Frame", nil, compact)
+    goalsCompactContainer:SetAllPoints()
+    goalsCompactContainer:Hide()
+    frame.goalsCompact = goalsCompactContainer
+
+    -- Goals icon
+    local goalsIcon = goalsCompactContainer:CreateTexture(nil, "ARTWORK")
+    goalsIcon:SetSize(12, 12)
+    goalsIcon:SetPoint("LEFT", PADDING, 0)
+    goalsIcon:SetTexture("Interface\\Icons\\INV_Misc_Token_HonorHold")
+    goalsIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    goalsIcon:SetAlpha(0.8)
+    frame.goalsCompactIcon = goalsIcon
+
+    -- Goals summary text (left side)
+    local goalsSummary = goalsCompactContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    goalsSummary:SetPoint("LEFT", goalsIcon, "RIGHT", 4, 0)
+    goalsSummary:SetJustifyH("LEFT")
+    frame.goalsCompactSummary = goalsSummary
+
+    -- Goals currency text (right side)
+    local goalsCurrency = goalsCompactContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    goalsCurrency:SetPoint("RIGHT", -PADDING, 0)
+    goalsCurrency:SetJustifyH("RIGHT")
+    frame.goalsCompactCurrency = goalsCurrency
 
     ----------------------------------------------------------------------------
     -- EXPANDED VIEW (with scroll support)
@@ -720,15 +747,32 @@ end
 
 function HonorLog:SetExpanded(expanded)
     self.db.settings.frameExpanded = expanded
+    local frame = self.mainFrame
 
     -- Get saved width or use default
     local savedSize = self.db.settings.frameSize
     local width = (savedSize and savedSize[1]) or FRAME_WIDTH
 
+    -- Determine which view is active (default to stats if not set)
+    local currentView = frame.currentView or "stats"
+
     if expanded then
-        self.mainFrame.expanded:Show()
-        self.mainFrame:SetSize(width, FRAME_HEIGHT_EXPANDED)
-        self.mainFrame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
+        frame:SetSize(width, FRAME_HEIGHT_EXPANDED)
+        frame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
+
+        -- Show the appropriate expanded view based on current tab
+        if currentView == "goals" then
+            frame.expanded:Hide()
+            if frame.goalsPanel then
+                frame.goalsPanel:Show()
+                self:UpdateGoalsPanel()
+            end
+        else
+            frame.expanded:Show()
+            if frame.goalsPanel then
+                frame.goalsPanel:Hide()
+            end
+        end
 
         -- Update scroll bar visibility after showing
         C_Timer.After(0, function()
@@ -737,9 +781,42 @@ function HonorLog:SetExpanded(expanded)
             end
         end)
     else
-        self.mainFrame.expanded:Hide()
-        self.mainFrame:SetSize(width, FRAME_HEIGHT_COMPACT)
-        self.mainFrame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
+        -- Minimized state - hide all expanded views
+        frame.expanded:Hide()
+        if frame.goalsPanel then
+            frame.goalsPanel:Hide()
+        end
+        frame:SetSize(width, FRAME_HEIGHT_COMPACT)
+        frame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
+    end
+
+    -- Update compact view to show appropriate content
+    self:UpdateCompactView()
+end
+
+function HonorLog:UpdateCompactView()
+    local frame = self.mainFrame
+    if not frame then return end
+
+    local currentView = frame.currentView or "stats"
+
+    if currentView == "goals" then
+        -- Show goals compact, hide stats compact
+        frame.statusIcon:Hide()
+        frame.statusLine:Hide()
+        frame.sessionQuick:Hide()
+        if frame.goalsCompact then
+            frame.goalsCompact:Show()
+            self:UpdateGoalsCompact()
+        end
+    else
+        -- Show stats compact, hide goals compact
+        frame.statusIcon:Show()
+        frame.statusLine:Show()
+        frame.sessionQuick:Show()
+        if frame.goalsCompact then
+            frame.goalsCompact:Hide()
+        end
     end
 end
 
@@ -873,6 +950,83 @@ function HonorLog:UpdateMainFrame()
         frame.sessionStats:SetTextColor(unpack(COLORS.textTertiary))
         frame.sessionRate:SetText("")
         frame.sessionRewards:SetText("")
+    end
+
+    -- Update goals compact if in goals view
+    if frame.currentView == "goals" and self.UpdateGoalsCompact then
+        self:UpdateGoalsCompact()
+    end
+end
+
+--------------------------------------------------------------------------------
+-- GOALS COMPACT VIEW UPDATE
+--------------------------------------------------------------------------------
+function HonorLog:UpdateGoalsCompact()
+    if not self.mainFrame then return end
+    local frame = self.mainFrame
+
+    local goalCount = self:GetGoalCount()
+    if goalCount == 0 then
+        frame.goalsCompactSummary:SetText("No goals set")
+        frame.goalsCompactSummary:SetTextColor(unpack(COLORS.textTertiary))
+        frame.goalsCompactIcon:SetTexture("Interface\\Icons\\INV_Misc_Token_HonorHold")
+        frame.goalsCompactIcon:SetVertexColor(0.5, 0.5, 0.5, 0.7)
+        frame.goalsCompactCurrency:SetText("")
+    else
+        -- Get top goal info
+        local goals = self:GetAllGoalsProgress()
+        if goals and #goals > 0 then
+            local topGoal = goals[1]
+
+            -- Update icon to match top goal
+            local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(topGoal.itemID)
+            if itemTexture then
+                frame.goalsCompactIcon:SetTexture(itemTexture)
+            else
+                frame.goalsCompactIcon:SetTexture("Interface\\Icons\\INV_Misc_Token_HonorHold")
+            end
+            frame.goalsCompactIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            frame.goalsCompactIcon:SetVertexColor(1, 1, 1, 0.9)
+
+            -- Calculate overall progress
+            local totalProgress = 0
+            for _, goal in ipairs(goals) do
+                local percent = 100
+                if goal.honor.needed > 0 then
+                    percent = math.min(percent, goal.honor.percent)
+                end
+                if goal.arena.needed > 0 then
+                    percent = math.min(percent, goal.arena.percent)
+                end
+                for _, markData in pairs(goal.marks) do
+                    percent = math.min(percent, markData.percent)
+                end
+                totalProgress = totalProgress + percent
+            end
+            local avgProgress = totalProgress / #goals
+
+            -- Summary text
+            local summaryText
+            if #goals == 1 then
+                summaryText = string.format("%s · %.0f%%", topGoal.name or "Goal", avgProgress)
+            else
+                summaryText = string.format("%d goals · %.0f%%", #goals, avgProgress)
+            end
+            frame.goalsCompactSummary:SetText(summaryText)
+
+            -- Color based on progress
+            if avgProgress >= 100 then
+                frame.goalsCompactSummary:SetTextColor(unpack(COLORS.progressFull))
+            elseif avgProgress >= 50 then
+                frame.goalsCompactSummary:SetTextColor(unpack(COLORS.progressPartial))
+            else
+                frame.goalsCompactSummary:SetTextColor(unpack(COLORS.textPrimary))
+            end
+
+            -- Currency display (current honor)
+            local currentHonor = self:GetCurrentHonor()
+            frame.goalsCompactCurrency:SetText(string.format("|cffffd700%s|r Honor", BreakUpLargeNumbers(currentHonor)))
+        end
     end
 end
 

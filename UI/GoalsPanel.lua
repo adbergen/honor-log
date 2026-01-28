@@ -1796,22 +1796,34 @@ function HonorLog:SwitchTab(tabName)
 
     frame.currentView = tabName
 
+    -- Update tab visual states
     if tabName == "stats" then
         frame.statsTab:SetActive(true)
         frame.goalsTab:SetActive(false)
-        frame.statsView:Show()
-        frame.goalsPanel:Hide()
     else
         frame.statsTab:SetActive(false)
         frame.goalsTab:SetActive(true)
-        frame.statsView:Hide()
-        frame.goalsPanel:Show()
-        self:UpdateGoalsPanel()
     end
 
-    -- Ensure frame is expanded when switching tabs
-    if not self.db.settings.frameExpanded then
-        self:SetExpanded(true)
+    -- Update compact view content
+    if self.UpdateCompactView then
+        self:UpdateCompactView()
+    end
+
+    -- Handle expanded views based on frame state
+    if self.db.settings.frameExpanded then
+        if tabName == "stats" then
+            frame.statsView:Show()
+            frame.goalsPanel:Hide()
+        else
+            frame.statsView:Hide()
+            frame.goalsPanel:Show()
+            self:UpdateGoalsPanel()
+        end
+    else
+        -- When minimized, both expanded views stay hidden
+        frame.statsView:Hide()
+        frame.goalsPanel:Hide()
     end
 end
 

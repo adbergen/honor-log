@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.11] - 2025-01-27
+
+### Fixed
+- **Minimized Goals View**: Goals tab now shows compact summary when minimized
+  - Displays goal count and overall progress percentage
+  - Shows top goal icon and current honor on right
+  - Switching between Stats/Goals tabs works correctly when minimized
+
 ## [1.1.10] - 2025-01-27
 
 ### Fixed
