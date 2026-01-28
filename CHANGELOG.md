@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.14] - 2025-01-28
+
+### Fixed
+- **Honor Tracking**: Fixed end-of-game bonus honor not being captured
+  - Win detection now waits 3 seconds before recording to capture bonus honor
+  - Honor tracking handlers continue accumulating during the delay
+  - Fixes inaccurate honor counts in all battlegrounds (most noticeable in WSG)
+
 ## [1.1.13] - 2025-01-28
 
 ### Fixed

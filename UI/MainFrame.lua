@@ -235,7 +235,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.13")
+    versionBadge:SetText("v1.1.14")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)

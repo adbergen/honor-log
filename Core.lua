@@ -30,6 +30,8 @@ local bgEnded = false
 local debugMode = false
 local lastRecordedTime = 0  -- Timestamp of last recorded game (prevents double counting)
 local gameRecordedThisSession = false  -- Absolute guard: only one recording per BG session
+local bgEndPending = false  -- True when win detected but waiting for bonus honor
+local bgEndWinner = nil     -- Stored winner during pending delay
 
 -- Backup state for when we leave before score update arrives
 local lastBG = nil
@@ -341,11 +343,24 @@ function HonorLog:OnBattlegroundLeave()
         bgStartHonor = nil
         bgHonorAccumulated = 0  -- Reset honor counter for next BG
         bgEnded = false  -- Reset flag for next BG
+        bgEndPending = false  -- Reset pending flag
+        bgEndWinner = nil  -- Reset pending winner
         lastHonorValue = nil  -- Reset honor tracking
         SaveBGState()
         if self.UpdateMainFrame then
             self:UpdateMainFrame()
         end
+        return
+    end
+
+    -- If game end is pending (waiting for bonus honor timer), finalize immediately
+    if bgEndPending then
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r   Game end was pending, finalizing now before leaving")
+        end
+        bgEndPending = false
+        bgEnded = true
+        self:OnBattlegroundEnd(bgEndWinner)
         return
     end
 
@@ -385,6 +400,8 @@ function HonorLog:OnBattlegroundLeave()
     bgStartHonor = nil
     bgHonorAccumulated = 0  -- Reset honor counter
     bgEnded = false  -- Reset flag for next BG
+    bgEndPending = false  -- Reset pending flag
+    bgEndWinner = nil  -- Reset pending winner
     lastHonorValue = nil  -- Reset honor tracking
 
     -- Save cleared state
@@ -426,6 +443,31 @@ local WIN_PATTERNS = {
     ["vanndar stormpike has been slain"] = "Horde",
 }
 
+-- Schedule delayed game end to capture bonus honor
+-- The WoW server awards bonus honor ~100-500ms after the win message
+-- We wait 3 seconds to ensure all bonus honor events are captured
+local function ScheduleGameEnd(self, winner)
+    if bgEndPending or bgEnded then return end
+    bgEndPending = true
+    bgEndWinner = winner
+
+    if debugMode then
+        print("|cffff00ff[HonorLog Debug]|r Scheduling game end in 3s (waiting for bonus honor)")
+        print("|cffff00ff[HonorLog Debug]|r   bgHonorAccumulated so far: " .. tostring(bgHonorAccumulated))
+    end
+
+    C_Timer.After(3, function()
+        if not bgEndPending then return end -- Already finalized (e.g., left BG early)
+        if debugMode then
+            print("|cffff00ff[HonorLog Debug]|r Delayed game end firing now")
+            print("|cffff00ff[HonorLog Debug]|r   bgHonorAccumulated after delay: " .. tostring(bgHonorAccumulated))
+        end
+        bgEndPending = false
+        bgEnded = true
+        self:OnBattlegroundEnd(bgEndWinner)
+    end)
+end
+
 -- Handle BG system messages
 local function HandleBGMessage(self, msg)
     -- ALWAYS print BG messages in debug mode, even if we're not tracking
@@ -435,7 +477,7 @@ local function HandleBGMessage(self, msg)
         print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG) .. ", currentBG: " .. tostring(currentBG) .. ", bgEnded: " .. tostring(bgEnded))
     end
 
-    if not isInBG or not currentBG or bgEnded then
+    if not isInBG or not currentBG or bgEnded or bgEndPending then
         if debugMode then
             print("|cffff00ff[HonorLog Debug]|r   SKIPPING - not tracking this BG")
         end
@@ -485,10 +527,9 @@ local function HandleBGMessage(self, msg)
     if winner then
         if debugMode then
             print("|cffff00ff[HonorLog Debug]|r Winner detected from BG message: " .. winner)
-            print("|cffff00ff[HonorLog Debug]|r   Setting bgEnded = true and calling OnBattlegroundEnd")
+            print("|cffff00ff[HonorLog Debug]|r   Scheduling delayed game end (waiting for bonus honor)")
         end
-        bgEnded = true
-        self:OnBattlegroundEnd(winner)
+        ScheduleGameEnd(self, winner)
     end
 end
 
@@ -515,7 +556,7 @@ end
 
 -- Battleground points update (AB, EotS resource-based BGs)
 function HonorLog:BATTLEGROUND_POINTS_UPDATE()
-    if not isInBG or not currentBG or bgEnded then return end
+    if not isInBG or not currentBG or bgEnded or bgEndPending then return end
 
     -- Check if we've hit 2000 resources (win condition for AB/EotS)
     if currentBG == "AB" or currentBG == "EotS" then
@@ -528,11 +569,9 @@ function HonorLog:BATTLEGROUND_POINTS_UPDATE()
         local winScore = (currentBG == "AB") and 2000 or 2000
 
         if allianceScore and allianceScore >= winScore then
-            bgEnded = true
-            self:OnBattlegroundEnd("Alliance")
+            ScheduleGameEnd(self, "Alliance")
         elseif hordScore and hordScore >= winScore then
-            bgEnded = true
-            self:OnBattlegroundEnd("Horde")
+            ScheduleGameEnd(self, "Horde")
         end
     end
 end
@@ -658,6 +697,8 @@ function HonorLog:OnBattlegroundEnd(winner)
     bgStartHonor = nil
     bgHonorAccumulated = 0
     lastHonorValue = nil
+    bgEndPending = false
+    bgEndWinner = nil
     -- Clear backup state to prevent double recording via UPDATE_BATTLEFIELD_SCORE
     lastBG = nil
     lastBGStartTime = nil
@@ -687,10 +728,10 @@ function HonorLog:UPDATE_BATTLEFIELD_SCORE()
         print("|cffff00ff[HonorLog Debug]|r   lastBG: " .. tostring(lastBG))
     end
 
-    -- If we already recorded this game, skip
-    if bgEnded then
+    -- If we already recorded or are pending, skip
+    if bgEnded or bgEndPending then
         if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   SKIPPED - bgEnded already true")
+            print("|cffff00ff[HonorLog Debug]|r   SKIPPED - bgEnded or bgEndPending already true")
         end
         return
     end
@@ -699,19 +740,18 @@ function HonorLog:UPDATE_BATTLEFIELD_SCORE()
     if winner ~= nil then
         -- Check if we're still in BG with valid state
         if isInBG and currentBG then
-            bgEnded = true
             if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r   Recording winner (in BG): " .. tostring(winningFaction))
+                print("|cffff00ff[HonorLog Debug]|r   Scheduling winner (in BG): " .. tostring(winningFaction))
             end
             if winningFaction then
-                self:OnBattlegroundEnd(winningFaction)
+                ScheduleGameEnd(self, winningFaction)
             end
         -- Check if we just left but have backup state (within 10 seconds)
         elseif lastBG and lastBGStartTime and lastBGLeaveTime and (GetTime() - lastBGLeaveTime) < 10 then
             if debugMode then
                 print("|cffff00ff[HonorLog Debug]|r   Recording winner (using backup state): " .. tostring(winningFaction))
             end
-            -- Temporarily restore state to record the game
+            -- Temporarily restore state to record the game (no delay needed - already left)
             currentBG = lastBG
             bgStartTime = lastBGStartTime
             bgStartHonor = lastBGStartHonor
