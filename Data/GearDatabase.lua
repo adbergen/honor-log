@@ -753,6 +753,83 @@ HonorLog.GearDB = {
 
     --[[
     ============================================================================
+    WSG REPUTATION REWARDS - Alliance (Silverwing Sentinels)
+    ============================================================================
+    --]]
+
+    -- TABARD
+    [19506] = { slot = "TABARD", class = nil, honor = 0, arena = 0, marks = { WSG = 60 }, season = "PREPATCH", name = "Silverwing Battle Tabard" },
+
+    -- RINGS - Protector's Band (all levels)
+    [19514] = { slot = "FINGER", class = nil, honor = 1530, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Protector's Band" },
+    [19516] = { slot = "FINGER", class = nil, honor = 208, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Protector's Band" },
+    [19515] = { slot = "FINGER", class = nil, honor = 141, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Protector's Band" },
+    [19517] = { slot = "FINGER", class = nil, honor = 95, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Protector's Band" },
+    [20439] = { slot = "FINGER", class = nil, honor = 65, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Protector's Band" },
+
+    -- RINGS - Lorekeeper's Ring (all levels)
+    [19522] = { slot = "FINGER", class = nil, honor = 1530, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Lorekeeper's Ring" },
+    [19523] = { slot = "FINGER", class = nil, honor = 208, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Lorekeeper's Ring" },
+    [19524] = { slot = "FINGER", class = nil, honor = 141, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Lorekeeper's Ring" },
+    [19525] = { slot = "FINGER", class = nil, honor = 95, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Lorekeeper's Ring" },
+    [20431] = { slot = "FINGER", class = nil, honor = 65, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Lorekeeper's Ring" },
+
+    -- NECK - Sentinel's Medallion (all levels)
+    [19538] = { slot = "NECK", class = nil, honor = 1530, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Sentinel's Medallion" },
+    [19539] = { slot = "NECK", class = nil, honor = 208, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Sentinel's Medallion" },
+    [19540] = { slot = "NECK", class = nil, honor = 141, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Sentinel's Medallion" },
+    [19541] = { slot = "NECK", class = nil, honor = 95, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Sentinel's Medallion" },
+    [20444] = { slot = "NECK", class = nil, honor = 65, arena = 0, marks = { WSG = 2 }, season = "PREPATCH", name = "Sentinel's Medallion" },
+
+    -- BACK - Caretaker's Cape (all levels)
+    [19530] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Caretaker's Cape" },
+    [19531] = { slot = "BACK", class = nil, honor = 208, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Caretaker's Cape" },
+    [19532] = { slot = "BACK", class = nil, honor = 141, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Caretaker's Cape" },
+    [19533] = { slot = "BACK", class = nil, honor = 95, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Caretaker's Cape" },
+    [20428] = { slot = "BACK", class = nil, honor = 65, arena = 0, marks = { WSG = 1 }, season = "PREPATCH", name = "Caretaker's Cape" },
+
+    -- WEAPONS - Sentinel's Blade (dagger, all levels)
+    [19546] = { slot = "MAIN_HAND", class = nil, honor = 5100, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Blade" },
+    [19547] = { slot = "MAIN_HAND", class = nil, honor = 694, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Blade" },
+    [19548] = { slot = "MAIN_HAND", class = nil, honor = 469, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Blade" },
+    [19549] = { slot = "MAIN_HAND", class = nil, honor = 316, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Blade" },
+    [20443] = { slot = "MAIN_HAND", class = nil, honor = 214, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Sentinel's Blade" },
+
+    -- WEAPONS - Protector's Sword (2H sword, all levels)
+    [19554] = { slot = "MAIN_HAND", class = nil, honor = 10200, arena = 0, marks = nil, season = "PREPATCH", name = "Protector's Sword" },
+    [19555] = { slot = "MAIN_HAND", class = nil, honor = 694, arena = 0, marks = nil, season = "PREPATCH", name = "Protector's Sword" },
+    [19556] = { slot = "MAIN_HAND", class = nil, honor = 469, arena = 0, marks = nil, season = "PREPATCH", name = "Protector's Sword" },
+    [19557] = { slot = "MAIN_HAND", class = nil, honor = 316, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Protector's Sword" },
+    [20440] = { slot = "MAIN_HAND", class = nil, honor = 214, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Protector's Sword" },
+
+    -- WEAPONS - Outrunner's Bow (ranged, all levels)
+    [19562] = { slot = "RANGED", class = nil, honor = 5100, arena = 0, marks = nil, season = "PREPATCH", name = "Outrunner's Bow" },
+    [19563] = { slot = "RANGED", class = nil, honor = 694, arena = 0, marks = nil, season = "PREPATCH", name = "Outrunner's Bow" },
+    [19564] = { slot = "RANGED", class = nil, honor = 469, arena = 0, marks = nil, season = "PREPATCH", name = "Outrunner's Bow" },
+    [19565] = { slot = "RANGED", class = nil, honor = 316, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrunner's Bow" },
+    [20438] = { slot = "RANGED", class = nil, honor = 214, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Outrunner's Bow" },
+
+    -- WEAPONS - Lorekeeper's Staff (staff, all levels)
+    [19570] = { slot = "TWO_HAND", class = nil, honor = 10200, arena = 0, marks = nil, season = "PREPATCH", name = "Lorekeeper's Staff" },
+    [19571] = { slot = "TWO_HAND", class = nil, honor = 1387, arena = 0, marks = nil, season = "PREPATCH", name = "Lorekeeper's Staff" },
+    [19572] = { slot = "TWO_HAND", class = nil, honor = 938, arena = 0, marks = nil, season = "PREPATCH", name = "Lorekeeper's Staff" },
+    [19573] = { slot = "TWO_HAND", class = nil, honor = 632, arena = 0, marks = nil, season = "PREPATCH", name = "Lorekeeper's Staff" },
+    [20434] = { slot = "TWO_HAND", class = nil, honor = 428, arena = 0, marks = nil, season = "PREPATCH", name = "Lorekeeper's Staff" },
+
+    -- TRINKET - Rune of Duty (Priest only)
+    [21567] = { slot = "TRINKET", class = "PRIEST", honor = 258, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Rune of Duty" },
+    [21568] = { slot = "TRINKET", class = "PRIEST", honor = 118, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Rune of Duty" },
+
+    -- LEGS - Sentinel's (all armor types)
+    [22672] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Plate Legguards" },
+    [22748] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Chain Leggings" },
+    [22749] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Leather Pants" },
+    [22750] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Lizardhide Pants" },
+    [22752] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Silk Leggings" },
+    [22753] = { slot = "LEGS", class = nil, honor = 8925, arena = 0, marks = nil, season = "PREPATCH", name = "Sentinel's Lamellar Legguards" },
+
+    --[[
+    ============================================================================
     AB REPUTATION REWARDS - Horde (Defiler's)
     ============================================================================
     --]]
@@ -875,6 +952,118 @@ HonorLog.GearDB = {
     -- WEAPONS
     [20214] = { slot = "MAIN_HAND", class = nil, honor = 8160, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Mindfang" },
     [20220] = { slot = "TWO_HAND", class = nil, honor = 15300, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Ironbark Staff" },
+
+    -- TABARD
+    [20131] = { slot = "TABARD", class = nil, honor = 0, arena = 0, marks = { AB = 60 }, season = "PREPATCH", name = "Battle Tabard of the Defilers" },
+
+    --[[
+    ============================================================================
+    AB REPUTATION REWARDS - Alliance (Highlander's / League of Arathor)
+    ============================================================================
+    --]]
+
+    -- TABARD
+    [20132] = { slot = "TABARD", class = nil, honor = 0, arena = 0, marks = { AB = 60 }, season = "PREPATCH", name = "Arathor Battle Tabard" },
+
+    -- TRINKET - Talisman of Arathor (all levels)
+    [20071] = { slot = "TRINKET", class = nil, honor = 2805, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Talisman of Arathor" },
+    [21117] = { slot = "TRINKET", class = nil, honor = 382, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Talisman of Arathor" },
+    [21118] = { slot = "TRINKET", class = nil, honor = 258, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Talisman of Arathor" },
+    [21119] = { slot = "TRINKET", class = nil, honor = 175, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Talisman of Arathor" },
+
+    -- FEET - Highlander's Cloth Boots (all levels)
+    [20054] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Boots" },
+    [20094] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Boots" },
+    [20095] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Boots" },
+    [20096] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Boots" },
+
+    -- WAIST - Highlander's Cloth Girdle (all levels)
+    [20047] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Girdle" },
+    [20097] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Girdle" },
+    [20098] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Girdle" },
+    [20099] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Cloth Girdle" },
+
+    -- SHOULDER - Highlander's Epaulets (cloth)
+    [20061] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Highlander's Epaulets" },
+
+    -- FEET - Highlander's Chain Greaves (Hunter)
+    [20050] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Greaves" },
+    [20091] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Greaves" },
+    [20092] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Greaves" },
+    [20093] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Greaves" },
+
+    -- WAIST - Highlander's Chain Girdle (Hunter)
+    [20043] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Girdle" },
+    [20088] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Girdle" },
+    [20089] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Girdle" },
+    [20090] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Chain Girdle" },
+
+    -- SHOULDER - Highlander's Chain Pauldrons (Hunter)
+    [20055] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Highlander's Chain Pauldrons" },
+
+    -- FEET - Highlander's Lizardhide Boots (Druid/Rogue)
+    [20053] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Boots" },
+    [20100] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Boots" },
+    [20101] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Boots" },
+    [20102] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Boots" },
+
+    -- WAIST - Highlander's Lizardhide Girdle (Druid/Rogue)
+    [20046] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Girdle" },
+    [20103] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Girdle" },
+    [20104] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Girdle" },
+    [20105] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lizardhide Girdle" },
+
+    -- SHOULDER - Highlander's Lizardhide Shoulders (Druid/Rogue)
+    [20060] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Highlander's Lizardhide Shoulders" },
+
+    -- FEET - Highlander's Lamellar Greaves (Paladin)
+    [20049] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Greaves" },
+    [20109] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Greaves" },
+    [20110] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Greaves" },
+    [20111] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Greaves" },
+
+    -- WAIST - Highlander's Lamellar Girdle (Paladin)
+    [20042] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Girdle" },
+    [20106] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Girdle" },
+    [20107] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Girdle" },
+    [20108] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Lamellar Girdle" },
+
+    -- SHOULDER - Highlander's Lamellar Spaulders (Paladin)
+    [20058] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Highlander's Lamellar Spaulders" },
+
+    -- FEET - Highlander's Leather Boots (Druid/Rogue)
+    [20052] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Boots" },
+    [20112] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Boots" },
+    [20113] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Boots" },
+    [20114] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Boots" },
+
+    -- WAIST - Highlander's Leather Girdle (Druid/Rogue)
+    [20045] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Girdle" },
+    [20115] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Girdle" },
+    [20116] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Girdle" },
+    [20117] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Leather Girdle" },
+
+    -- SHOULDER - Highlander's Leather Shoulders (Druid/Rogue)
+    [20059] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Highlander's Leather Shoulders" },
+
+    -- FEET - Highlander's Plate Greaves (Warrior)
+    [20048] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Greaves" },
+    [20127] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Greaves" },
+    [20128] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Greaves" },
+    [20129] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Greaves" },
+
+    -- WAIST - Highlander's Plate Girdle (Warrior)
+    [20041] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Girdle" },
+    [20124] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Girdle" },
+    [20125] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Girdle" },
+    [20126] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Highlander's Plate Girdle" },
+
+    -- SHOULDER - Highlander's Plate Spaulders (Warrior)
+    [20057] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Highlander's Plate Spaulders" },
+
+    -- WEAPONS
+    [20070] = { slot = "MAIN_HAND", class = nil, honor = 8160, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Sageclaw" },
+    [20069] = { slot = "TWO_HAND", class = nil, honor = 15300, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Ironbark Staff" },
 
     --[[
     ============================================================================

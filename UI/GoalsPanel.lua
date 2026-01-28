@@ -1556,27 +1556,31 @@ local function CreateGoalPicker()
                     -- Horde-only items:
                     -- - High Warlord (R14 weapons), Warlord's (head/shoulder/chest)
                     -- - General's (hands/legs/feet)
-                    -- - Defiler's (AB reputation)
-                    -- - Outrider's, Legionnaire's, Advisor's, Scout's (WSG reputation)
-                    -- - Frostwolf (AV reputation)
-                    -- - Deathguard, Blood Guard
+                    -- - Defiler's (AB reputation), Deathguard
+                    -- - Outrider's, Legionnaire's, Advisor's, Scout's, Battle Healer's (WSG reputation)
+                    -- - Frostwolf, Warsong Battle (AV/WSG reputation)
+                    -- - Blood Guard, Champion's
                     local isHordeItem = itemName:find("High Warlord") or itemName:find("Warlord's") or
                         itemName:find("General's") or
                         itemName:find("Defiler") or itemName:find("Outrider") or itemName:find("Legionnaire") or
-                        itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Frostwolf") or
-                        itemName:find("Warsong Battle") or itemName:find("Deathguard") or itemName:find("Blood Guard") or
+                        itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Battle Healer") or
+                        itemName:find("Frostwolf") or itemName:find("Warsong Battle") or
+                        itemName:find("Deathguard") or itemName:find("Blood Guard") or itemName:find("Champion's") or
                         itemName:find("Insignia of the Horde")
 
                     -- Alliance-only items:
                     -- - Grand Marshal (R14 weapons), Field Marshal's (head/shoulder/chest)
                     -- - Marshal's (hands/legs/feet)
-                    -- - Highlander's (AB reputation)
-                    -- - Sentinel's, Silverwing (WSG reputation)
+                    -- - Highlander's, Arathor, Sageclaw (AB reputation)
+                    -- - Sentinel's, Silverwing, Protector's, Lorekeeper, Caretaker, Outrunner (WSG reputation)
                     -- - Stormpike (AV reputation)
                     -- - Knight-, Lieutenant
                     -- - Insignia of the Alliance
                     local isAllianceItem = itemName:find("Grand Marshal") or itemName:find("Marshal's") or
-                        itemName:find("Highlander") or itemName:find("Sentinel") or itemName:find("Silverwing") or
+                        itemName:find("Highlander") or itemName:find("Arathor") or itemName:find("Sageclaw") or
+                        itemName:find("Sentinel") or itemName:find("Silverwing") or
+                        itemName:find("Protector's") or itemName:find("Lorekeeper") or
+                        itemName:find("Caretaker") or itemName:find("Outrunner") or
                         itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
                         itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance")
 

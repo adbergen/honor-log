@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.15] - 2025-01-28
+
+### Added
+- **Alliance WSG/AB Reputation Gear**: ~120 items from Silverwing Sentinels and League of Arathor
+  - WSG: Protector's Band, Lorekeeper's Ring, Sentinel's Medallion, Caretaker's Cape
+  - WSG: Sentinel's Blade, Protector's Sword, Outrunner's Bow, Lorekeeper's Staff
+  - WSG: Sentinel's leg armor (all 6 armor types), Rune of Duty (Priest)
+  - WSG: Silverwing Battle Tabard
+  - AB: Full Highlander's sets (boots, belts, shoulders) for all 6 armor types
+  - AB: Talisman of Arathor, Sageclaw, Arathor Battle Tabard
+  - AB: Battle Tabard of the Defilers (missing Horde tabard)
+- **Improved Faction Filter**: Added patterns for all new Alliance item names
+  - Protector's, Lorekeeper, Caretaker, Outrunner, Arathor, Sageclaw
+  - Fixed Battle Healer's Cloak not being filtered as Horde-only
+
 ## [1.1.14] - 2025-01-28
 
 ### Fixed
