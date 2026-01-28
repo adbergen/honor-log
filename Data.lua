@@ -39,7 +39,7 @@ local DEFAULTS = {
             },
             -- No goal limit
         },
-        -- Session data (persists across /reload, resets on actual logout)
+        -- Daily stats (persists across /reload, resets at midnight)
         session = {
             AV = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             AB = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
@@ -145,13 +145,10 @@ function HonorLog:InitializeDB()
 
     -- Migration: if sessionDate was never set, this is first run after update
     -- Don't reset existing session data, just set the date
+    -- sessionStartTime will be handled by the safety check below
     if not lastSessionDate then
         HonorLogCharDB.sessionDate = today
         lastSessionDate = today
-        -- Also set sessionStartTime if missing (needed for hourly rate calculation)
-        if not HonorLogCharDB.sessionStartTime or HonorLogCharDB.sessionStartTime == 0 then
-            HonorLogCharDB.sessionStartTime = now
-        end
         self.isReload = true
     -- Reset if it's a new day
     elseif lastSessionDate ~= today then
@@ -170,10 +167,10 @@ function HonorLog:InitializeDB()
     end
 
     if shouldResetSession then
-        print("|cff00ff00[HonorLog]|r New day detected - resetting session for " .. date("%Y-%m-%d", now))
+        print("|cff00ff00[HonorLog]|r New day detected - resetting daily stats for " .. date("%Y-%m-%d", now))
         HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
         HonorLogCharDB.bgState = DeepCopy(DEFAULTS.char.bgState)
-        HonorLogCharDB.sessionStartTime = now
+        HonorLogCharDB.sessionStartTime = 0 -- Will be set when first BG is entered
         HonorLogCharDB.sessionDate = today
         self.isReload = false
     else
@@ -181,9 +178,18 @@ function HonorLog:InitializeDB()
     end
 
     -- Safety: Ensure sessionStartTime is valid for hourly rate calculation
-    -- This handles edge cases where sessionStartTime was never set
+    -- Only auto-set if there are existing session games (migration from older versions)
     if not HonorLogCharDB.sessionStartTime or HonorLogCharDB.sessionStartTime == 0 then
-        HonorLogCharDB.sessionStartTime = now
+        local hasSessionGames = false
+        for _, s in pairs(HonorLogCharDB.session) do
+            if s.played and s.played > 0 then
+                hasSessionGames = true
+                break
+            end
+        end
+        if hasSessionGames then
+            HonorLogCharDB.sessionStartTime = now
+        end
     end
 
     -- Update tracking values

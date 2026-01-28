@@ -257,10 +257,10 @@ function HonorLog:InitializeOptions()
     local resetSessionBtn = CreateFrame("Button", "HonorLogResetSessionBtn", panel, "UIPanelButtonTemplate")
     resetSessionBtn:SetSize(120, 25)
     resetSessionBtn:SetPoint("TOPLEFT", resetHeader, "BOTTOMLEFT", 0, -10)
-    resetSessionBtn:SetText("Reset Session")
+    resetSessionBtn:SetText("Reset Today")
     resetSessionBtn:SetScript("OnClick", function()
         HonorLog:ResetSession()
-        print("|cff00ff00HonorLog|r Session stats reset.")
+        print("|cff00ff00HonorLog|r Today's stats reset.")
     end)
 
     -- Reset Frame Position button

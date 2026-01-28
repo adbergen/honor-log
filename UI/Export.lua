@@ -202,7 +202,7 @@ function HonorLog:GenerateTextExport(scope)
     local session = self:GetTotalSessionStats()
     if session.played > 0 then
         table.insert(lines, "╠══════════════════════════════════════╣")
-        table.insert(lines, "║ SESSION:")
+        table.insert(lines, "║ TODAY:")
         table.insert(lines, string.format("║   Games: %d (%d-%d) %.1f%% WR",
             session.played, session.wins, session.losses, session.winrate))
         table.insert(lines, string.format("║   Honor: +%s | Marks: +%d",

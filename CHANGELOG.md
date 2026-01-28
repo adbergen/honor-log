@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.16] - 2025-01-28
+
+### Fixed
+- **Hourly Rate Accuracy**: Session timer now starts when first BG is entered, not at login
+  - Previously, idle time (questing, AFK, etc.) diluted the honor/hr calculation
+  - Now only counts time from first BG entry, giving accurate BG-focused rates
+
+### Changed
+- **Renamed "Session" to "Today"**: All UI labels, buttons, tooltips, and chat output now say "Today" instead of "Session" to better reflect the daily reset behavior
+  - `/honorlog reset today` replaces `/honorlog reset session` (both still work)
+
 ## [1.1.15] - 2025-01-28
 
 ### Added

@@ -235,7 +235,7 @@ local function CreateMainFrame()
     -- Version badge
     local versionBadge = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     versionBadge:SetPoint("LEFT", title, "RIGHT", 4, 0)
-    versionBadge:SetText("v1.1.15")
+    versionBadge:SetText("v1.1.16")
     versionBadge:SetTextColor(unpack(COLORS.accent))
 
     -- View mode indicator (pill badge)
@@ -471,7 +471,7 @@ local function CreateMainFrame()
     -- Session label
     local sessionLabel = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     sessionLabel:SetPoint("TOPLEFT", 8, -3)
-    sessionLabel:SetText("Session:")
+    sessionLabel:SetText("Today:")
     sessionLabel:SetTextColor(unpack(COLORS.accent))
 
     -- Session stats (W-L and winrate)
@@ -1119,11 +1119,11 @@ local function InitializeMenu(frame, level, menuList)
 
         -- Reset Session
         info = UIDropDownMenu_CreateInfo()
-        info.text = "Reset Session"
+        info.text = "Reset Today"
         info.notCheckable = true
         info.func = function()
             HonorLog:ResetSession()
-            print("|cff40d860HonorLog|r Session stats reset.")
+            print("|cff40d860HonorLog|r Today's stats reset.")
         end
         UIDropDownMenu_AddButton(info, level)
 

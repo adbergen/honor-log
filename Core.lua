@@ -281,6 +281,11 @@ function HonorLog:OnBattlegroundEnter(bgType)
     bgEnded = false
     gameRecordedThisSession = false  -- Reset for new BG
 
+    -- Start session timer on first BG entry (so hourly rate only counts BG time)
+    if self.db and self.db.char and (not self.db.char.sessionStartTime or self.db.char.sessionStartTime == 0) then
+        self.db.char.sessionStartTime = time()
+    end
+
     -- Reset honor tracking for this BG
     bgHonorAccumulated = 0
     bgStartHonor = GetCurrentHonor()
@@ -964,9 +969,9 @@ function HonorLog:HandleSlashCommand(msg)
         self:PrintStats(arg)
     elseif cmd == "reset" then
         local resetType = arg:lower()
-        if resetType == "session" then
+        if resetType == "today" or resetType == "session" then
             self:ResetSession()
-            print("|cff00ff00HonorLog|r Session stats reset.")
+            print("|cff00ff00HonorLog|r Today's stats reset.")
         elseif resetType == "character" or resetType == "char" then
             -- Reset character battleground stats
             for bgType, _ in pairs(self.db.char.battlegrounds) do
@@ -995,7 +1000,7 @@ function HonorLog:HandleSlashCommand(msg)
             end
             print("|cff00ff00HonorLog|r Account stats reset.")
         else
-            print("|cff00ff00HonorLog|r Usage: /honorlog reset [session|character|account]")
+            print("|cff00ff00HonorLog|r Usage: /honorlog reset [today|character|account]")
         end
     elseif cmd == "export" then
         self:ShowExportFrame(arg)
@@ -1259,7 +1264,7 @@ function HonorLog:PrintHelp()
     print("|cff00ff00HonorLog Commands:|r (also: /hl)")
     print("  |cffffffff/honorlog|r - Toggle stats frame")
     print("  |cffffffff/honorlog stats [bg]|r - Print stats summary")
-    print("  |cffffffff/honorlog reset session|r - Reset session stats")
+    print("  |cffffffff/honorlog reset today|r - Reset today's stats")
     print("  |cffffffff/honorlog reset character|r - Reset character stats")
     print("  |cffffffff/honorlog reset account|r - Reset account-wide stats")
     print("  |cffffffff/honorlog export [text|csv]|r - Export stats")
@@ -1307,7 +1312,7 @@ function HonorLog:PrintStats(bgFilter)
             print(string.format("  Honor: %d lifetime | Marks: %d lifetime",
                 stats.honorLifetime, stats.marksLifetime))
             if session.played > 0 then
-                print(string.format("  Session: %d-%d (%.1f%%), +%d honor, +%d marks",
+                print(string.format("  Today: %d-%d (%.1f%%), +%d honor, +%d marks",
                     session.wins, session.losses, derived.sessionWinrate,
                     session.honor, session.marks))
             end
@@ -1316,7 +1321,7 @@ function HonorLog:PrintStats(bgFilter)
 
     local totalSession = self:GetTotalSessionStats()
     if totalSession.played > 0 then
-        print(string.format("|cff00ff00Session Total:|r %d games, %d-%d (%.1f%%), +%d honor, +%d marks",
+        print(string.format("|cff00ff00Today:|r %d games, %d-%d (%.1f%%), +%d honor, +%d marks",
             totalSession.played, totalSession.wins, totalSession.losses,
             totalSession.winrate, totalSession.honor, totalSession.marks))
     end
@@ -1468,7 +1473,7 @@ function HonorLog:BuildLDBTooltip(tooltip)
     local session = self:GetTotalSessionStats()
     if session.played > 0 then
         tooltip:AddLine(" ")
-        tooltip:AddLine("Session:", 1, 0.82, 0)
+        tooltip:AddLine("Today:", 1, 0.82, 0)
         local color = session.winrate >= 50 and "|cff00ff00" or "|cffff0000"
         tooltip:AddDoubleLine(
             "Games",
