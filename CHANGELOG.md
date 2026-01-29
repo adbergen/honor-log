@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.19] - 2025-01-29
+
+### Fixed
+- **Add Goal Button Missing**: Fixed "+" button not visible when no goals are set
+  - Button now always shows so users can add their first goal
+- **Goal Card Progress After Reorder**: Fixed progress bars showing 0% after drag reorder
+  - Progress bar now uses weighted average instead of minimum (consistent with totals bar)
+  - Example: 1000/1000 Honor + 0/3 WSG now shows ~77% instead of 0%
+  - Deferred width calculation for frames not yet laid out
+
 ## [1.1.18] - 2025-01-28
 
 ### Added

@@ -691,12 +691,14 @@ local function CreateGoalCard(parent, index)
 
         self.itemName:SetText(goalProgress.name or itemName or "Unknown Item")
 
-        -- Calculate overall progress
-        local overallPercent = 100
+        -- Calculate overall progress using weighted average (same as totals bar)
+        local totalNeeded = 0
+        local totalCurrent = 0
         local parts = {}
 
         if goalProgress.honor.needed > 0 then
-            overallPercent = math.min(overallPercent, goalProgress.honor.percent)
+            totalNeeded = totalNeeded + goalProgress.honor.needed
+            totalCurrent = totalCurrent + math.min(goalProgress.honor.current, goalProgress.honor.needed)
             if goalProgress.honor.remaining > 0 then
                 -- Not enough yet - show in gold
                 table.insert(parts, string.format("|cffffd700%d/%d Honor|r", goalProgress.honor.current, goalProgress.honor.needed))
@@ -707,7 +709,8 @@ local function CreateGoalCard(parent, index)
         end
 
         if goalProgress.arena.needed > 0 then
-            overallPercent = math.min(overallPercent, goalProgress.arena.percent)
+            totalNeeded = totalNeeded + goalProgress.arena.needed
+            totalCurrent = totalCurrent + math.min(goalProgress.arena.current, goalProgress.arena.needed)
             if goalProgress.arena.remaining > 0 then
                 -- Not enough yet - show in purple
                 table.insert(parts, string.format("|cffaa55ff%d/%d Arena|r", goalProgress.arena.current, goalProgress.arena.needed))
@@ -721,7 +724,9 @@ local function CreateGoalCard(parent, index)
         for _, bgType in ipairs(HonorLog.BG_ORDER) do
             local markData = goalProgress.marks[bgType]
             if markData then
-                overallPercent = math.min(overallPercent, markData.percent)
+                -- Weight marks by 100 to make them comparable to honor values
+                totalNeeded = totalNeeded + (markData.needed * 100)
+                totalCurrent = totalCurrent + (math.min(markData.current, markData.needed) * 100)
                 if markData.remaining > 0 then
                     -- Not enough yet - show in BG color
                     local colorHex = BG_COLOR_HEX[bgType] or "55bbff"
@@ -733,6 +738,9 @@ local function CreateGoalCard(parent, index)
             end
         end
 
+        -- Calculate weighted percentage
+        local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
+
         -- Store previous progress for animation
         local previousPercent = self.progressPercent or 0
         local previousItemID = self.previousItemID
@@ -741,35 +749,55 @@ local function CreateGoalCard(parent, index)
 
         -- Update XP-style progress bar with animation
         local containerWidth = self.barContainer:GetWidth()
-        local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
-        local currentWidth = self.progressFill:GetWidth() or 1
 
-        -- Skip animation if showing a different item (e.g., after drag reorder)
-        local itemChanged = previousItemID and previousItemID ~= itemID
-
-        -- Animate width change (skip animation if this is first update, item changed, or width hasn't changed much)
-        local widthDiff = math.abs(targetWidth - currentWidth)
-        if widthDiff > 2 and previousPercent > 0 and not itemChanged then
-            local animId = "progress_" .. (self.cardIndex or 0)
-            CancelAnimation(animId)
-
-            local fill = self.progressFill
-            local shine = self.progressShine
-            local spark = self.progressSpark
-
-            AnimateValue(animId, currentWidth, targetWidth, 0.4, function(val)
-                if fill and fill:IsShown() then
-                    fill:SetWidth(val)
-                    shine:SetWidth(val)
-                    -- Update spark position during animation
-                    if overallPercent > 0 and overallPercent < 100 then
-                        spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+        -- If container hasn't been laid out yet (width is 0 or too small), defer progress bar update
+        if containerWidth < 10 then
+            local savedPercent = overallPercent
+            C_Timer.After(0, function()
+                if self and self.barContainer and self:IsShown() then
+                    local width = self.barContainer:GetWidth()
+                    if width >= 10 then
+                        local fillWidth = math.max(1, (width - 2) * (savedPercent / 100))
+                        self.progressFill:SetWidth(fillWidth)
+                        self.progressShine:SetWidth(fillWidth)
+                        if savedPercent > 0 and savedPercent < 100 then
+                            self.progressSpark:SetPoint("CENTER", self.progressFill, "RIGHT", 0, 0)
+                            self.progressSpark:Show()
+                        end
                     end
                 end
             end)
         else
-            self.progressFill:SetWidth(targetWidth)
-            self.progressShine:SetWidth(targetWidth)
+            local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
+            local currentWidth = self.progressFill:GetWidth() or 1
+
+            -- Skip animation if showing a different item (e.g., after drag reorder)
+            local itemChanged = previousItemID and previousItemID ~= itemID
+
+            -- Animate width change (skip animation if this is first update, item changed, or width hasn't changed much)
+            local widthDiff = math.abs(targetWidth - currentWidth)
+            if widthDiff > 2 and previousPercent > 0 and not itemChanged then
+                local animId = "progress_" .. (self.cardIndex or 0)
+                CancelAnimation(animId)
+
+                local fill = self.progressFill
+                local shine = self.progressShine
+                local spark = self.progressSpark
+
+                AnimateValue(animId, currentWidth, targetWidth, 0.4, function(val)
+                    if fill and fill:IsShown() then
+                        fill:SetWidth(val)
+                        shine:SetWidth(val)
+                        -- Update spark position during animation
+                        if overallPercent > 0 and overallPercent < 100 then
+                            spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+                        end
+                    end
+                end)
+            else
+                self.progressFill:SetWidth(targetWidth)
+                self.progressShine:SetWidth(targetWidth)
+            end
         end
 
         -- Position spark at end of fill (XP bar effect)
@@ -1136,7 +1164,7 @@ local function CreateGoalsPanel(parent)
             self.emptyState:Show()
             self.scrollFrame:Hide()
             self.totalsBar:Hide()
-            self.footerAddBtn:Hide()
+            self.footerAddBtn:Show() -- Keep visible so users can add goals
             self.addGoalRow:Hide()
             for _, card in ipairs(self.goalCards) do
                 card:Hide()
