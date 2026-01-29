@@ -172,16 +172,22 @@ local originalIndex = 0
 local dragFrame = nil -- Floating drag frame
 local dropIndicator = nil -- Legacy (kept for cleanup)
 local currentGapIndex = nil -- Current position where gap is shown during drag
+local animateProgressOnNextUpdate = false -- Flag to force progress bar animation after reorder
+local animateCardsOnNextUpdate = false -- Flag to animate card positions after reorder
+local affectedPositionRange = nil -- {min, max} range of card positions affected by reorder
+local animateOnTabSwitch = false -- Flag to animate all progress bars when switching to Goals tab
 
 -- Animate cards to create a visual gap at the specified index
--- Cards move instantly (no animation) to avoid timing/overlap issues
+-- Cards animate smoothly to their new positions during drag
+local CARD_MOVE_DURATION = 0.25  -- Smooth animation duration
+
 local function AnimateCardsForGap(goalsPanel, gapIndex, draggedIndex)
     if not goalsPanel or not goalsPanel.goalCards then return end
 
     local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
 
     for i, card in pairs(goalsPanel.goalCards) do
-        if card and card:IsShown() and card.cardIndex and card ~= draggedCard then
+        if card and card:IsShown() and card.cardIndex and not card.isDragging then
             local visualIndex = card.cardIndex
             local targetY
 
@@ -209,10 +215,25 @@ local function AnimateCardsForGap(goalsPanel, gapIndex, draggedIndex)
                 targetY = -((visualIndex - 1) * cardHeight)
             end
 
-            -- Set position instantly (no animation to avoid timing issues)
-            card:ClearAllPoints()
-            card:SetPoint("TOPLEFT", PADDING, targetY)
-            card:SetPoint("TOPRIGHT", -PADDING, targetY)
+            -- Get current Y position (for animation start)
+            local currentY = card.currentAnimY or -((visualIndex - 1) * cardHeight)
+
+            -- Only animate if position actually changed
+            if math.abs(currentY - targetY) > 0.5 then
+                -- Cancel any existing animation for this card
+                local animId = "card_drag_" .. (card.cardIndex or i)
+                CancelAnimation(animId)
+
+                -- Animate to new position
+                AnimateValue(animId, currentY, targetY, CARD_MOVE_DURATION, function(val)
+                    card.currentAnimY = val
+                    card:ClearAllPoints()
+                    card:SetPoint("TOPLEFT", PADDING, val)
+                    card:SetPoint("TOPRIGHT", -PADDING, val)
+                end, function()
+                    card.currentAnimY = targetY
+                end)
+            end
         end
     end
 end
@@ -225,7 +246,12 @@ local function ResetCardPositions(goalsPanel)
 
     for i, card in pairs(goalsPanel.goalCards) do
         if card and card:IsShown() and card.cardIndex then
+            -- Cancel any running drag animation for this card
+            local animId = "card_drag_" .. (card.cardIndex or i)
+            CancelAnimation(animId)
+
             local targetY = -((card.cardIndex - 1) * cardHeight)
+            card.currentAnimY = targetY  -- Reset tracking
             card:ClearAllPoints()
             card:SetPoint("TOPLEFT", PADDING, targetY)
             card:SetPoint("TOPRIGHT", -PADDING, targetY)
@@ -425,8 +451,9 @@ local function CreateGoalCard(parent, index)
             dragStartY = select(2, GetCursorPosition()) / card:GetEffectiveScale()
             GameTooltip:Hide()
 
-            -- Fade the original card (it's being "picked up")
-            card:SetAlpha(0.3)
+            -- Mark card as being dragged and make invisible
+            card.isDragging = true
+            card:SetAlpha(0)
 
             -- Show and populate the floating drag frame
             local df = GetDragFrame()
@@ -435,10 +462,17 @@ local function CreateGoalCard(parent, index)
             df.itemName:SetText(card.itemName:GetText() or itemName or "Unknown")
             df:SetWidth(card:GetWidth())
 
-            -- Show drag frame immediately
-            df:SetScale(1.02)
-            df:SetAlpha(0.95)
+            -- Show drag frame with lift animation
+            df:SetScale(1.0)
+            df:SetAlpha(0)
             df:Show()
+
+            -- Animate lift effect (scale up + fade in)
+            local LIFT_DURATION = 0.12
+            AnimateValue("drag_lift", 0, 1, LIFT_DURATION, function(progress)
+                df:SetScale(1.0 + 0.03 * progress)  -- Scale from 1.0 to 1.03
+                df:SetAlpha(0.95 * progress)  -- Fade in
+            end)
 
             -- Position drag frame so it appears under the cursor at the grab point
             -- Anchor by LEFT side with offset so the card doesn't jump to center on cursor
@@ -498,34 +532,107 @@ local function CreateGoalCard(parent, index)
             local df = GetDragFrame()
             local goalsPanel = HonorLog.mainFrame and HonorLog.mainFrame.goalsPanel
 
-            -- Hide drag frame
-            df:Hide()
-
-            -- Restore card opacity
-            card:SetAlpha(1)
-
             -- Use the current gap position as drop target
             local newIndex = currentGapIndex or originalIndex
             local goalCount = HonorLog:GetGoalCount()
             newIndex = math.max(1, math.min(goalCount, newIndex))
 
-            -- Reset state before updating
-            currentGapIndex = nil
+            -- Clear all drag state immediately
             draggedCard = nil
+            currentGapIndex = nil
             card.targetIndex = nil
+            card.isDragging = nil
 
-            -- Reset all cards to their stored positions first
-            if goalsPanel then
-                ResetCardPositions(goalsPanel)
+            -- Cancel all card gap animations
+            if goalsPanel and goalsPanel.goalCards then
+                for i, c in pairs(goalsPanel.goalCards) do
+                    if c and c.cardIndex then
+                        CancelAnimation("card_drag_" .. c.cardIndex)
+                    end
+                end
             end
 
-            -- Perform reorder if position changed
-            if newIndex ~= originalIndex and card.itemID then
-                HonorLog:ReorderGoal(card.itemID, newIndex)
+            -- Calculate target position for drop animation
+            local canAnimatePosition = false
+            local startX, startY, endX, endY
+
+            if goalsPanel and goalsPanel.goalsContainer then
+                local containerLeft = goalsPanel.goalsContainer:GetLeft()
+                local containerTop = goalsPanel.goalsContainer:GetTop()
+                startX = df:GetLeft()
+                startY = df:GetTop()
+
+                if containerLeft and containerTop and startX and startY then
+                    local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
+                    local targetY = -((newIndex - 1) * cardHeight)
+                    endX = containerLeft + PADDING
+                    endY = containerTop + targetY
+                    canAnimatePosition = true
+                end
             end
 
-            -- Update panel to reflect new order
-            HonorLog:UpdateGoalsPanel()
+            if canAnimatePosition then
+                -- Animate drag frame to target position with settle effect
+                local MOVE_DURATION = 0.18
+                local startScale = df:GetScale()
+                AnimateValue("drop_move", 0, 1, MOVE_DURATION, function(progress)
+                    local currentX = startX + (endX - startX) * progress
+                    local currentY = startY + (endY - startY) * progress
+                    df:ClearAllPoints()
+                    df:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", currentX, currentY)
+                    -- Scale settles back to 1.0
+                    df:SetScale(startScale + (1.0 - startScale) * progress)
+                end, function()
+                    -- Position animation complete, now fade out
+                    df:SetScale(1.0)
+                    local FADE_DURATION = 0.08
+                    AnimateValue("drop_fade", 0.95, 0, FADE_DURATION, function(alpha)
+                        df:SetAlpha(alpha)
+                    end, function()
+                        df:Hide()
+                        df:SetAlpha(0.95)
+
+                        -- Perform reorder if position changed
+                        if newIndex ~= originalIndex and card.itemID then
+                            HonorLog:ReorderGoal(card.itemID, newIndex)
+                            animateProgressOnNextUpdate = true
+                            animateCardsOnNextUpdate = true
+                            -- Track which positions are affected (inclusive range)
+                            affectedPositionRange = {
+                                min = math.min(originalIndex, newIndex),
+                                max = math.max(originalIndex, newIndex)
+                            }
+                        end
+
+                        -- Update panel to reflect new order
+                        HonorLog:UpdateGoalsPanel()
+                    end)
+                end)
+            else
+                -- Fallback: scale settle + fade out
+                local FADE_DURATION = 0.15
+                local startScale = df:GetScale()
+                AnimateValue("drop_fade", 0, 1, FADE_DURATION, function(progress)
+                    df:SetAlpha(0.95 * (1 - progress))
+                    df:SetScale(startScale + (1.0 - startScale) * progress)
+                end, function()
+                    df:Hide()
+                    df:SetAlpha(0.95)
+                    df:SetScale(1.0)
+
+                    if newIndex ~= originalIndex and card.itemID then
+                        HonorLog:ReorderGoal(card.itemID, newIndex)
+                        animateProgressOnNextUpdate = true
+                        animateCardsOnNextUpdate = true
+                        -- Track which positions are affected (inclusive range)
+                        affectedPositionRange = {
+                            min = math.min(originalIndex, newIndex),
+                            max = math.max(originalIndex, newIndex)
+                        }
+                    end
+                    HonorLog:UpdateGoalsPanel()
+                end)
+            end
         end
     end)
 
@@ -671,7 +778,9 @@ local function CreateGoalCard(parent, index)
         end
 
         self:Show()
-        self:SetAlpha(1) -- Ensure card is fully visible (reset from any drag animation)
+        if not self.isDragging then
+            self:SetAlpha(1) -- Ensure card is fully visible (reset from any drag animation)
+        end
 
         -- Store itemID and index for drag/drop reordering
         self.itemID = goalProgress.itemID
@@ -771,74 +880,163 @@ local function CreateGoalCard(parent, index)
             local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
             local currentWidth = self.progressFill:GetWidth() or 1
 
-            -- Skip animation if showing a different item (e.g., after drag reorder)
+            -- Check if we should force animation (after reorder or tab switch)
+            -- Only animate if this card is within the affected position range (for reorder)
+            -- Or animate all cards on tab switch
+            local cardIndex = self.cardIndex or 0
+            local inAffectedRange = affectedPositionRange and
+                cardIndex >= affectedPositionRange.min and
+                cardIndex <= affectedPositionRange.max
+            local forceAnimateReorder = animateProgressOnNextUpdate and inAffectedRange
+            local forceAnimateTabSwitch = animateOnTabSwitch
+            local forceAnimate = forceAnimateReorder or forceAnimateTabSwitch
             local itemChanged = previousItemID and previousItemID ~= itemID
 
-            -- Animate width change (skip animation if this is first update, item changed, or width hasn't changed much)
+            -- Animate width change
             local widthDiff = math.abs(targetWidth - currentWidth)
-            if widthDiff > 2 and previousPercent > 0 and not itemChanged then
+            local normalAnimate = widthDiff > 2 and previousPercent > 0 and not itemChanged
+
+            if forceAnimate or (normalAnimate and targetWidth > 1) then
                 local animId = "progress_" .. (self.cardIndex or 0)
                 CancelAnimation(animId)
 
                 local fill = self.progressFill
                 local shine = self.progressShine
                 local spark = self.progressSpark
+                local progressText = self.progressText
+                local currencyLine = self.currencyLine
+                local completeIcon = self.completeIcon
 
-                AnimateValue(animId, currentWidth, targetWidth, 0.4, function(val)
+                -- For reorder/tab switch, start from minimum width for a fresh fill animation
+                local startWidth = forceAnimate and 1 or currentWidth
+                local startPercent = forceAnimate and 0 or previousPercent
+                local targetPercent = overallPercent
+
+                -- Store currency targets for animation
+                local honorCurrent = goalProgress.honor.current
+                local honorNeeded = goalProgress.honor.needed
+                local arenaCurrent = goalProgress.arena.current
+                local arenaNeeded = goalProgress.arena.needed
+                local marksData = goalProgress.marks
+
+                AnimateValue(animId, 0, 1, 0.8, function(progress)
                     if fill and fill:IsShown() then
-                        fill:SetWidth(val)
-                        shine:SetWidth(val)
-                        -- Update spark position during animation
-                        if overallPercent > 0 and overallPercent < 100 then
-                            spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+                        -- Animate width
+                        local currentWidthVal = startWidth + (targetWidth - startWidth) * progress
+                        fill:SetWidth(currentWidthVal)
+                        shine:SetWidth(currentWidthVal)
+
+                        -- Animate percentage text
+                        local currentPercent = startPercent + (targetPercent - startPercent) * progress
+                        if currentPercent >= 100 then
+                            progressText:SetText("100%")
+                        else
+                            progressText:SetText(string.format("%.0f%%", currentPercent))
                         end
+
+                        -- Animate currency line values
+                        local animParts = {}
+                        if honorNeeded > 0 then
+                            local animHonor = math.floor(honorCurrent * progress)
+                            local color = animHonor >= honorNeeded and "40d860" or "ffd700"
+                            table.insert(animParts, string.format("|cff%s%d/%d Honor|r", color, animHonor, honorNeeded))
+                        end
+                        if arenaNeeded > 0 then
+                            local animArena = math.floor(arenaCurrent * progress)
+                            local color = animArena >= arenaNeeded and "40d860" or "aa55ff"
+                            table.insert(animParts, string.format("|cff%s%d/%d Arena|r", color, animArena, arenaNeeded))
+                        end
+                        for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                            local markData = marksData[bgType]
+                            if markData and markData.needed > 0 then
+                                local animMarks = math.floor(markData.current * progress)
+                                local color = animMarks >= markData.needed and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
+                                table.insert(animParts, string.format("|cff%s%d/%d %s|r", color, animMarks, markData.needed, bgType))
+                            end
+                        end
+                        if #animParts > 0 then
+                            currencyLine:SetText(table.concat(animParts, "  |cff666666·|r  "))
+                        end
+
+                        -- Animate color based on current percentage
+                        local r, g, b
+                        if currentPercent >= 100 then
+                            r, g, b = unpack(COLORS.progressFull)
+                        elseif currentPercent >= 50 then
+                            local t = (currentPercent - 50) / 50
+                            local lowR, lowG, lowB = unpack(COLORS.progressPartial)
+                            local highR, highG, highB = unpack(COLORS.progressFull)
+                            r = lowR + (highR - lowR) * t
+                            g = lowG + (highG - lowG) * t
+                            b = lowB + (highB - lowB) * t
+                        else
+                            local t = currentPercent / 50
+                            local lowR, lowG, lowB = unpack(COLORS.progressLow)
+                            local highR, highG, highB = unpack(COLORS.progressPartial)
+                            r = lowR + (highR - lowR) * t
+                            g = lowG + (highG - lowG) * t
+                            b = lowB + (highB - lowB) * t
+                        end
+                        fill:SetVertexColor(r, g, b)
+                        progressText:SetTextColor(r, g, b)
+
+                        -- Update spark position during animation
+                        if currentPercent > 0 and currentPercent < 100 then
+                            spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+                            spark:Show()
+                        else
+                            spark:Hide()
+                        end
+                    end
+                end, function()
+                    -- Ensure final state is correct
+                    if overallPercent >= 100 then
+                        completeIcon:Show()
+                    else
+                        completeIcon:Hide()
                     end
                 end)
             else
                 self.progressFill:SetWidth(targetWidth)
                 self.progressShine:SetWidth(targetWidth)
+
+                -- Set percentage and color directly (no animation)
+                local r, g, b
+                if overallPercent >= 100 then
+                    r, g, b = unpack(COLORS.progressFull)
+                    self.progressText:SetText("100%")
+                    self.completeIcon:Show()
+                elseif overallPercent >= 50 then
+                    local t = (overallPercent - 50) / 50
+                    local lowR, lowG, lowB = unpack(COLORS.progressPartial)
+                    local highR, highG, highB = unpack(COLORS.progressFull)
+                    r = lowR + (highR - lowR) * t
+                    g = lowG + (highG - lowG) * t
+                    b = lowB + (highB - lowB) * t
+                    self.progressText:SetText(string.format("%.0f%%", overallPercent))
+                    self.completeIcon:Hide()
+                else
+                    local t = overallPercent / 50
+                    local lowR, lowG, lowB = unpack(COLORS.progressLow)
+                    local highR, highG, highB = unpack(COLORS.progressPartial)
+                    r = lowR + (highR - lowR) * t
+                    g = lowG + (highG - lowG) * t
+                    b = lowB + (highB - lowB) * t
+                    self.progressText:SetText(string.format("%.0f%%", overallPercent))
+                    self.completeIcon:Hide()
+                end
+                self.progressFill:SetVertexColor(r, g, b)
+                self.progressText:SetTextColor(r, g, b)
+
+                -- Position spark
+                if overallPercent > 0 and overallPercent < 100 then
+                    self.progressSpark:SetPoint("CENTER", self.progressFill, "RIGHT", 0, 0)
+                    self.progressSpark:Show()
+                else
+                    self.progressSpark:Hide()
+                end
             end
         end
-
-        -- Position spark at end of fill (XP bar effect)
-        if overallPercent > 0 and overallPercent < 100 then
-            self.progressSpark:SetPoint("CENTER", self.progressFill, "RIGHT", 0, 0)
-            self.progressSpark:Show()
-        else
-            self.progressSpark:Hide()
-        end
-
-        -- Animated color transition based on progress percentage
-        -- Use gradient interpolation for smoother color changes
-        local r, g, b
-        if overallPercent >= 100 then
-            r, g, b = unpack(COLORS.progressFull)
-            self.progressText:SetText("100%")
-            self.completeIcon:Show()
-        elseif overallPercent >= 50 then
-            -- Interpolate from yellow (50%) to green (100%)
-            local t = (overallPercent - 50) / 50
-            local lowR, lowG, lowB = unpack(COLORS.progressPartial)
-            local highR, highG, highB = unpack(COLORS.progressFull)
-            r = lowR + (highR - lowR) * t
-            g = lowG + (highG - lowG) * t
-            b = lowB + (highB - lowB) * t
-            self.progressText:SetText(string.format("%.0f%%", overallPercent))
-            self.completeIcon:Hide()
-        else
-            -- Interpolate from red (0%) to yellow (50%)
-            local t = overallPercent / 50
-            local lowR, lowG, lowB = unpack(COLORS.progressLow)
-            local highR, highG, highB = unpack(COLORS.progressPartial)
-            r = lowR + (highR - lowR) * t
-            g = lowG + (highG - lowG) * t
-            b = lowB + (highB - lowB) * t
-            self.progressText:SetText(string.format("%.0f%%", overallPercent))
-            self.completeIcon:Hide()
-        end
-
-        self.progressFill:SetVertexColor(r, g, b)
-        self.progressText:SetTextColor(r, g, b)
 
         -- Currency line (formatted nicely)
         if #parts > 0 then
@@ -918,8 +1116,10 @@ local function CreateGoalsPanel(parent)
     function panel:GetOrCreateCard(index)
         if not self.goalCards[index] then
             local card = CreateGoalCard(self.goalsContainer, index)
-            card:SetPoint("TOPLEFT", PADDING, -((index - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
-            card:SetPoint("TOPRIGHT", -PADDING, -((index - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING)))
+            local yOffset = -((index - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING))
+            card:SetPoint("TOPLEFT", PADDING, yOffset)
+            card:SetPoint("TOPRIGHT", -PADDING, yOffset)
+            card.currentAnimY = yOffset  -- Initialize animation tracking
             card:Hide()
 
             -- Remove button handler
@@ -1175,6 +1375,21 @@ local function CreateGoalsPanel(parent)
             self.totalsBar:Show()
             self.footerAddBtn:Show()
 
+            -- Fade in totals bar on tab switch (after cards start fading)
+            if animateOnTabSwitch then
+                self.totalsBar:SetAlpha(0)
+                local totalsDelay = #goals * 0.08 + 0.1 -- Start after last card begins + small buffer
+                C_Timer.After(totalsDelay, function()
+                    if self.totalsBar and self.totalsBar:IsShown() then
+                        AnimateValue("totals_fade", 0, 1, 0.3, function(alpha)
+                            if self.totalsBar then
+                                self.totalsBar:SetAlpha(alpha)
+                            end
+                        end)
+                    end
+                end)
+            end
+
             -- Update or create cards for each goal
             local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
             local baseLevel = self.goalsContainer:GetFrameLevel() + 1
@@ -1184,11 +1399,33 @@ local function CreateGoalsPanel(parent)
                 local card = self:GetOrCreateCard(i)
                 card:Update(goal, i)
 
-                -- Set card position
-                card:ClearAllPoints()
-                local yOffset = -((i - 1) * cardHeight)
-                card:SetPoint("TOPLEFT", PADDING, yOffset)
-                card:SetPoint("TOPRIGHT", -PADDING, yOffset)
+                -- During active drag, preserve animated positions
+                if not draggedCard then
+                    local targetY = -((i - 1) * cardHeight)
+
+                    -- Animate cards to their positions after drop
+                    if animateCardsOnNextUpdate and card.currentAnimY then
+                        local startY = card.currentAnimY
+                        local animId = "card_settle_" .. i
+                        CancelAnimation(animId)
+
+                        AnimateValue(animId, 0, 1, 0.2, function(progress)
+                            local currentY = startY + (targetY - startY) * progress
+                            card.currentAnimY = currentY
+                            card:ClearAllPoints()
+                            card:SetPoint("TOPLEFT", PADDING, currentY)
+                            card:SetPoint("TOPRIGHT", -PADDING, currentY)
+                        end, function()
+                            card.currentAnimY = targetY
+                        end)
+                    else
+                        -- Set card position directly
+                        card:ClearAllPoints()
+                        card:SetPoint("TOPLEFT", PADDING, targetY)
+                        card:SetPoint("TOPRIGHT", -PADDING, targetY)
+                        card.currentAnimY = targetY
+                    end
+                end
 
                 -- Cards higher in the list get higher frame levels for correct click targeting
                 -- This ensures clicking on card 1 doesn't accidentally target card 2's drag handle
@@ -1199,7 +1436,27 @@ local function CreateGoalsPanel(parent)
                 end
 
                 -- Ensure full opacity (in case drag was interrupted)
-                card:SetAlpha(1)
+                -- Sequential fade-in on tab switch
+                if not card.isDragging then
+                    if animateOnTabSwitch then
+                        -- Start invisible and fade in with staggered delay
+                        card:SetAlpha(0)
+                        local delay = (i - 1) * 0.08 -- 80ms stagger between cards
+                        local fadeAnimId = "card_fade_" .. i
+                        CancelAnimation(fadeAnimId)
+                        C_Timer.After(delay, function()
+                            if card and card:IsShown() then
+                                AnimateValue(fadeAnimId, 0, 1, 0.3, function(alpha)
+                                    if card and card:IsShown() and not card.isDragging then
+                                        card:SetAlpha(alpha)
+                                    end
+                                end)
+                            end
+                        end)
+                    else
+                        card:SetAlpha(1)
+                    end
+                end
             end
 
             -- Hide any extra cards beyond current goal count
@@ -1264,18 +1521,40 @@ local function CreateGoalsPanel(parent)
 
             local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
 
-            -- Store previous progress for animation
+            -- Store previous progress and currency values for animation
             local previousPercent = self.totalsProgressPercent or 0
+            local prevHonor = self.totalsPrevHonor or 0
+            local prevArena = self.totalsPrevArena or 0
+            local prevMarks = self.totalsPrevMarks or {}
+
             self.totalsProgressPercent = overallPercent
+            self.totalsPrevHonor = totalHonorCurrent
+            self.totalsPrevArena = totalArenaCurrent
+            self.totalsPrevMarks = {}
+            for bgType, val in pairs(totalMarksCurrent) do
+                self.totalsPrevMarks[bgType] = val
+            end
 
             -- Update progress bar with animation
             local containerWidth = self.totalsBarContainer:GetWidth()
             local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
             local currentWidth = self.totalsFill:GetWidth() or 1
 
-            -- Animate width change
+            -- Animate width change with counting effect
             local widthDiff = math.abs(targetWidth - currentWidth)
-            if widthDiff > 2 and previousPercent > 0 then
+            local honorChanged = math.abs(totalHonorCurrent - prevHonor) > 0
+            local arenaChanged = math.abs(totalArenaCurrent - prevArena) > 0
+            local marksChanged = false
+            for bgType, val in pairs(totalMarksCurrent) do
+                if math.abs(val - (prevMarks[bgType] or 0)) > 0 then
+                    marksChanged = true
+                    break
+                end
+            end
+            local currencyChanged = honorChanged or arenaChanged or marksChanged
+            local forceAnimateTabSwitch = animateOnTabSwitch
+
+            if forceAnimateTabSwitch or ((widthDiff > 2 or currencyChanged) and previousPercent > 0) then
                 local animId = "totals_progress"
                 CancelAnimation(animId)
 
@@ -1283,15 +1562,90 @@ local function CreateGoalsPanel(parent)
                 local shine = self.totalsShine
                 local glow = self.totalsGlow
                 local spark = self.totalsSpark
+                local percentText = self.totalsPercent
+                local currencyText = self.totalsText
 
-                AnimateValue(animId, currentWidth, targetWidth, 0.5, function(val)
+                -- For tab switch, start from 0; otherwise from current values
+                local startWidth = forceAnimateTabSwitch and 1 or currentWidth
+                local startPercent = forceAnimateTabSwitch and 0 or previousPercent
+                local targetPercent = overallPercent
+
+                -- Store start values for currency animation (0 on tab switch)
+                local startHonor = forceAnimateTabSwitch and 0 or prevHonor
+                local startArena = forceAnimateTabSwitch and 0 or prevArena
+                local startMarks = forceAnimateTabSwitch and {} or prevMarks
+
+                AnimateValue(animId, 0, 1, 1.0, function(progress)
                     if fill and fill:IsShown() then
-                        fill:SetWidth(val)
-                        shine:SetWidth(val)
-                        if glow then glow:SetWidth(val + 4) end
+                        -- Animate width
+                        local currentWidthVal = startWidth + (targetWidth - startWidth) * progress
+                        fill:SetWidth(currentWidthVal)
+                        shine:SetWidth(currentWidthVal)
+                        if glow then glow:SetWidth(currentWidthVal + 4) end
+
+                        -- Animate percentage text
+                        local currentPercent = startPercent + (targetPercent - startPercent) * progress
+                        if currentPercent >= 100 then
+                            percentText:SetText("100%")
+                        else
+                            percentText:SetText(string.format("%.0f%%", currentPercent))
+                        end
+
+                        -- Animate color based on current percentage
+                        local r, g, b
+                        if currentPercent >= 100 then
+                            r, g, b = unpack(COLORS.progressFull)
+                        elseif currentPercent >= 50 then
+                            local t = (currentPercent - 50) / 50
+                            local lowR, lowG, lowB = unpack(COLORS.progressPartial)
+                            local highR, highG, highB = unpack(COLORS.progressFull)
+                            r = lowR + (highR - lowR) * t
+                            g = lowG + (highG - lowG) * t
+                            b = lowB + (highB - lowB) * t
+                        else
+                            local t = currentPercent / 50
+                            local lowR, lowG, lowB = unpack(COLORS.progressLow)
+                            local highR, highG, highB = unpack(COLORS.progressPartial)
+                            r = lowR + (highR - lowR) * t
+                            g = lowG + (highG - lowG) * t
+                            b = lowB + (highB - lowB) * t
+                        end
+                        fill:SetVertexColor(r, g, b)
+                        percentText:SetTextColor(r, g, b)
+                        if glow then
+                            glow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
+                        end
+
+                        -- Animate currency values from previous to current
+                        local animParts = {}
+                        if totalHonorNeeded > 0 then
+                            local animHonor = math.floor(startHonor + (totalHonorCurrent - startHonor) * progress)
+                            local color = animHonor >= totalHonorNeeded and "40d860" or "ffd700"
+                            table.insert(animParts, string.format("|cff%s%s/%s|r H", color, BreakUpLargeNumbers(animHonor), BreakUpLargeNumbers(totalHonorNeeded)))
+                        end
+                        if totalArenaNeeded > 0 then
+                            local animArena = math.floor(startArena + (totalArenaCurrent - startArena) * progress)
+                            local color = animArena >= totalArenaNeeded and "40d860" or "aa55ff"
+                            table.insert(animParts, string.format("|cff%s%d/%d|r A", color, animArena, totalArenaNeeded))
+                        end
+                        for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                            if totalMarksNeeded[bgType] > 0 then
+                                local prevMark = startMarks[bgType] or 0
+                                local animMarks = math.floor(prevMark + (totalMarksCurrent[bgType] - prevMark) * progress)
+                                local color = animMarks >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
+                                table.insert(animParts, string.format("|cff%s%d/%d|r %s", color, animMarks, totalMarksNeeded[bgType], bgType))
+                            end
+                        end
+                        if #animParts > 0 then
+                            currencyText:SetText(table.concat(animParts, "  "))
+                        end
+
                         -- Update spark position during animation
-                        if spark and overallPercent > 0 and overallPercent < 100 then
+                        if spark and currentPercent > 0 and currentPercent < 100 then
                             spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+                            spark:Show()
+                        elseif spark then
+                            spark:Hide()
                         end
                     end
                 end)
@@ -1299,71 +1653,68 @@ local function CreateGoalsPanel(parent)
                 self.totalsFill:SetWidth(targetWidth)
                 self.totalsShine:SetWidth(targetWidth)
                 if self.totalsGlow then self.totalsGlow:SetWidth(targetWidth + 4) end
-            end
 
-            -- Position spark at end of fill (XP bar effect)
-            if self.totalsSpark then
-                if overallPercent > 0 and overallPercent < 100 then
-                    self.totalsSpark:SetPoint("CENTER", self.totalsFill, "RIGHT", 0, 0)
-                    self.totalsSpark:Show()
+                -- Position spark at end of fill (XP bar effect)
+                if self.totalsSpark then
+                    if overallPercent > 0 and overallPercent < 100 then
+                        self.totalsSpark:SetPoint("CENTER", self.totalsFill, "RIGHT", 0, 0)
+                        self.totalsSpark:Show()
+                    else
+                        self.totalsSpark:Hide()
+                    end
+                end
+
+                -- Update progress bar color directly (no animation)
+                local r, g, b
+                if overallPercent >= 100 then
+                    r, g, b = unpack(COLORS.progressFull)
+                    self.totalsPercent:SetText("100%")
+                elseif overallPercent >= 50 then
+                    local t = (overallPercent - 50) / 50
+                    local lowR, lowG, lowB = unpack(COLORS.progressPartial)
+                    local highR, highG, highB = unpack(COLORS.progressFull)
+                    r = lowR + (highR - lowR) * t
+                    g = lowG + (highG - lowG) * t
+                    b = lowB + (highB - lowB) * t
+                    self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
                 else
-                    self.totalsSpark:Hide()
+                    local t = overallPercent / 50
+                    local lowR, lowG, lowB = unpack(COLORS.progressLow)
+                    local highR, highG, highB = unpack(COLORS.progressPartial)
+                    r = lowR + (highR - lowR) * t
+                    g = lowG + (highG - lowG) * t
+                    b = lowB + (highB - lowB) * t
+                    self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
                 end
-            end
 
-            -- Update progress bar color with gradient interpolation
-            local r, g, b
-            if overallPercent >= 100 then
-                r, g, b = unpack(COLORS.progressFull)
-                self.totalsPercent:SetText("100%")
-            elseif overallPercent >= 50 then
-                -- Interpolate from yellow (50%) to green (100%)
-                local t = (overallPercent - 50) / 50
-                local lowR, lowG, lowB = unpack(COLORS.progressPartial)
-                local highR, highG, highB = unpack(COLORS.progressFull)
-                r = lowR + (highR - lowR) * t
-                g = lowG + (highG - lowG) * t
-                b = lowB + (highB - lowB) * t
-                self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
-            else
-                -- Interpolate from red (0%) to yellow (50%)
-                local t = overallPercent / 50
-                local lowR, lowG, lowB = unpack(COLORS.progressLow)
-                local highR, highG, highB = unpack(COLORS.progressPartial)
-                r = lowR + (highR - lowR) * t
-                g = lowG + (highG - lowG) * t
-                b = lowB + (highB - lowB) * t
-                self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
-            end
-
-            self.totalsFill:SetVertexColor(r, g, b)
-            self.totalsPercent:SetTextColor(r, g, b)
-            -- Update glow color to match fill
-            if self.totalsGlow then
-                self.totalsGlow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
-            end
-
-            -- Build currency totals text (current/needed format)
-            local totalParts = {}
-            if totalHonorNeeded > 0 then
-                local color = totalHonorCurrent >= totalHonorNeeded and "40d860" or "ffd700"
-                table.insert(totalParts, string.format("|cff%s%s/%s|r H", color, BreakUpLargeNumbers(totalHonorCurrent), BreakUpLargeNumbers(totalHonorNeeded)))
-            end
-            if totalArenaNeeded > 0 then
-                local color = totalArenaCurrent >= totalArenaNeeded and "40d860" or "aa55ff"
-                table.insert(totalParts, string.format("|cff%s%d/%d|r A", color, totalArenaCurrent, totalArenaNeeded))
-            end
-            for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                if totalMarksNeeded[bgType] > 0 then
-                    local color = totalMarksCurrent[bgType] >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
-                    table.insert(totalParts, string.format("|cff%s%d/%d|r %s", color, totalMarksCurrent[bgType], totalMarksNeeded[bgType], bgType))
+                self.totalsFill:SetVertexColor(r, g, b)
+                self.totalsPercent:SetTextColor(r, g, b)
+                if self.totalsGlow then
+                    self.totalsGlow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
                 end
-            end
 
-            if #totalParts > 0 then
-                self.totalsText:SetText(table.concat(totalParts, "  "))
-            else
-                self.totalsText:SetText("")
+                -- Build currency totals text directly (no animation)
+                local totalParts = {}
+                if totalHonorNeeded > 0 then
+                    local color = totalHonorCurrent >= totalHonorNeeded and "40d860" or "ffd700"
+                    table.insert(totalParts, string.format("|cff%s%s/%s|r H", color, BreakUpLargeNumbers(totalHonorCurrent), BreakUpLargeNumbers(totalHonorNeeded)))
+                end
+                if totalArenaNeeded > 0 then
+                    local color = totalArenaCurrent >= totalArenaNeeded and "40d860" or "aa55ff"
+                    table.insert(totalParts, string.format("|cff%s%d/%d|r A", color, totalArenaCurrent, totalArenaNeeded))
+                end
+                for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                    if totalMarksNeeded[bgType] > 0 then
+                        local color = totalMarksCurrent[bgType] >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
+                        table.insert(totalParts, string.format("|cff%s%d/%d|r %s", color, totalMarksCurrent[bgType], totalMarksNeeded[bgType], bgType))
+                    end
+                end
+
+                if #totalParts > 0 then
+                    self.totalsText:SetText(table.concat(totalParts, "  "))
+                else
+                    self.totalsText:SetText("")
+                end
             end
         end
 
@@ -1375,7 +1726,11 @@ local function CreateGoalsPanel(parent)
             end
         end)
 
-        -- No goal limit, add row is always available
+        -- Clear animation flags after update completes
+        animateProgressOnNextUpdate = false
+        animateCardsOnNextUpdate = false
+        affectedPositionRange = nil
+        animateOnTabSwitch = false
 
     end
 
@@ -2272,12 +2627,46 @@ function HonorLog:SwitchTab(tabName)
             end
             frame.statsView:SetAlpha(1)
             frame.statsView:Show()
+
+            -- Sequential fade-in for stats cards
+            local cardIndex = 0
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                local card = frame.bgCards[bgType]
+                if card then
+                    cardIndex = cardIndex + 1
+                    card:SetAlpha(0)
+                    local delay = (cardIndex - 1) * 0.08
+                    local animId = "stats_card_fade_" .. bgType
+                    CancelAnimation(animId)
+                    C_Timer.After(delay, function()
+                        if card and card:IsShown() then
+                            AnimateValue(animId, 0, 1, 0.3, function(alpha)
+                                if card then card:SetAlpha(alpha) end
+                            end)
+                        end
+                    end)
+                end
+            end
+
+            -- Fade in session panel after cards
+            if frame.sessionPanel then
+                frame.sessionPanel:SetAlpha(0)
+                local sessionDelay = cardIndex * 0.08 + 0.1
+                C_Timer.After(sessionDelay, function()
+                    if frame.sessionPanel and frame.sessionPanel:IsShown() then
+                        AnimateValue("stats_session_fade", 0, 1, 0.3, function(alpha)
+                            if frame.sessionPanel then frame.sessionPanel:SetAlpha(alpha) end
+                        end)
+                    end
+                end)
+            end
         else
             -- Switch to goals view
             frame.statsView:Hide()
             if frame.goalsPanel then
                 frame.goalsPanel:SetAlpha(1)
                 frame.goalsPanel:Show()
+                animateOnTabSwitch = true -- Trigger animation for all progress bars
                 self:UpdateGoalsPanel()
             end
         end

@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.1.20] - 2025-01-29
+
+### Added
+- **Tab Switch Animations**: Sequential fade-in when switching tabs
+  - Goal cards cascade in one-by-one (80ms stagger) when opening Goals tab
+  - Stats cards cascade in one-by-one when opening Stats tab
+  - Totals bar and session panel fade in after cards complete
+- **Progress Bar Counting**: Numbers animate dynamically as bars fill
+  - Percentage counts up smoothly (e.g., 0% → 75%)
+  - Currency values count up (Honor, Arena, Marks)
+  - Color transitions from red → yellow → green during animation
+- **Totals Bar Live Animation**: Bottom summary bar animates on currency gain
+  - Honor/marks count up from previous to new value in real-time
+  - Triggers when gaining honor in battlegrounds
+
+### Changed
+- **Smooth Drag & Drop**: Enterprise-quality drag animations for goal cards
+  - Lift effect on pickup (scale up + fade in)
+  - Position animation on drop (card glides to target slot)
+  - Scale settle and fade out for polished finish
+  - Cards slide smoothly to create gap during drag (0.25s eased)
+- **Smarter Progress Animation**: Only affected cards animate after reorder
+  - Cards outside the reorder range don't re-animate
+  - Prevents unnecessary visual noise
+- **Animation Timing**: Slowed animations for better visual feedback
+  - Card progress bars: 0.8s duration
+  - Totals bar: 1.0s duration
+
 ## [1.1.19] - 2025-01-29
 
 ### Fixed
