@@ -4,6 +4,82 @@
 local ADDON_NAME, HonorLog = ...
 
 --------------------------------------------------------------------------------
+-- ANIMATION UTILITIES
+--------------------------------------------------------------------------------
+local activeAnimations = {}
+
+-- Smooth easing function (ease-out quad)
+local function EaseOutQuad(t)
+    return t * (2 - t)
+end
+
+-- Smooth easing function (ease-in-out)
+local function EaseInOutQuad(t)
+    if t < 0.5 then
+        return 2 * t * t
+    else
+        return 1 - (-2 * t + 2) ^ 2 / 2
+    end
+end
+
+-- Animate a value from start to target over duration
+local function AnimateValue(id, startVal, targetVal, duration, onUpdate, onComplete)
+    -- Cancel any existing animation with same ID
+    if activeAnimations[id] then
+        activeAnimations[id].cancelled = true
+    end
+
+    local animation = {
+        startVal = startVal,
+        targetVal = targetVal,
+        duration = duration,
+        elapsed = 0,
+        onUpdate = onUpdate,
+        onComplete = onComplete,
+        cancelled = false,
+    }
+
+    activeAnimations[id] = animation
+
+    -- Parent to UIParent to ensure OnUpdate events are received in TBC Classic
+    local frame = CreateFrame("Frame", nil, UIParent)
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        if animation.cancelled then
+            self:SetScript("OnUpdate", nil)
+            activeAnimations[id] = nil
+            return
+        end
+
+        animation.elapsed = animation.elapsed + elapsed
+        local progress = math.min(animation.elapsed / animation.duration, 1)
+        local easedProgress = EaseOutQuad(progress)
+        local currentVal = animation.startVal + (animation.targetVal - animation.startVal) * easedProgress
+
+        if animation.onUpdate then
+            animation.onUpdate(currentVal, progress)
+        end
+
+        if progress >= 1 then
+            self:SetScript("OnUpdate", nil)
+            activeAnimations[id] = nil
+            if animation.onComplete then
+                animation.onComplete()
+            end
+        end
+    end)
+
+    return animation
+end
+
+-- Cancel an animation by ID
+local function CancelAnimation(id)
+    if activeAnimations[id] then
+        activeAnimations[id].cancelled = true
+        activeAnimations[id] = nil
+    end
+end
+
+--------------------------------------------------------------------------------
 -- THEME (from shared UI/Theme.lua)
 --------------------------------------------------------------------------------
 local COLORS = HonorLog.Theme
@@ -94,7 +170,68 @@ local draggedCard = nil
 local dragStartY = 0
 local originalIndex = 0
 local dragFrame = nil -- Floating drag frame
-local dropIndicator = nil -- Shows where item will drop
+local dropIndicator = nil -- Legacy (kept for cleanup)
+local currentGapIndex = nil -- Current position where gap is shown during drag
+
+-- Animate cards to create a visual gap at the specified index
+-- Cards move instantly (no animation) to avoid timing/overlap issues
+local function AnimateCardsForGap(goalsPanel, gapIndex, draggedIndex)
+    if not goalsPanel or not goalsPanel.goalCards then return end
+
+    local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
+
+    for i, card in pairs(goalsPanel.goalCards) do
+        if card and card:IsShown() and card.cardIndex and card ~= draggedCard then
+            local visualIndex = card.cardIndex
+            local targetY
+
+            -- Determine if this card needs to shift to make room
+            if gapIndex then
+                if draggedIndex < gapIndex then
+                    -- Dragging down: cards between old and new position shift UP
+                    if visualIndex > draggedIndex and visualIndex <= gapIndex then
+                        targetY = -((visualIndex - 2) * cardHeight)
+                    else
+                        targetY = -((visualIndex - 1) * cardHeight)
+                    end
+                elseif draggedIndex > gapIndex then
+                    -- Dragging up: cards between new and old position shift DOWN
+                    if visualIndex >= gapIndex and visualIndex < draggedIndex then
+                        targetY = -(visualIndex * cardHeight)
+                    else
+                        targetY = -((visualIndex - 1) * cardHeight)
+                    end
+                else
+                    -- Gap is at original position - normal positions
+                    targetY = -((visualIndex - 1) * cardHeight)
+                end
+            else
+                targetY = -((visualIndex - 1) * cardHeight)
+            end
+
+            -- Set position instantly (no animation to avoid timing issues)
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", PADDING, targetY)
+            card:SetPoint("TOPRIGHT", -PADDING, targetY)
+        end
+    end
+end
+
+-- Reset all cards to their natural positions
+local function ResetCardPositions(goalsPanel)
+    if not goalsPanel or not goalsPanel.goalCards then return end
+
+    local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
+
+    for i, card in pairs(goalsPanel.goalCards) do
+        if card and card:IsShown() and card.cardIndex then
+            local targetY = -((card.cardIndex - 1) * cardHeight)
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", PADDING, targetY)
+            card:SetPoint("TOPRIGHT", -PADDING, targetY)
+        end
+    end
+end
 
 -- Create the floating drag frame (created once, reused)
 local function GetDragFrame()
@@ -102,26 +239,51 @@ local function GetDragFrame()
         dragFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         dragFrame:SetFrameStrata("TOOLTIP")
         dragFrame:SetSize(200, GOAL_CARD_HEIGHT)
+
+        -- Outer glow/shadow effect
+        local shadow = CreateFrame("Frame", nil, dragFrame, "BackdropTemplate")
+        shadow:SetPoint("TOPLEFT", -4, 4)
+        shadow:SetPoint("BOTTOMRIGHT", 4, -4)
+        shadow:SetFrameLevel(dragFrame:GetFrameLevel() - 1)
+        shadow:SetBackdrop({
+            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+            edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
+            edgeSize = 6,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        shadow:SetBackdropColor(0, 0, 0, 0.5)
+        shadow:SetBackdropBorderColor(0, 0, 0, 0.35)
+        dragFrame.shadow = shadow
+
         dragFrame:SetBackdrop({
             bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
             edgeFile = "Interface\\Buttons\\WHITE8x8",
             edgeSize = 1,
         })
-        dragFrame:SetBackdropColor(0.15, 0.15, 0.20, 0.95)
-        dragFrame:SetBackdropBorderColor(1, 0.8, 0, 1) -- Gold border
+        dragFrame:SetBackdropColor(0.18, 0.20, 0.25, 0.98)
+        dragFrame:SetBackdropBorderColor(1, 0.82, 0.2, 1) -- Gold border
         dragFrame:Hide()
 
-        -- Icon
+        -- Highlight glow at top
+        local glow = dragFrame:CreateTexture(nil, "ARTWORK")
+        glow:SetHeight(GOAL_CARD_HEIGHT / 2)
+        glow:SetPoint("TOPLEFT", 1, -1)
+        glow:SetPoint("TOPRIGHT", -1, -1)
+        glow:SetTexture("Interface\\Buttons\\WHITE8x8")
+        glow:SetGradient("VERTICAL", CreateColor(1, 0.9, 0.5, 0.12), CreateColor(1, 0.9, 0.5, 0))
+        dragFrame.glow = glow
+
+        -- Icon (slightly larger)
         local icon = dragFrame:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(32, 32)
-        icon:SetPoint("LEFT", 8, 0)
+        icon:SetSize(36, 36)
+        icon:SetPoint("LEFT", 10, 0)
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         dragFrame.icon = icon
 
-        -- Name
-        local name = dragFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
-        name:SetPoint("RIGHT", -8, 0)
+        -- Name (larger font)
+        local name = dragFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+        name:SetPoint("RIGHT", -10, 0)
         name:SetJustifyH("LEFT")
         dragFrame.itemName = name
     end
@@ -213,24 +375,32 @@ local function CreateGoalCard(parent, index)
         end
     end)
 
-    -- Drag handle (left side grip)
+    -- Drag handle (left side grip) - extends to icon edge to prevent click-through
     local dragHandle = CreateFrame("Button", nil, card)
-    dragHandle:SetSize(16, GOAL_CARD_HEIGHT - 4)
-    dragHandle:SetPoint("LEFT", 2, 0)
+    dragHandle:SetSize(24, GOAL_CARD_HEIGHT)
+    dragHandle:SetPoint("LEFT", 0, 0)
+    card.dragHandle = dragHandle  -- Store reference early for frame level updates
 
-    -- Grip lines texture (3 horizontal lines)
-    for i = 1, 3 do
-        local line = dragHandle:CreateTexture(nil, "ARTWORK")
-        line:SetSize(8, 2)
-        line:SetPoint("CENTER", 0, (i - 2) * 6)
-        line:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+    -- 6-dot grip pattern (2 columns × 3 rows) - standard drag handle icon
+    local dotSize = 3
+    local dotSpacingX = 5  -- horizontal spacing between columns
+    local dotSpacingY = 5  -- vertical spacing between rows
+    for row = 1, 3 do
+        for col = 1, 2 do
+            local dot = dragHandle:CreateTexture(nil, "ARTWORK")
+            dot:SetSize(dotSize, dotSize)
+            local xOffset = (col - 1.5) * dotSpacingX  -- center the 2 columns
+            local yOffset = (row - 2) * dotSpacingY    -- center the 3 rows
+            dot:SetPoint("CENTER", xOffset, -yOffset)
+            dot:SetColorTexture(0.5, 0.5, 0.5, 0.6)
+        end
     end
 
     dragHandle:SetScript("OnEnter", function(self)
-        for i = 1, 3 do
-            local line = select(i, self:GetRegions())
-            if line and line.SetColorTexture then
-                line:SetColorTexture(0.8, 0.8, 0.8, 0.8)
+        for i = 1, 6 do
+            local dot = select(i, self:GetRegions())
+            if dot and dot.SetColorTexture then
+                dot:SetColorTexture(0.8, 0.8, 0.8, 0.9)
             end
         end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -238,10 +408,10 @@ local function CreateGoalCard(parent, index)
         GameTooltip:Show()
     end)
     dragHandle:SetScript("OnLeave", function(self)
-        for i = 1, 3 do
-            local line = select(i, self:GetRegions())
-            if line and line.SetColorTexture then
-                line:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+        for i = 1, 6 do
+            local dot = select(i, self:GetRegions())
+            if dot and dot.SetColorTexture then
+                dot:SetColorTexture(0.5, 0.5, 0.5, 0.6)
             end
         end
         GameTooltip:Hide()
@@ -251,10 +421,11 @@ local function CreateGoalCard(parent, index)
         if button == "LeftButton" and card.cardIndex then
             draggedCard = card
             originalIndex = card.cardIndex
+            currentGapIndex = card.cardIndex
             dragStartY = select(2, GetCursorPosition()) / card:GetEffectiveScale()
             GameTooltip:Hide()
 
-            -- Fade the original card
+            -- Fade the original card (it's being "picked up")
             card:SetAlpha(0.3)
 
             -- Show and populate the floating drag frame
@@ -263,21 +434,23 @@ local function CreateGoalCard(parent, index)
             df.icon:SetTexture(itemTexture or "Interface\\Icons\\INV_Misc_QuestionMark")
             df.itemName:SetText(card.itemName:GetText() or itemName or "Unknown")
             df:SetWidth(card:GetWidth())
+
+            -- Show drag frame immediately
+            df:SetScale(1.02)
+            df:SetAlpha(0.95)
             df:Show()
 
-            -- Position drag frame at cursor
+            -- Position drag frame so it appears under the cursor at the grab point
+            -- Anchor by LEFT side with offset so the card doesn't jump to center on cursor
             local cursorX, cursorY = GetCursorPosition()
             local scale = df:GetEffectiveScale()
             df:ClearAllPoints()
-            df:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cursorX / scale, cursorY / scale)
+            df:SetPoint("LEFT", UIParent, "BOTTOMLEFT", (cursorX / scale) - 12, cursorY / scale)
 
-            -- Initialize drop indicator
+            -- Initialize gap at original position
             local goalsPanel = HonorLog.mainFrame and HonorLog.mainFrame.goalsPanel
-            if goalsPanel and goalsPanel.goalsContainer then
-                local indicator = GetDropIndicator(goalsPanel.goalsContainer)
-                indicator:SetPoint("LEFT", PADDING, 0)
-                indicator:SetPoint("RIGHT", -PADDING, 0)
-                indicator:Show()
+            if goalsPanel then
+                AnimateCardsForGap(goalsPanel, currentGapIndex, originalIndex)
             end
         end
     end)
@@ -287,16 +460,15 @@ local function CreateGoalCard(parent, index)
 
         local df = GetDragFrame()
         if df:IsShown() then
-            -- Move drag frame with cursor
+            -- Move drag frame with cursor (LEFT anchor with offset to match grab point)
             local cursorX, cursorY = GetCursorPosition()
             local scale = df:GetEffectiveScale()
             df:ClearAllPoints()
-            df:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cursorX / scale, cursorY / scale)
+            df:SetPoint("LEFT", UIParent, "BOTTOMLEFT", (cursorX / scale) - 12, cursorY / scale)
 
-            -- Update drop indicator position
+            -- Calculate target drop position and move cards to create gap
             local goalsPanel = HonorLog.mainFrame and HonorLog.mainFrame.goalsPanel
             if goalsPanel and goalsPanel.goalsContainer then
-                local indicator = GetDropIndicator(goalsPanel.goalsContainer)
                 local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
 
                 -- Calculate which position the cursor is over
@@ -304,59 +476,63 @@ local function CreateGoalCard(parent, index)
                 local containerTop = containerY + (goalsPanel.goalsContainer:GetHeight() / 2) * goalsPanel.goalsContainer:GetEffectiveScale()
                 local relativeY = (containerTop - cursorY) / goalsPanel.goalsContainer:GetEffectiveScale()
 
-                local targetIndex = math.floor(relativeY / cardHeight) + 1
+                -- Use rounding (floor + 0.5) so target switches at midpoint of each card slot
+                -- This makes the drop feel more natural - you don't have to drag as far
+                local targetIndex = math.floor(relativeY / cardHeight + 0.5) + 1
                 local goalCount = HonorLog:GetGoalCount()
-                targetIndex = math.max(1, math.min(goalCount + 1, targetIndex))
+                targetIndex = math.max(1, math.min(goalCount, targetIndex))
 
-                -- Position indicator between cards
-                local indicatorY = -((targetIndex - 1) * cardHeight) + 1
-                indicator:ClearAllPoints()
-                indicator:SetPoint("LEFT", PADDING, 0)
-                indicator:SetPoint("RIGHT", -PADDING, 0)
-                indicator:SetPoint("TOP", goalsPanel.goalsContainer, "TOP", 0, indicatorY)
+                -- Move cards to create visual gap at target position
+                if targetIndex ~= currentGapIndex then
+                    currentGapIndex = targetIndex
+                    AnimateCardsForGap(goalsPanel, currentGapIndex, originalIndex)
+                end
 
-                -- Store target index for drop
-                draggedCard.targetIndex = targetIndex > originalIndex and targetIndex - 1 or targetIndex
+                draggedCard.targetIndex = targetIndex
             end
         end
     end)
 
     dragHandle:SetScript("OnMouseUp", function(self, button)
         if button == "LeftButton" and draggedCard == card then
-            -- Hide visual elements
             local df = GetDragFrame()
-            df:Hide()
+            local goalsPanel = HonorLog.mainFrame and HonorLog.mainFrame.goalsPanel
 
-            if dropIndicator then
-                dropIndicator:Hide()
-            end
+            -- Hide drag frame
+            df:Hide()
 
             -- Restore card opacity
             card:SetAlpha(1)
 
-            -- Get target position
-            local newIndex = card.targetIndex or originalIndex
-
-            -- Clamp to valid range
+            -- Use the current gap position as drop target
+            local newIndex = currentGapIndex or originalIndex
             local goalCount = HonorLog:GetGoalCount()
             newIndex = math.max(1, math.min(goalCount, newIndex))
 
+            -- Reset state before updating
+            currentGapIndex = nil
+            draggedCard = nil
+            card.targetIndex = nil
+
+            -- Reset all cards to their stored positions first
+            if goalsPanel then
+                ResetCardPositions(goalsPanel)
+            end
+
+            -- Perform reorder if position changed
             if newIndex ~= originalIndex and card.itemID then
                 HonorLog:ReorderGoal(card.itemID, newIndex)
             end
 
-            draggedCard = nil
-            card.targetIndex = nil
+            -- Update panel to reflect new order
             HonorLog:UpdateGoalsPanel()
         end
     end)
 
-    card.dragHandle = dragHandle
-
-    -- Item icon (shifted right to make room for drag handle)
+    -- Item icon (positioned after drag handle)
     local icon = card:CreateTexture(nil, "ARTWORK")
     icon:SetSize(40, 40)
-    icon:SetPoint("TOPLEFT", 22, -8)
+    icon:SetPoint("TOPLEFT", 24, -8)
     icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     card.icon = icon
@@ -495,6 +671,7 @@ local function CreateGoalCard(parent, index)
         end
 
         self:Show()
+        self:SetAlpha(1) -- Ensure card is fully visible (reset from any drag animation)
 
         -- Store itemID and index for drag/drop reordering
         self.itemID = goalProgress.itemID
@@ -541,8 +718,7 @@ local function CreateGoalCard(parent, index)
         end
 
         -- Process marks in consistent order with BG-specific colors
-        local bgOrder = { "AV", "AB", "WSG", "EotS" }
-        for _, bgType in ipairs(bgOrder) do
+        for _, bgType in ipairs(HonorLog.BG_ORDER) do
             local markData = goalProgress.marks[bgType]
             if markData then
                 overallPercent = math.min(overallPercent, markData.percent)
@@ -557,14 +733,44 @@ local function CreateGoalCard(parent, index)
             end
         end
 
-        -- Store progress percent for responsive resize
+        -- Store previous progress for animation
+        local previousPercent = self.progressPercent or 0
+        local previousItemID = self.previousItemID
         self.progressPercent = overallPercent
+        self.previousItemID = itemID
 
-        -- Update XP-style progress bar
+        -- Update XP-style progress bar with animation
         local containerWidth = self.barContainer:GetWidth()
-        local fillWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
-        self.progressFill:SetWidth(fillWidth)
-        self.progressShine:SetWidth(fillWidth)
+        local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
+        local currentWidth = self.progressFill:GetWidth() or 1
+
+        -- Skip animation if showing a different item (e.g., after drag reorder)
+        local itemChanged = previousItemID and previousItemID ~= itemID
+
+        -- Animate width change (skip animation if this is first update, item changed, or width hasn't changed much)
+        local widthDiff = math.abs(targetWidth - currentWidth)
+        if widthDiff > 2 and previousPercent > 0 and not itemChanged then
+            local animId = "progress_" .. (self.cardIndex or 0)
+            CancelAnimation(animId)
+
+            local fill = self.progressFill
+            local shine = self.progressShine
+            local spark = self.progressSpark
+
+            AnimateValue(animId, currentWidth, targetWidth, 0.4, function(val)
+                if fill and fill:IsShown() then
+                    fill:SetWidth(val)
+                    shine:SetWidth(val)
+                    -- Update spark position during animation
+                    if overallPercent > 0 and overallPercent < 100 then
+                        spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+                    end
+                end
+            end)
+        else
+            self.progressFill:SetWidth(targetWidth)
+            self.progressShine:SetWidth(targetWidth)
+        end
 
         -- Position spark at end of fill (XP bar effect)
         if overallPercent > 0 and overallPercent < 100 then
@@ -574,22 +780,37 @@ local function CreateGoalCard(parent, index)
             self.progressSpark:Hide()
         end
 
+        -- Animated color transition based on progress percentage
+        -- Use gradient interpolation for smoother color changes
+        local r, g, b
         if overallPercent >= 100 then
-            self.progressFill:SetVertexColor(unpack(COLORS.progressFull))
+            r, g, b = unpack(COLORS.progressFull)
             self.progressText:SetText("100%")
-            self.progressText:SetTextColor(unpack(COLORS.progressFull))
             self.completeIcon:Show()
         elseif overallPercent >= 50 then
-            self.progressFill:SetVertexColor(unpack(COLORS.progressPartial))
+            -- Interpolate from yellow (50%) to green (100%)
+            local t = (overallPercent - 50) / 50
+            local lowR, lowG, lowB = unpack(COLORS.progressPartial)
+            local highR, highG, highB = unpack(COLORS.progressFull)
+            r = lowR + (highR - lowR) * t
+            g = lowG + (highG - lowG) * t
+            b = lowB + (highB - lowB) * t
             self.progressText:SetText(string.format("%.0f%%", overallPercent))
-            self.progressText:SetTextColor(unpack(COLORS.progressPartial))
             self.completeIcon:Hide()
         else
-            self.progressFill:SetVertexColor(unpack(COLORS.progressLow))
+            -- Interpolate from red (0%) to yellow (50%)
+            local t = overallPercent / 50
+            local lowR, lowG, lowB = unpack(COLORS.progressLow)
+            local highR, highG, highB = unpack(COLORS.progressPartial)
+            r = lowR + (highR - lowR) * t
+            g = lowG + (highG - lowG) * t
+            b = lowB + (highB - lowB) * t
             self.progressText:SetText(string.format("%.0f%%", overallPercent))
-            self.progressText:SetTextColor(unpack(COLORS.progressLow))
             self.completeIcon:Hide()
         end
+
+        self.progressFill:SetVertexColor(r, g, b)
+        self.progressText:SetTextColor(r, g, b)
 
         -- Currency line (formatted nicely)
         if #parts > 0 then
@@ -646,8 +867,8 @@ local function CreateGoalsPanel(parent)
 
     -- Scroll frame for goals (handles overflow when frame is resized)
     local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 0, -8)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 42) -- Leave room for totals bar (32px at y=6) + add button
+    scrollFrame:SetPoint("TOPLEFT", 0, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 44) -- Leave room for totals bar (32px at y=6) + add button + padding
     panel.scrollFrame = scrollFrame
 
     -- Hide scroll bar when not needed
@@ -721,7 +942,7 @@ local function CreateGoalsPanel(parent)
     local totalsBar = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     totalsBar:SetHeight(32)
     totalsBar:SetPoint("BOTTOMLEFT", PADDING, 6)
-    totalsBar:SetPoint("BOTTOMRIGHT", -PADDING - 36, 6) -- Leave room for add button
+    totalsBar:SetPoint("BOTTOMRIGHT", -44, 6) -- Leave room for add button
     totalsBar:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -731,18 +952,27 @@ local function CreateGoalsPanel(parent)
     totalsBar:SetBackdropBorderColor(unpack(COLORS.borderDark))
     panel.totalsBar = totalsBar
 
-    -- "Total" label
+    -- Subtle top highlight for depth
+    local totalsHighlight = totalsBar:CreateTexture(nil, "ARTWORK", nil, -1)
+    totalsHighlight:SetHeight(1)
+    totalsHighlight:SetPoint("TOPLEFT", 1, -1)
+    totalsHighlight:SetPoint("TOPRIGHT", -1, -1)
+    totalsHighlight:SetTexture("Interface\\Buttons\\WHITE8x8")
+    totalsHighlight:SetVertexColor(1, 1, 1, 0.06)
+
+    -- "Total" label (positioned in top half of bar)
     local totalsLabel = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalsLabel:SetPoint("TOPLEFT", 6, -4)
+    totalsLabel:SetPoint("TOPLEFT", 6, -5)
     totalsLabel:SetText("Total")
     totalsLabel:SetTextColor(unpack(COLORS.textPrimary))
     panel.totalsLabel = totalsLabel
 
-    -- Progress bar container (XP-style)
+    -- Progress bar container (XP-style, positioned in top half of bar)
+    -- Anchored directly to totals bar with fixed offset (after "Total" label ~35px)
     local totalsBarContainer = CreateFrame("Frame", nil, totalsBar, "BackdropTemplate")
     totalsBarContainer:SetHeight(8)
-    totalsBarContainer:SetPoint("TOPLEFT", totalsLabel, "TOPRIGHT", 6, 2)
-    totalsBarContainer:SetPoint("RIGHT", -40, 0)
+    totalsBarContainer:SetPoint("TOPLEFT", 42, -4)
+    totalsBarContainer:SetPoint("TOPRIGHT", -40, -4)
     totalsBarContainer:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -760,6 +990,7 @@ local function CreateGoalsPanel(parent)
             local fillWidth = math.max(1, (containerWidth - 2) * (percent / 100))
             panel.totalsFill:SetWidth(fillWidth)
             panel.totalsShine:SetWidth(fillWidth)
+            if panel.totalsGlow then panel.totalsGlow:SetWidth(fillWidth + 4) end
         end
     end)
 
@@ -772,63 +1003,127 @@ local function CreateGoalsPanel(parent)
     totalsFill:SetWidth(1)
     panel.totalsFill = totalsFill
 
+    -- Inner glow effect for more vibrant bar
+    local totalsGlow = totalsBarContainer:CreateTexture(nil, "ARTWORK", nil, -1)
+    totalsGlow:SetHeight(10)
+    totalsGlow:SetPoint("TOPLEFT", totalsFill, "TOPLEFT", -2, 2)
+    totalsGlow:SetPoint("BOTTOMLEFT", totalsFill, "BOTTOMLEFT", -2, -2)
+    totalsGlow:SetWidth(3)
+    totalsGlow:SetTexture("Interface\\Buttons\\WHITE8x8")
+    totalsGlow:SetGradient("HORIZONTAL", CreateColor(0.2, 0.8, 0.3, 0.3), CreateColor(0.2, 0.8, 0.3, 0))
+    panel.totalsGlow = totalsGlow
+
     -- Shine overlay
     local totalsShine = totalsBarContainer:CreateTexture(nil, "ARTWORK", nil, 1)
     totalsShine:SetHeight(3)
     totalsShine:SetPoint("TOPLEFT", totalsFill, "TOPLEFT", 0, 0)
     totalsShine:SetPoint("TOPRIGHT", totalsFill, "TOPRIGHT", 0, 0)
     totalsShine:SetTexture("Interface\\Buttons\\WHITE8x8")
-    totalsShine:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0.15), CreateColor(1, 1, 1, 0))
+    totalsShine:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0.2), CreateColor(1, 1, 1, 0))
     panel.totalsShine = totalsShine
 
-    -- Progress percentage
+    -- Spark at end of bar (XP bar effect)
+    local totalsSpark = totalsBarContainer:CreateTexture(nil, "OVERLAY")
+    totalsSpark:SetSize(8, 16)
+    totalsSpark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
+    totalsSpark:SetBlendMode("ADD")
+    totalsSpark:SetAlpha(0.7)
+    totalsSpark:Hide()
+    panel.totalsSpark = totalsSpark
+
+    -- Progress percentage (positioned in top half)
     local totalsPercent = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalsPercent:SetPoint("LEFT", totalsBarContainer, "RIGHT", 4, 0)
+    totalsPercent:SetPoint("TOPRIGHT", -6, -5)
     totalsPercent:SetWidth(32)
     totalsPercent:SetJustifyH("RIGHT")
     panel.totalsPercent = totalsPercent
 
-    -- Currency totals text (below progress bar)
+    -- Currency totals text (below progress bar row)
     local totalsText = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     totalsText:SetPoint("BOTTOMLEFT", 6, 4)
-    totalsText:SetPoint("RIGHT", -6, 0)
+    totalsText:SetPoint("BOTTOMRIGHT", -6, 4)
     totalsText:SetJustifyH("LEFT")
     totalsText:SetTextColor(unpack(COLORS.textSecondary))
     totalsText:SetWordWrap(false)
     totalsText:SetMaxLines(1)
     panel.totalsText = totalsText
 
-    -- Add Goal button (aligned with totals bar)
-    local addBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
-    addBtn:SetSize(28, 28)
-    addBtn:SetPoint("BOTTOMRIGHT", -PADDING, 8) -- Vertically centered with 32px totals bar at y=6
-    addBtn:SetBackdrop({
+    -- Footer add button (small "+" button next to totals bar)
+    local footerAddBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
+    footerAddBtn:SetSize(32, 32)
+    footerAddBtn:SetPoint("BOTTOMRIGHT", -PADDING, 6)
+    footerAddBtn:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 1,
     })
-    addBtn:SetBackdropColor(0.15, 0.35, 0.25, 0.9)
-    addBtn:SetBackdropBorderColor(unpack(COLORS.brand))
-    panel.addBtn = addBtn
+    footerAddBtn:SetBackdropColor(unpack(COLORS.bgCard))
+    footerAddBtn:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    panel.footerAddBtn = footerAddBtn
 
-    local addIcon = addBtn:CreateTexture(nil, "ARTWORK")
-    addIcon:SetSize(16, 16)
-    addIcon:SetPoint("CENTER", 0, 0)
-    addIcon:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
-    addBtn.icon = addIcon
+    local footerAddIcon = footerAddBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    footerAddIcon:SetPoint("CENTER", 0, 0)
+    footerAddIcon:SetText("+")
+    footerAddIcon:SetTextColor(unpack(COLORS.textSecondary))
+    footerAddBtn.icon = footerAddIcon
 
-    addBtn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(0.20, 0.45, 0.30, 1)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Add Gear Goal")
-        GameTooltip:AddLine("Set a PvP gear item as a goal to track your progress.", 1, 1, 1, true)
+    footerAddBtn:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(unpack(COLORS.bgCardHover))
+        self:SetBackdropBorderColor(unpack(COLORS.borderLight))
+        self.icon:SetTextColor(unpack(COLORS.textPrimary))
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Add Goal")
         GameTooltip:Show()
     end)
-    addBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(0.15, 0.35, 0.25, 0.9)
+    footerAddBtn:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(unpack(COLORS.bgCard))
+        self:SetBackdropBorderColor(unpack(COLORS.borderDark))
+        self.icon:SetTextColor(unpack(COLORS.textSecondary))
         GameTooltip:Hide()
     end)
-    addBtn:SetScript("OnClick", function()
+    footerAddBtn:SetScript("OnClick", function()
+        HonorLog:ShowGoalPicker()
+    end)
+
+    -- Add Goal row (inline at bottom of goals list in scroll area)
+    local addGoalRow = CreateFrame("Button", nil, goalsContainer, "BackdropTemplate")
+    addGoalRow:SetHeight(28)
+    addGoalRow:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    addGoalRow:SetBackdropColor(0.10, 0.10, 0.12, 0.6)
+    addGoalRow:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    panel.addGoalRow = addGoalRow
+
+    -- Plus icon
+    local addIcon = addGoalRow:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    addIcon:SetPoint("LEFT", 10, 0)
+    addIcon:SetText("+")
+    addIcon:SetTextColor(unpack(COLORS.textTertiary))
+    addGoalRow.addIcon = addIcon
+
+    -- "Add Goal" text
+    local addLabel = addGoalRow:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    addLabel:SetPoint("LEFT", addIcon, "RIGHT", 6, 0)
+    addLabel:SetText("Add Goal")
+    addLabel:SetTextColor(unpack(COLORS.textTertiary))
+    addGoalRow.addLabel = addLabel
+
+    addGoalRow:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.14, 0.14, 0.18, 0.9)
+        self:SetBackdropBorderColor(unpack(COLORS.borderLight))
+        self.addIcon:SetTextColor(unpack(COLORS.textSecondary))
+        self.addLabel:SetTextColor(unpack(COLORS.textSecondary))
+    end)
+    addGoalRow:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(0.10, 0.10, 0.12, 0.6)
+        self:SetBackdropBorderColor(unpack(COLORS.borderDark))
+        self.addIcon:SetTextColor(unpack(COLORS.textTertiary))
+        self.addLabel:SetTextColor(unpack(COLORS.textTertiary))
+    end)
+    addGoalRow:SetScript("OnClick", function()
         HonorLog:ShowGoalPicker()
     end)
 
@@ -841,6 +1136,8 @@ local function CreateGoalsPanel(parent)
             self.emptyState:Show()
             self.scrollFrame:Hide()
             self.totalsBar:Hide()
+            self.footerAddBtn:Hide()
+            self.addGoalRow:Hide()
             for _, card in ipairs(self.goalCards) do
                 card:Hide()
             end
@@ -848,11 +1145,33 @@ local function CreateGoalsPanel(parent)
             self.emptyState:Hide()
             self.scrollFrame:Show()
             self.totalsBar:Show()
+            self.footerAddBtn:Show()
 
             -- Update or create cards for each goal
+            local cardHeight = GOAL_CARD_HEIGHT + GOAL_CARD_SPACING
+            local baseLevel = self.goalsContainer:GetFrameLevel() + 1
+            local totalGoals = #goals
+
             for i, goal in ipairs(goals) do
                 local card = self:GetOrCreateCard(i)
                 card:Update(goal, i)
+
+                -- Set card position
+                card:ClearAllPoints()
+                local yOffset = -((i - 1) * cardHeight)
+                card:SetPoint("TOPLEFT", PADDING, yOffset)
+                card:SetPoint("TOPRIGHT", -PADDING, yOffset)
+
+                -- Cards higher in the list get higher frame levels for correct click targeting
+                -- This ensures clicking on card 1 doesn't accidentally target card 2's drag handle
+                local cardLevel = baseLevel + (totalGoals - i) * 2
+                card:SetFrameLevel(cardLevel)
+                if card.dragHandle then
+                    card.dragHandle:SetFrameLevel(cardLevel + 1)
+                end
+
+                -- Ensure full opacity (in case drag was interrupted)
+                card:SetAlpha(1)
             end
 
             -- Hide any extra cards beyond current goal count
@@ -860,8 +1179,11 @@ local function CreateGoalsPanel(parent)
                 self.goalCards[i]:Hide()
             end
 
+            -- Hide the scroll area add row (button is in footer now)
+            self.addGoalRow:Hide()
+
             -- Update scroll content height based on actual goals
-            local contentHeight = (#goals * GOAL_CARD_HEIGHT) + ((#goals - 1) * GOAL_CARD_SPACING) + 10
+            local contentHeight = (#goals * cardHeight) + PADDING
             self.goalsContainer:SetHeight(contentHeight)
 
             -- Calculate totals from all goals
@@ -904,8 +1226,7 @@ local function CreateGoalsPanel(parent)
                 totalNeeded = totalNeeded + totalArenaNeeded
                 totalCurrent = totalCurrent + totalArenaCurrent
             end
-            local bgOrder = { "AV", "AB", "WSG", "EotS" }
-            for _, bgType in ipairs(bgOrder) do
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
                 if totalMarksNeeded[bgType] > 0 then
                     -- Weight marks by 100 to make them comparable to honor values
                     totalNeeded = totalNeeded + (totalMarksNeeded[bgType] * 100)
@@ -915,28 +1236,83 @@ local function CreateGoalsPanel(parent)
 
             local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
 
-            -- Store progress percent for responsive resize
+            -- Store previous progress for animation
+            local previousPercent = self.totalsProgressPercent or 0
             self.totalsProgressPercent = overallPercent
 
-            -- Update progress bar
+            -- Update progress bar with animation
             local containerWidth = self.totalsBarContainer:GetWidth()
-            local fillWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
-            self.totalsFill:SetWidth(fillWidth)
-            self.totalsShine:SetWidth(fillWidth)
+            local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
+            local currentWidth = self.totalsFill:GetWidth() or 1
 
-            -- Update progress bar color and percentage text
-            if overallPercent >= 100 then
-                self.totalsFill:SetVertexColor(unpack(COLORS.progressFull))
-                self.totalsPercent:SetText("100%")
-                self.totalsPercent:SetTextColor(unpack(COLORS.progressFull))
-            elseif overallPercent >= 50 then
-                self.totalsFill:SetVertexColor(unpack(COLORS.progressPartial))
-                self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
-                self.totalsPercent:SetTextColor(unpack(COLORS.progressPartial))
+            -- Animate width change
+            local widthDiff = math.abs(targetWidth - currentWidth)
+            if widthDiff > 2 and previousPercent > 0 then
+                local animId = "totals_progress"
+                CancelAnimation(animId)
+
+                local fill = self.totalsFill
+                local shine = self.totalsShine
+                local glow = self.totalsGlow
+                local spark = self.totalsSpark
+
+                AnimateValue(animId, currentWidth, targetWidth, 0.5, function(val)
+                    if fill and fill:IsShown() then
+                        fill:SetWidth(val)
+                        shine:SetWidth(val)
+                        if glow then glow:SetWidth(val + 4) end
+                        -- Update spark position during animation
+                        if spark and overallPercent > 0 and overallPercent < 100 then
+                            spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
+                        end
+                    end
+                end)
             else
-                self.totalsFill:SetVertexColor(unpack(COLORS.progressLow))
+                self.totalsFill:SetWidth(targetWidth)
+                self.totalsShine:SetWidth(targetWidth)
+                if self.totalsGlow then self.totalsGlow:SetWidth(targetWidth + 4) end
+            end
+
+            -- Position spark at end of fill (XP bar effect)
+            if self.totalsSpark then
+                if overallPercent > 0 and overallPercent < 100 then
+                    self.totalsSpark:SetPoint("CENTER", self.totalsFill, "RIGHT", 0, 0)
+                    self.totalsSpark:Show()
+                else
+                    self.totalsSpark:Hide()
+                end
+            end
+
+            -- Update progress bar color with gradient interpolation
+            local r, g, b
+            if overallPercent >= 100 then
+                r, g, b = unpack(COLORS.progressFull)
+                self.totalsPercent:SetText("100%")
+            elseif overallPercent >= 50 then
+                -- Interpolate from yellow (50%) to green (100%)
+                local t = (overallPercent - 50) / 50
+                local lowR, lowG, lowB = unpack(COLORS.progressPartial)
+                local highR, highG, highB = unpack(COLORS.progressFull)
+                r = lowR + (highR - lowR) * t
+                g = lowG + (highG - lowG) * t
+                b = lowB + (highB - lowB) * t
                 self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
-                self.totalsPercent:SetTextColor(unpack(COLORS.progressLow))
+            else
+                -- Interpolate from red (0%) to yellow (50%)
+                local t = overallPercent / 50
+                local lowR, lowG, lowB = unpack(COLORS.progressLow)
+                local highR, highG, highB = unpack(COLORS.progressPartial)
+                r = lowR + (highR - lowR) * t
+                g = lowG + (highG - lowG) * t
+                b = lowB + (highB - lowB) * t
+                self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
+            end
+
+            self.totalsFill:SetVertexColor(r, g, b)
+            self.totalsPercent:SetTextColor(r, g, b)
+            -- Update glow color to match fill
+            if self.totalsGlow then
+                self.totalsGlow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
             end
 
             -- Build currency totals text (current/needed format)
@@ -949,7 +1325,7 @@ local function CreateGoalsPanel(parent)
                 local color = totalArenaCurrent >= totalArenaNeeded and "40d860" or "aa55ff"
                 table.insert(totalParts, string.format("|cff%s%d/%d|r A", color, totalArenaCurrent, totalArenaNeeded))
             end
-            for _, bgType in ipairs(bgOrder) do
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
                 if totalMarksNeeded[bgType] > 0 then
                     local color = totalMarksCurrent[bgType] >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
                     table.insert(totalParts, string.format("|cff%s%d/%d|r %s", color, totalMarksCurrent[bgType], totalMarksNeeded[bgType], bgType))
@@ -971,18 +1347,7 @@ local function CreateGoalsPanel(parent)
             end
         end)
 
-        -- Update add button state
-        if HonorLog:CanAddGoal() then
-            self.addBtn:Enable()
-            self.addBtn:SetBackdropColor(0.15, 0.35, 0.25, 0.9)
-            self.addBtn:SetBackdropBorderColor(unpack(COLORS.brand))
-            self.addBtn.icon:SetAlpha(1)
-        else
-            self.addBtn:Disable()
-            self.addBtn:SetBackdropColor(0.15, 0.15, 0.18, 0.9)
-            self.addBtn:SetBackdropBorderColor(unpack(COLORS.borderDark))
-            self.addBtn.icon:SetAlpha(0.3)
-        end
+        -- No goal limit, add row is always available
 
     end
 
@@ -998,6 +1363,13 @@ local function CreateGoalsPanel(parent)
 
     -- Clean up drag state when panel hides
     panel:SetScript("OnHide", function(self)
+        -- Reset all card alphas
+        if self.goalCards then
+            for _, card in pairs(self.goalCards) do
+                if card then card:SetAlpha(1) end
+            end
+        end
+
         if draggedCard then
             draggedCard:SetAlpha(1)
             draggedCard.targetIndex = nil
@@ -1009,6 +1381,7 @@ local function CreateGoalsPanel(parent)
         if dropIndicator then
             dropIndicator:Hide()
         end
+        currentGapIndex = nil
     end)
 
     -- Update scroll on size change
@@ -1051,6 +1424,29 @@ local function CreateGoalPicker()
 
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+    -- Make frame resizable
+    frame:SetResizable(true)
+    frame:SetResizeBounds(320, 300, 600, 700)
+
+    -- Resize grip (bottom-right corner)
+    local resizeGrip = CreateFrame("Button", nil, frame)
+    resizeGrip:SetSize(16, 16)
+    resizeGrip:SetPoint("BOTTOMRIGHT", -6, 6)
+    resizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    resizeGrip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    resizeGrip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    resizeGrip:EnableMouse(true)
+    resizeGrip:SetScript("OnMouseDown", function(self)
+        frame:StartSizing("BOTTOMRIGHT")
+    end)
+    resizeGrip:SetScript("OnMouseUp", function(self)
+        frame:StopMovingOrSizing()
+        -- Update scroll child width
+        local scrollWidth = frame.scrollFrame:GetWidth()
+        frame.scrollChild:SetWidth(scrollWidth)
+    end)
+    frame.resizeGrip = resizeGrip
 
     -- Header
     local header = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -1158,6 +1554,18 @@ local function CreateGoalPicker()
         local scrollWidth = self.scrollFrame:GetWidth()
         self.scrollChild:SetWidth(scrollWidth)
         self:RefreshItems()
+    end)
+
+    -- Update scroll child width on resize
+    frame:SetScript("OnSizeChanged", function(self)
+        local scrollWidth = self.scrollFrame:GetWidth()
+        self.scrollChild:SetWidth(scrollWidth)
+        -- Update item row widths
+        for _, row in ipairs(self.itemRows) do
+            if row:IsShown() then
+                row:SetWidth(scrollWidth)
+            end
+        end
     end)
 
     -- Item rows (created dynamically)
@@ -1298,29 +1706,33 @@ local function CreateGoalPicker()
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         row.icon = icon
 
-        -- Add button (positioned first for reference)
+        -- Add button (modern dark theme style)
         local addBtn = CreateFrame("Button", nil, row, "BackdropTemplate")
         addBtn:SetSize(52, 28)
         addBtn:SetPoint("RIGHT", -8, 0)
         addBtn:SetBackdrop({
-            bgFile = "Interface\\Buttons\\WHITE8x8",
+            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
             edgeFile = "Interface\\Buttons\\WHITE8x8",
             edgeSize = 1,
         })
-        addBtn:SetBackdropColor(0.18, 0.45, 0.28, 1)
-        addBtn:SetBackdropBorderColor(0.25, 0.60, 0.35, 1)
+        addBtn:SetBackdropColor(0.14, 0.14, 0.18, 1)
+        addBtn:SetBackdropBorderColor(0.30, 0.30, 0.38, 0.8)
 
-        local addText = addBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local addText = addBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         addText:SetPoint("CENTER", 0, 0)
         addText:SetText("Add")
-        addText:SetTextColor(0.85, 1.0, 0.85, 1)
+        addText:SetTextColor(unpack(COLORS.textSecondary))
         addBtn.text = addText
 
         addBtn:SetScript("OnEnter", function(self)
-            self:SetBackdropColor(0.25, 0.55, 0.35, 1)
+            self:SetBackdropColor(0.20, 0.20, 0.26, 1)
+            self:SetBackdropBorderColor(unpack(COLORS.borderLight))
+            self.text:SetTextColor(unpack(COLORS.textPrimary))
         end)
         addBtn:SetScript("OnLeave", function(self)
-            self:SetBackdropColor(0.18, 0.45, 0.28, 1)
+            self:SetBackdropColor(0.14, 0.14, 0.18, 1)
+            self:SetBackdropBorderColor(0.30, 0.30, 0.38, 0.8)
+            self.text:SetTextColor(unpack(COLORS.textSecondary))
         end)
         row.addBtn = addBtn
 
@@ -1689,8 +2101,7 @@ local function CreateGoalPicker()
                 table.insert(costParts, string.format("|cffaa55ff%d|r |cff8844ccA|r", data.arena))
             end
             if data.marks then
-                local bgOrder = { "AV", "AB", "WSG", "EotS" }
-                for _, bgType in ipairs(bgOrder) do
+                for _, bgType in ipairs(HonorLog.BG_ORDER) do
                     local count = data.marks[bgType]
                     if count and count > 0 then
                         local colorHex = BG_COLOR_HEX[bgType] or "55bbff"
@@ -1827,15 +2238,23 @@ function HonorLog:SwitchTab(tabName)
     -- Handle expanded views based on frame state
     if self.db.settings.frameExpanded then
         if tabName == "stats" then
+            -- Switch to stats view
+            if frame.goalsPanel then
+                frame.goalsPanel:Hide()
+            end
+            frame.statsView:SetAlpha(1)
             frame.statsView:Show()
-            frame.goalsPanel:Hide()
         else
+            -- Switch to goals view
             frame.statsView:Hide()
-            frame.goalsPanel:Show()
-            self:UpdateGoalsPanel()
+            if frame.goalsPanel then
+                frame.goalsPanel:SetAlpha(1)
+                frame.goalsPanel:Show()
+                self:UpdateGoalsPanel()
+            end
         end
     else
-        -- When minimized, both expanded views stay hidden
+        -- When minimized, both expanded views stay hidden (no animation needed)
         frame.statsView:Hide()
         frame.goalsPanel:Hide()
     end

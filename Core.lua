@@ -80,6 +80,7 @@ local events = {
     "PLAYER_LOGOUT",
     "PLAYER_DEAD",
     "BATTLEGROUND_POINTS_UPDATE",
+    "CURRENCY_DISPLAY_UPDATE", -- For honor/mark changes outside BG
 }
 
 for _, event in ipairs(events) do
@@ -671,6 +672,11 @@ function HonorLog:OnBattlegroundEnd(winner)
         print("|cffff00ff[HonorLog Debug]|r   Duration: " .. tostring(duration) .. ", Honor: " .. tostring(honorGained) .. ", Marks: " .. tostring(marksGained))
     end
 
+    -- CRITICAL: Set guard BEFORE calling RecordGame to prevent double recording
+    -- Even if RecordGame errors, we don't want to try again and double-count
+    lastRecordedTime = GetTime()
+    gameRecordedThisSession = true
+
     -- Use pcall to catch any errors in RecordGame
     local success, err = pcall(function()
         self:RecordGame(currentBG, won, duration, honorGained, marksGained)
@@ -678,13 +684,8 @@ function HonorLog:OnBattlegroundEnd(winner)
 
     if not success then
         print("|cffff0000[HonorLog ERROR]|r RecordGame failed: " .. tostring(err))
-    else
-        -- Mark that we successfully recorded a game (prevents double counting)
-        lastRecordedTime = GetTime()
-        gameRecordedThisSession = true
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   RecordGame completed successfully, gameRecordedThisSession = true")
-        end
+    elseif debugMode then
+        print("|cffff00ff[HonorLog Debug]|r   RecordGame completed successfully")
     end
 
     -- Print result
@@ -895,6 +896,18 @@ function HonorLog:PLAYER_LOGOUT()
         print("|cff00ff00[HonorLog]|r   Saved lastGameTime=" .. string.format("%.1f", self.db.char.lastGameTime))
     else
         print("|cffff0000[HonorLog]|r   ERROR: self.db or self.db.char is nil!")
+    end
+end
+
+-- Currency display update - honor/marks changed (outside BG updates)
+function HonorLog:CURRENCY_DISPLAY_UPDATE()
+    -- Update goals panel when currency changes (honor, marks)
+    if self.mainFrame and self.mainFrame:IsShown() then
+        if self.mainFrame.goalsPanel and self.mainFrame.goalsPanel:IsShown() then
+            self:UpdateGoalsPanel()
+        end
+        -- Also update main frame for honor display
+        self:UpdateMainFrame()
     end
 end
 

@@ -182,8 +182,7 @@ function HonorLog:GenerateTextExport(scope)
     table.insert(lines, "║  " .. scopeLabel .. string.rep(" ", 36 - #scopeLabel) .. "║")
     table.insert(lines, "╠══════════════════════════════════════╣")
 
-    local bgTypes = {"AV", "AB", "WSG", "EotS"}
-    for _, bgType in ipairs(bgTypes) do
+    for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local stats = self:GetBGStats(bgType, scope)
         local derived = self:GetDerivedStats(bgType, scope)
 
@@ -224,8 +223,7 @@ function HonorLog:GenerateCSVExport(scope)
     table.insert(lines, "Battleground\tPlayed\tWins\tLosses\tWinrate\tAvg Duration (s)\tHonor\tMarks")
 
     -- BG data
-    local bgTypes = {"AV", "AB", "WSG", "EotS"}
-    for _, bgType in ipairs(bgTypes) do
+    for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local stats = self:GetBGStats(bgType, scope)
         local derived = self:GetDerivedStats(bgType, scope)
 

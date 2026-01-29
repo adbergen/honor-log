@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.1.18] - 2025-01-28
+
+### Added
+- **Resizable Goal Picker**: Goal picker window can now be resized
+  - Drag bottom-right corner to resize (320x300 min, 600x700 max)
+  - Item list and rows adapt to new width
+- **Animated Progress Bars**: Progress bar fills now animate smoothly when values change
+  - Smooth width transitions with easing (0.4s duration for cards, 0.5s for totals)
+  - Gradient color interpolation: red → yellow → green based on percentage
+- **Enhanced Drag & Drop**: Goal card dragging now has polished visual feedback
+  - Lift animation when picking up a card (scale + shadow effects)
+  - Drop animation when releasing (smooth fade/scale out)
+  - Shadow and glow effects on the drag preview
+- **Totals Bar Improvements**: Visual enhancements to the goals summary bar
+  - Inner glow effect on the progress fill
+  - Animated spark at the end of the progress bar
+  - Gradient color updates to match fill percentage
+
+### Changed
+- **Drag Handle Icon**: Changed from hamburger menu (☰) to 6-dot grip pattern (⠿)
+  - Hamburger icons are for menus/drawers, grip dots are the standard drag affordance
+- **Hide Eye of the Storm**: EotS hidden from UI until TBC releases
+  - Reduces confusion since EotS isn't available during prepatch
+  - Will be re-enabled when TBC content unlocks
+- **Add Goal Button**: Moved to footer next to totals bar
+  - Small "+" button always visible without scrolling
+  - Tooltip shows "Add Goal" on hover
+
+### Fixed
+- **Goal Cards Invisible**: Fixed goal cards not appearing when switching to Goals tab
+  - Removed tab fade transitions that were causing alpha issues in TBC Classic
+  - Tab switching now uses direct show/hide for reliable visibility
+- **Drag & Drop Reorder**: Fixed cards overlapping when dragging past multiple cards
+  - Cards now move instantly instead of animating to avoid timing conflicts
+  - Drop position uses midpoint targeting for more responsive feel
+  - Fixed drag handle click area not covering full card height
+  - Reset card positions before reordering to prevent overlap
+- **Click Targeting**: Fixed clicking near drag handle picking up wrong card
+  - Drag handle extended to icon edge (24px) to prevent click-through gap
+  - Cards now have explicit frame levels so higher cards take click priority
+- **Progress Bar After Reorder**: Fixed progress bars showing wrong percentage after drag/drop
+  - Detects when card displays different item and skips animation
+  - Prevents stale visual state from previous goal
+- **Compact View Percentage**: Fixed minimized goals showing 0% when totals bar showed actual progress
+  - Now uses same weighted currency calculation as totals bar
+
 ## [1.1.17] - 2025-01-28
 
 ### Changed

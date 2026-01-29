@@ -377,7 +377,7 @@ local function CreateMainFrame()
     frame.bgCards = {}
     local yOffset = -6
 
-    for _, bgType in ipairs({"AV", "AB", "WSG", "EotS"}) do
+    for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local card = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
         card:SetHeight(CARD_HEIGHT)
         card:SetPoint("TOPLEFT", PADDING, yOffset)
@@ -778,10 +778,12 @@ function HonorLog:SetExpanded(expanded)
         if currentView == "goals" then
             frame.expanded:Hide()
             if frame.goalsPanel then
+                frame.goalsPanel:SetAlpha(1) -- Ensure panel is visible (reset from any animation)
                 frame.goalsPanel:Show()
                 self:UpdateGoalsPanel()
             end
         else
+            frame.expanded:SetAlpha(1) -- Ensure panel is visible (reset from any animation)
             frame.expanded:Show()
             if frame.goalsPanel then
                 frame.goalsPanel:Hide()
@@ -1007,22 +1009,50 @@ function HonorLog:UpdateGoalsCompact()
             frame.goalsCompactIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             frame.goalsCompactIcon:SetVertexColor(1, 1, 1, 0.9)
 
-            -- Calculate overall progress
-            local totalProgress = 0
+            -- Calculate overall progress (same weighted calculation as totals bar)
+            local totalHonorNeeded = 0
+            local totalArenaNeeded = 0
+            local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+
             for _, goal in ipairs(goals) do
-                local percent = 100
                 if goal.honor.needed > 0 then
-                    percent = math.min(percent, goal.honor.percent)
+                    totalHonorNeeded = totalHonorNeeded + goal.honor.needed
                 end
                 if goal.arena.needed > 0 then
-                    percent = math.min(percent, goal.arena.percent)
+                    totalArenaNeeded = totalArenaNeeded + goal.arena.needed
                 end
-                for _, markData in pairs(goal.marks) do
-                    percent = math.min(percent, markData.percent)
+                for bgType, markData in pairs(goal.marks) do
+                    if markData.needed > 0 then
+                        totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
+                    end
                 end
-                totalProgress = totalProgress + percent
             end
-            local avgProgress = totalProgress / #goals
+
+            -- Get actual player currency
+            local totalHonorCurrent = math.min(self:GetCurrentHonor(), totalHonorNeeded)
+            local totalArenaCurrent = math.min(self:GetCurrentArenaPoints(), totalArenaNeeded)
+
+            -- Calculate weighted total
+            local totalNeeded = 0
+            local totalCurrent = 0
+
+            if totalHonorNeeded > 0 then
+                totalNeeded = totalNeeded + totalHonorNeeded
+                totalCurrent = totalCurrent + totalHonorCurrent
+            end
+            if totalArenaNeeded > 0 then
+                totalNeeded = totalNeeded + totalArenaNeeded
+                totalCurrent = totalCurrent + totalArenaCurrent
+            end
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                if totalMarksNeeded[bgType] > 0 then
+                    local marksCurrent = math.min(self:GetCurrentMarks(bgType), totalMarksNeeded[bgType])
+                    totalNeeded = totalNeeded + (totalMarksNeeded[bgType] * 100)
+                    totalCurrent = totalCurrent + (marksCurrent * 100)
+                end
+            end
+
+            local avgProgress = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
 
             -- Summary text
             local summaryText
@@ -1251,6 +1281,10 @@ local function OnUpdate(self, elapsed)
         updateTimer = 0
         if HonorLog:IsInBG() and HonorLog.mainFrame and HonorLog.mainFrame:IsShown() then
             HonorLog:UpdateMainFrame()
+            -- Also update goals panel if it's visible (for real-time progress tracking)
+            if HonorLog.mainFrame.goalsPanel and HonorLog.mainFrame.goalsPanel:IsShown() then
+                HonorLog:UpdateGoalsPanel()
+            end
         end
     end
 end
