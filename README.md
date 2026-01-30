@@ -1,10 +1,11 @@
 # HonorLog
 
-A battleground statistics tracker for WoW TBC Classic Anniversary.
+Track battleground and world PvP statistics with gear goal tracking for WoW TBC Classic Anniversary.
 
 ## Features
 
 - **Track all BGs**: Alterac Valley, Arathi Basin, Warsong Gulch, Eye of the Storm
+- **World PvP Tracking**: Track open world honorable kills, deaths, K/D ratio, and honor earned
 - **Win/Loss stats**: Games played, wins, losses, win rate percentage
 - **Honor & Marks**: Track honor and marks earned per BG and lifetime totals
 - **Session tracking**: See your current session stats with hourly honor rate (resets daily at midnight)

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.22] - 2025-01-30
+
+### Added
+- **World PvP Tracking**: Complete open world PvP statistics tracking
+  - Dedicated "World" card in stats panel (same style as BG cards)
+  - Tracks world kills (enemy players killed in open world)
+  - Tracks world deaths (killed by enemy players)
+  - **Tracks world honor earned** from honorable kills outside BGs
+  - Shows kills/deaths, K/D ratio, honor earned, and today's stats
+  - Session stats (today) and lifetime stats per character/account
+  - World PvP displays in Today panel with honor earned: `2-0 (+150) ⚔`
+  - Shows in `/honorlog stats` command output
+  - Shows in minimap/LDB tooltip
+  - Test commands: `/hl test kill` and `/hl test death`
+
 ## [1.1.21] - 2025-01-30
 
 ### Added

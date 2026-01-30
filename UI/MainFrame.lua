@@ -461,6 +461,87 @@ local function CreateMainFrame()
         yOffset = yOffset - CARD_HEIGHT - CARD_SPACING
     end
 
+    -- World PvP Card (same style as BG cards)
+    local WORLD_COLOR = { 0.90, 0.55, 0.20, 1 }  -- Orange for world PvP
+    local WORLD_GLOW = { 0.80, 0.45, 0.10, 0.3 }
+
+    local worldCard = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
+    worldCard:SetHeight(CARD_HEIGHT)
+    worldCard:SetPoint("TOPLEFT", PADDING, yOffset)
+    worldCard:SetPoint("TOPRIGHT", -PADDING, yOffset)
+    worldCard:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    worldCard:SetBackdropColor(unpack(COLORS.bgCard))
+    worldCard:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    worldCard:EnableMouse(true)
+    worldCard:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(unpack(COLORS.bgCardHover))
+        self:SetBackdropBorderColor(unpack(WORLD_GLOW))
+        if self.worldIcon then self.worldIcon:SetAlpha(1) end
+    end)
+    worldCard:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(unpack(COLORS.bgCard))
+        self:SetBackdropBorderColor(unpack(COLORS.borderDark))
+        if self.worldIcon then self.worldIcon:SetAlpha(0.9) end
+    end)
+
+    -- Left accent bar (orange)
+    local worldAccent = worldCard:CreateTexture(nil, "ARTWORK")
+    worldAccent:SetWidth(3)
+    worldAccent:SetPoint("TOPLEFT", 0, 0)
+    worldAccent:SetPoint("BOTTOMLEFT", 0, 0)
+    worldAccent:SetColorTexture(unpack(WORLD_COLOR))
+    worldCard.accentBar = worldAccent
+
+    -- World PvP Icon (skull)
+    local worldIcon = worldCard:CreateTexture(nil, "ARTWORK")
+    worldIcon:SetSize(24, 24)
+    worldIcon:SetPoint("LEFT", 6, 0)
+    worldIcon:SetTexture("Interface\\Icons\\Ability_DualWield")  -- Skull-like icon
+    worldIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    worldIcon:SetAlpha(0.9)
+    worldCard.worldIcon = worldIcon
+
+    -- "World" label
+    local worldName = worldCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    worldName:SetPoint("LEFT", worldIcon, "RIGHT", 5, 4)
+    worldName:SetText("World")
+    worldName:SetTextColor(unpack(WORLD_COLOR))
+    worldCard.worldName = worldName
+
+    -- "Open World PvP" subtitle
+    local worldFullName = worldCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    worldFullName:SetPoint("TOPLEFT", worldName, "BOTTOMLEFT", 0, 0)
+    worldFullName:SetText("Open World PvP")
+    worldFullName:SetTextColor(unpack(COLORS.textTertiary))
+    worldCard.worldFullName = worldFullName
+
+    -- Kills/Deaths record (right side)
+    local worldRecord = worldCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    worldRecord:SetPoint("TOPRIGHT", -6, -4)
+    worldRecord:SetJustifyH("RIGHT")
+    worldCard.record = worldRecord
+
+    -- K/D ratio on bottom right
+    local worldKD = worldCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    worldKD:SetPoint("BOTTOMRIGHT", -6, 5)
+    worldKD:SetJustifyH("RIGHT")
+    worldCard.kd = worldKD
+
+    -- Session kills (left of K/D)
+    local worldSession = worldCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    worldSession:SetPoint("RIGHT", worldKD, "LEFT", -8, 0)
+    worldSession:SetJustifyH("RIGHT")
+    worldSession:SetTextColor(unpack(COLORS.neutral))
+    worldCard.sessionText = worldSession
+
+    frame.worldCard = worldCard
+    yOffset = yOffset - CARD_HEIGHT - CARD_SPACING
+
     -- Session Summary Panel
     local sessionPanel = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
     sessionPanel:SetHeight(36)
@@ -483,6 +564,7 @@ local function CreateMainFrame()
         GameTooltip:AddDoubleLine("W-L", "Wins and losses today", 0.4, 0.8, 1, 0.7, 0.7, 0.7)
         GameTooltip:AddDoubleLine("XX%", "Win rate percentage", 0.4, 0.8, 1, 0.7, 0.7, 0.7)
         GameTooltip:AddDoubleLine("XXX/hr", "Honor earned per hour", 1, 0.84, 0, 0.7, 0.7, 0.7)
+        GameTooltip:AddDoubleLine("X-X |TInterface\\Icons\\Ability_DualWield:12|t", "World PvP kills-deaths", 0.9, 0.55, 0.2, 0.7, 0.7, 0.7)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Hourly rate calculated from first BG entry", 0.5, 0.5, 0.5)
         GameTooltip:Show()
@@ -512,15 +594,20 @@ local function CreateMainFrame()
     sessionRate:SetTextColor(1, 0.84, 0, 1) -- Gold
     frame.sessionRate = sessionRate
 
-    -- Session rewards (second line)
+    -- Session rewards (second line, left side)
     local sessionRewards = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sessionRewards:SetPoint("BOTTOMLEFT", 8, 3)
-    sessionRewards:SetPoint("RIGHT", -8, 0)
     sessionRewards:SetJustifyH("LEFT")
     frame.sessionRewards = sessionRewards
 
-    -- Set scroll content height (4 cards + session panel + padding)
-    local contentHeight = (4 * CARD_HEIGHT) + (3 * CARD_SPACING) + 36 + 15
+    -- World PvP (second line, right side - mirrors sessionRate position)
+    local sessionWorld = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sessionWorld:SetPoint("BOTTOMRIGHT", -8, 3)
+    sessionWorld:SetJustifyH("RIGHT")
+    frame.sessionWorld = sessionWorld
+
+    -- Set scroll content height (3 BG cards + 1 World card + session panel + padding)
+    local contentHeight = (4 * CARD_HEIGHT) + (4 * CARD_SPACING) + 36 + 15
     scrollContent:SetHeight(contentHeight)
 
     -- Function to update scroll content width when frame is resized
@@ -959,46 +1046,108 @@ function HonorLog:UpdateMainFrame()
         end
     end
 
+    -- Update World PvP card
+    local worldCard = frame.worldCard
+    if worldCard then
+        local worldStats = self:GetWorldPvPStats(scope)
+        local worldSession = self:GetSessionWorldPvPStats()
+
+        if worldStats.kills > 0 or worldStats.deaths > 0 or (worldStats.honor and worldStats.honor > 0) then
+            -- Kills-Deaths record (matches BG card W-L style)
+            worldCard.record:SetText(string.format("|cff40d860%d|r-|cffe65959%d|r", worldStats.kills, worldStats.deaths))
+
+            -- Honor + K/D ratio (matches BG card "21.7k Honor  26%" style)
+            local kd = worldStats.deaths > 0 and (worldStats.kills / worldStats.deaths) or worldStats.kills
+            local kdColor = kd >= 1 and COLORS.win or COLORS.loss
+            local worldHonor = worldStats.honor or 0
+            local honorText
+            if worldHonor >= 1000 then
+                honorText = string.format("%.1fk Honor  ", worldHonor / 1000)
+            else
+                honorText = string.format("%d Honor  ", worldHonor)
+            end
+            worldCard.kd:SetText(string.format("%s|cff%s%.1f K/D|r", honorText, kd >= 1 and "40d860" or "e65959", kd))
+            worldCard.kd:SetTextColor(unpack(COLORS.textSecondary))
+
+            -- Session kills/deaths (only show if different from lifetime)
+            local sessionDiffers = worldSession.kills ~= worldStats.kills or worldSession.deaths ~= worldStats.deaths
+            if sessionDiffers and (worldSession.kills > 0 or worldSession.deaths > 0) then
+                worldCard.sessionText:SetText(string.format("Today: %d-%d", worldSession.kills, worldSession.deaths))
+            else
+                worldCard.sessionText:SetText("")
+            end
+
+            -- Full opacity
+            worldCard.worldIcon:SetAlpha(0.9)
+            worldCard.worldName:SetAlpha(1)
+            worldCard.worldFullName:SetAlpha(0.7)
+            worldCard.accentBar:SetAlpha(1)
+        else
+            worldCard.record:SetText("--")
+            worldCard.record:SetTextColor(unpack(COLORS.textMuted))
+            worldCard.kd:SetText("--")
+            worldCard.kd:SetTextColor(unpack(COLORS.textMuted))
+            worldCard.sessionText:SetText("")
+
+            -- Dimmed
+            worldCard.worldIcon:SetAlpha(0.4)
+            worldCard.worldName:SetAlpha(0.5)
+            worldCard.worldFullName:SetAlpha(0.3)
+            worldCard.accentBar:SetAlpha(0.3)
+        end
+    end
+
     -- Update session panel
     if totalSession.played > 0 then
         local color = totalSession.winrate >= 50 and COLORS.win or COLORS.loss
-        frame.sessionStats:SetText(string.format("%d-%d (%.0f%%)",
-            totalSession.wins, totalSession.losses, totalSession.winrate))
+
+        -- Line 1 left: BG stats
+        frame.sessionStats:SetText(string.format("%d-%d (%.0f%%)", totalSession.wins, totalSession.losses, totalSession.winrate))
         frame.sessionStats:SetTextColor(unpack(color))
 
-        -- Hourly rate (right side)
+        -- Line 1 right: Hourly rate
         if totalSession.hourlyRate > 0 then
             frame.sessionRate:SetText(string.format("%d/hr", totalSession.hourlyRate))
         else
             frame.sessionRate:SetText("")
         end
 
-        -- Rewards on second line - show marks breakdown by BG with icons
+        -- Line 2 left: Honor + marks (currency earned)
         local rewardsText = string.format("+%d Honor", totalSession.honor)
-
-        -- Build marks breakdown with BG mark icons
         local marksBreakdown = {}
         for _, bgType in ipairs(HonorLog.BG_ORDER) do
             local bgSession = self.db.char.session[bgType]
             if bgSession and bgSession.marks > 0 then
                 local icon = BG_ICONS[bgType]
                 local colorHex = HonorLog.BG_COLOR_HEX[bgType] or "ffffff"
-                -- Format: count[icon] with colored number (WoW convention)
-                table.insert(marksBreakdown, string.format("|cff%s%d|r|T%s:14:14:0:0|t", colorHex, bgSession.marks, icon))
+                -- Format: count [icon] with space before icon (matches goals panel)
+                table.insert(marksBreakdown, string.format("|cff%s%d|r |T%s:14:14:0:0|t", colorHex, bgSession.marks, icon))
             end
         end
-
         if #marksBreakdown > 0 then
-            rewardsText = rewardsText .. "   " .. table.concat(marksBreakdown, "  ")
+            rewardsText = rewardsText .. "  " .. table.concat(marksBreakdown, " ")
         end
-
         frame.sessionRewards:SetText(rewardsText)
         frame.sessionRewards:SetTextColor(unpack(COLORS.neutral))
+
+        -- Line 2 right: World PvP
+        local worldSession = self:GetSessionWorldPvPStats()
+        if worldSession and (worldSession.kills > 0 or worldSession.deaths > 0 or (worldSession.honor and worldSession.honor > 0)) then
+            local honorText = ""
+            if worldSession.honor and worldSession.honor > 0 then
+                honorText = string.format(" |cffffd100(+%d)|r", worldSession.honor)
+            end
+            frame.sessionWorld:SetText(string.format("|cffe5a040%d|r-|cffe65959%d|r%s |T%s:14:14:0:0|t",
+                worldSession.kills, worldSession.deaths, honorText, "Interface\\Icons\\Ability_DualWield"))
+        else
+            frame.sessionWorld:SetText("")
+        end
     else
         frame.sessionStats:SetText("No games yet")
         frame.sessionStats:SetTextColor(unpack(COLORS.textTertiary))
         frame.sessionRate:SetText("")
         frame.sessionRewards:SetText("")
+        frame.sessionWorld:SetText("")
     end
 
     -- Update goals compact if in goals view

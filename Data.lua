@@ -15,6 +15,12 @@ local DEFAULTS = {
             WSG = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
             EotS = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
         },
+        -- Account-wide world PvP stats
+        worldPvP = {
+            kills = 0,
+            deaths = 0,
+            honor = 0,
+        },
         history = {}, -- Account-wide history
         historyLimit = 50,
         characters = {}, -- Track which characters contributed
@@ -26,6 +32,12 @@ local DEFAULTS = {
             AB = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
             WSG = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
             EotS = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
+        },
+        -- Per-character world PvP stats
+        worldPvP = {
+            kills = 0,
+            deaths = 0,
+            honor = 0,
         },
         history = {}, -- Per-character history
         historyLimit = 50,
@@ -46,6 +58,7 @@ local DEFAULTS = {
             AB = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             WSG = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             EotS = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
+            worldPvP = { kills = 0, deaths = 0, honor = 0 },
         },
         sessionStartTime = 0, -- Timestamp when session started
         lastUpdateTime = 0, -- Timestamp when session was last updated
@@ -460,11 +473,14 @@ function HonorLog:GetTotalSessionStats()
     }
 
     for bgType, session in pairs(self.db.char.session) do
-        total.played = total.played + session.played
-        total.wins = total.wins + session.wins
-        total.losses = total.losses + session.losses
-        total.honor = total.honor + session.honor
-        total.marks = total.marks + session.marks
+        -- Skip non-BG entries (like worldPvP)
+        if session.played then
+            total.played = total.played + session.played
+            total.wins = total.wins + session.wins
+            total.losses = total.losses + session.losses
+            total.honor = total.honor + session.honor
+            total.marks = total.marks + session.marks
+        end
     end
 
     total.winrate = total.played > 0 and (total.wins / total.played * 100) or 0
@@ -482,6 +498,80 @@ function HonorLog:GetTotalSessionStats()
     end
 
     return total
+end
+
+--[[
+============================================================================
+WORLD PVP TRACKING APIs
+============================================================================
+--]]
+
+-- Record a world kill (outside battlegrounds)
+function HonorLog:RecordWorldKill()
+    -- Update character stats
+    self.db.char.worldPvP.kills = self.db.char.worldPvP.kills + 1
+
+    -- Update account stats
+    self.db.global.worldPvP.kills = self.db.global.worldPvP.kills + 1
+
+    -- Update session stats
+    self.db.char.session.worldPvP.kills = self.db.char.session.worldPvP.kills + 1
+
+    -- Fire callback for UI update
+    if self.OnDataUpdated then
+        self:OnDataUpdated()
+    end
+end
+
+-- Record a world death (killed by enemy player outside battlegrounds)
+function HonorLog:RecordWorldDeath()
+    -- Update character stats
+    self.db.char.worldPvP.deaths = self.db.char.worldPvP.deaths + 1
+
+    -- Update account stats
+    self.db.global.worldPvP.deaths = self.db.global.worldPvP.deaths + 1
+
+    -- Update session stats
+    self.db.char.session.worldPvP.deaths = self.db.char.session.worldPvP.deaths + 1
+
+    -- Fire callback for UI update
+    if self.OnDataUpdated then
+        self:OnDataUpdated()
+    end
+end
+
+-- Record honor earned from world PvP
+function HonorLog:RecordWorldHonor(amount)
+    if not amount or amount <= 0 then return end
+
+    -- Update character stats
+    self.db.char.worldPvP.honor = self.db.char.worldPvP.honor + amount
+
+    -- Update account stats
+    self.db.global.worldPvP.honor = self.db.global.worldPvP.honor + amount
+
+    -- Update session stats
+    self.db.char.session.worldPvP.honor = self.db.char.session.worldPvP.honor + amount
+
+    -- Fire callback for UI update
+    if self.OnDataUpdated then
+        self:OnDataUpdated()
+    end
+end
+
+-- Get world PvP stats
+function HonorLog:GetWorldPvPStats(scope)
+    scope = scope or self.db.settings.viewMode
+    if scope == "account" then
+        return self.db.global.worldPvP
+    else
+        return self.db.char.worldPvP
+    end
+end
+
+-- Get session world PvP stats
+function HonorLog:GetSessionWorldPvPStats()
+    return self.db.char.session.worldPvP
 end
 
 --[[

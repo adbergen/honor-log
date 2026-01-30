@@ -1,6 +1,20 @@
 # HonorLog Roadmap
 
-## Current Version: 1.1.16
+## Current Version: 1.1.22
+
+---
+
+## Completed: World PvP Tracking (v1.1.22)
+
+### Features Delivered
+- Track honorable kills outside battlegrounds (open world PvP)
+- Track deaths from enemy players in world PvP
+- Track honor earned from world kills
+- Dedicated "World" card in stats panel (matches BG card style)
+- K/D ratio display with color-coded win/loss
+- Session stats (today) vs lifetime tracking
+- World PvP stats in Today panel, minimap tooltip, and `/honorlog stats`
+- Test commands: `/hl test kill`, `/hl test death`
 
 ---
 

@@ -82,6 +82,7 @@ local events = {
     "BATTLEGROUND_POINTS_UPDATE",
     "CURRENCY_DISPLAY_UPDATE", -- For honor/mark changes outside BG
     "BAG_UPDATE", -- For detecting acquired goal items
+    "COMBAT_LOG_EVENT_UNFILTERED", -- For world kill tracking
 }
 
 for _, event in ipairs(events) do
@@ -825,8 +826,6 @@ end
 --   "PlayerName dies, honorable kill Rank: RankName (X Honor Points)"
 --   "You have been awarded X honor points."
 function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
-    if not isInBG or bgEnded then return end
-
     local honorAmount = nil
 
     -- Try pattern 1: "(X Honor Points)" - honorable kills
@@ -845,11 +844,21 @@ function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
     if honorAmount then
         honorAmount = tonumber(honorAmount)
         if honorAmount and honorAmount > 0 then
-            bgHonorAccumulated = bgHonorAccumulated + honorAmount
-            SaveBGState()
-
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN - parsed: " .. honorAmount .. " honor, total: " .. bgHonorAccumulated)
+            if isInBG then
+                -- In BG (active or ended): accumulate for BG tracking
+                if not bgEnded then
+                    bgHonorAccumulated = bgHonorAccumulated + honorAmount
+                    SaveBGState()
+                end
+                if debugMode then
+                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (BG) - parsed: " .. honorAmount .. " honor, total: " .. bgHonorAccumulated)
+                end
+            else
+                -- Outside BG: track as world PvP honor
+                self:RecordWorldHonor(honorAmount)
+                if debugMode then
+                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (World) - parsed: " .. honorAmount .. " honor")
+                end
             end
         end
     elseif debugMode then
@@ -938,6 +947,69 @@ function HonorLog:BAG_UPDATE()
             HonorLog:UpdateGoalsPanel()
         end
     end)
+end
+
+-- Combat log event - track world kills outside battlegrounds
+-- Track the last enemy player who damaged us for death detection
+local lastEnemyPlayerAttacker = nil
+local lastEnemyPlayerAttackerTime = 0
+
+function HonorLog:COMBAT_LOG_EVENT_UNFILTERED()
+    -- Skip if we're in a battleground (BG tracking is separate)
+    if isInBG then return end
+
+    local timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceFlags,
+          sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags = CombatLogGetCurrentEventInfo()
+
+    local playerGUID = UnitGUID("player")
+
+    -- Track when enemy players damage us (for death attribution)
+    if destGUID == playerGUID then
+        -- Check if source is an enemy player
+        if sourceGUID and sourceGUID:match("^Player") then
+            local isEnemy = bit.band(sourceFlags, COMBATLOG_OBJECT_REACTION_HOSTILE) > 0
+            if isEnemy then
+                lastEnemyPlayerAttacker = sourceName
+                lastEnemyPlayerAttackerTime = GetTime()
+            end
+        end
+    end
+
+    -- Detect world kills: we killed an enemy player
+    if subEvent == "PARTY_KILL" then
+        -- Check if we are the source
+        if sourceGUID == playerGUID then
+            -- Check if destination is an enemy player
+            if destGUID and destGUID:match("^Player") then
+                self:RecordWorldKill()
+                if debugMode then
+                    print("|cffff00ff[HonorLog Debug]|r World kill recorded: " .. tostring(destName))
+                end
+            end
+        end
+    end
+end
+
+-- Override PLAYER_DEAD to detect world PvP deaths
+local originalPlayerDead = HonorLog.PLAYER_DEAD
+function HonorLog:PLAYER_DEAD()
+    -- Skip if we're in a battleground
+    if not isInBG then
+        -- Check if we were killed by an enemy player (within last 10 seconds)
+        if lastEnemyPlayerAttacker and (GetTime() - lastEnemyPlayerAttackerTime) < 10 then
+            self:RecordWorldDeath()
+            if debugMode then
+                print("|cffff00ff[HonorLog Debug]|r World death recorded (killed by: " .. tostring(lastEnemyPlayerAttacker) .. ")")
+            end
+            lastEnemyPlayerAttacker = nil
+            lastEnemyPlayerAttackerTime = 0
+        end
+    end
+
+    -- Call original handler if it exists
+    if originalPlayerDead then
+        originalPlayerDead(self)
+    end
 end
 
 -- Periodic winner check (safety net for missed events)
@@ -1096,14 +1168,26 @@ function HonorLog:HandleSlashCommand(msg)
         local session = self:GetTotalSessionStats()
         print("  Session games: " .. session.played)
     elseif cmd == "test" then
-        -- Test command to manually record a game
-        local bgType = arg:upper()
-        if bgType == "" then bgType = "WSG" end
-        if self.db.char.battlegrounds[bgType] then
-            self:RecordGame(bgType, true, 600, 100, 3)
-            print("|cff00ff00HonorLog|r Test game recorded: " .. bgType .. " WIN")
+        -- Test command to manually record a game or world kill
+        local subCmd = arg:lower()
+        if subCmd == "kill" then
+            self:RecordWorldKill()
+            print("|cff00ff00HonorLog|r Test world kill recorded")
+        elseif subCmd == "death" then
+            self:RecordWorldDeath()
+            print("|cff00ff00HonorLog|r Test world death recorded")
         else
-            print("|cff00ff00HonorLog|r Invalid BG. Use: /honorlog test [AV|AB|WSG|EotS]")
+            local bgType = arg:upper()
+            if bgType == "" then bgType = "WSG" end
+            if self.db.char.battlegrounds[bgType] then
+                self:RecordGame(bgType, true, 600, 100, 3)
+                print("|cff00ff00HonorLog|r Test game recorded: " .. bgType .. " WIN")
+            else
+                print("|cff00ff00HonorLog|r Usage:")
+                print("  /honorlog test [AV|AB|WSG|EotS] - Record test BG win")
+                print("  /honorlog test kill - Record test world kill")
+                print("  /honorlog test death - Record test world death")
+            end
         end
     elseif cmd == "goals" or cmd == "goal" then
         -- Goal management commands
@@ -1421,6 +1505,18 @@ function HonorLog:PrintStats(bgFilter)
             totalSession.played, totalSession.wins, totalSession.losses,
             totalSession.winrate, totalSession.honor, totalSession.marks))
     end
+
+    -- World PvP stats
+    local worldStats = self:GetWorldPvPStats(scope)
+    local worldSession = self:GetSessionWorldPvPStats()
+    if worldStats.kills > 0 or worldStats.deaths > 0 or worldSession.kills > 0 or worldSession.deaths > 0 then
+        print(string.format("|cff888888World PvP:|r %d kills, %d deaths (lifetime)",
+            worldStats.kills, worldStats.deaths))
+        if worldSession.kills > 0 or worldSession.deaths > 0 then
+            print(string.format("  Today: %d kills, %d deaths",
+                worldSession.kills, worldSession.deaths))
+        end
+    end
 end
 
 -- Accessor for current BG state
@@ -1584,6 +1680,16 @@ function HonorLog:BuildLDBTooltip(tooltip)
         end
         tooltip:AddDoubleLine("Honor", honorText, 1, 1, 1, 1, 0.82, 0)
         tooltip:AddDoubleLine("Marks", string.format("+%d", session.marks), 1, 1, 1, 0.5, 0.5, 1)
+
+        -- World PvP today
+        local worldSession = self:GetSessionWorldPvPStats()
+        if worldSession and (worldSession.kills > 0 or worldSession.deaths > 0 or (worldSession.honor and worldSession.honor > 0)) then
+            local worldText = string.format("|cff40d860%d|r-|cffe65959%d|r", worldSession.kills, worldSession.deaths)
+            if worldSession.honor and worldSession.honor > 0 then
+                worldText = worldText .. string.format(" (+%d)", worldSession.honor)
+            end
+            tooltip:AddDoubleLine("World PvP", worldText, 1, 1, 1, 1, 1, 1)
+        end
     end
 
     -- Current BG
