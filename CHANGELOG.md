@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.23] - 2025-01-30
+
+### Changed
+- **Today panel now fixed at bottom**: BG and World cards scroll while Today section stays visible (like totals bar in goals)
+- World PvP stats always shown in Today panel (defaults to `0-0 ⚔` when no activity)
+- Today panel honor text now gold colored for consistency
+- Today panel uses dot separator between honor and marks (matches goals totals style)
+- World card honor text uses muted color to match BG card styling
+
 ## [1.1.22] - 2025-01-30
 
 ### Added

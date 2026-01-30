@@ -350,10 +350,10 @@ local function CreateMainFrame()
     topSep:SetPoint("TOPRIGHT", -PADDING, 0)
     topSep:SetColorTexture(unpack(COLORS.separator))
 
-    -- Scroll Frame for content
+    -- Scroll Frame for content (leave room at bottom for fixed session panel)
     local scrollFrame = CreateFrame("ScrollFrame", nil, expanded, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 0, -2)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 0)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 44)  -- 44px for fixed session panel
     frame.scrollFrame = scrollFrame
 
     -- Hide scroll bar when not needed
@@ -542,11 +542,11 @@ local function CreateMainFrame()
     frame.worldCard = worldCard
     yOffset = yOffset - CARD_HEIGHT - CARD_SPACING
 
-    -- Session Summary Panel
-    local sessionPanel = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
+    -- Session Summary Panel (fixed at bottom, outside scroll content)
+    local sessionPanel = CreateFrame("Frame", nil, expanded, "BackdropTemplate")
     sessionPanel:SetHeight(36)
-    sessionPanel:SetPoint("TOPLEFT", PADDING, yOffset - 3)
-    sessionPanel:SetPoint("TOPRIGHT", -PADDING, yOffset - 3)
+    sessionPanel:SetPoint("BOTTOMLEFT", PADDING, 4)
+    sessionPanel:SetPoint("BOTTOMRIGHT", -PADDING, 4)
     sessionPanel:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -606,8 +606,8 @@ local function CreateMainFrame()
     sessionWorld:SetJustifyH("RIGHT")
     frame.sessionWorld = sessionWorld
 
-    -- Set scroll content height (3 BG cards + 1 World card + session panel + padding)
-    local contentHeight = (4 * CARD_HEIGHT) + (4 * CARD_SPACING) + 36 + 15
+    -- Set scroll content height (3 BG cards + 1 World card + padding)
+    local contentHeight = (4 * CARD_HEIGHT) + (4 * CARD_SPACING) + 10
     scrollContent:SetHeight(contentHeight)
 
     -- Function to update scroll content width when frame is resized
@@ -1067,7 +1067,7 @@ function HonorLog:UpdateMainFrame()
                 honorText = string.format("%d Honor  ", worldHonor)
             end
             worldCard.kd:SetText(string.format("%s|cff%s%.1f K/D|r", honorText, kd >= 1 and "40d860" or "e65959", kd))
-            worldCard.kd:SetTextColor(unpack(COLORS.textSecondary))
+            worldCard.kd:SetTextColor(unpack(COLORS.neutralDim))
 
             -- Session kills/deaths (only show if different from lifetime)
             local sessionDiffers = worldSession.kills ~= worldStats.kills or worldSession.deaths ~= worldStats.deaths
@@ -1113,7 +1113,7 @@ function HonorLog:UpdateMainFrame()
         end
 
         -- Line 2 left: Honor + marks (currency earned)
-        local rewardsText = string.format("+%d Honor", totalSession.honor)
+        local rewardsText = string.format("|cffffd100+%d Honor|r", totalSession.honor)
         local marksBreakdown = {}
         for _, bgType in ipairs(HonorLog.BG_ORDER) do
             local bgSession = self.db.char.session[bgType]
@@ -1125,7 +1125,7 @@ function HonorLog:UpdateMainFrame()
             end
         end
         if #marksBreakdown > 0 then
-            rewardsText = rewardsText .. "  " .. table.concat(marksBreakdown, " ")
+            rewardsText = rewardsText .. " · " .. table.concat(marksBreakdown, " ")
         end
         frame.sessionRewards:SetText(rewardsText)
         frame.sessionRewards:SetTextColor(unpack(COLORS.neutral))
