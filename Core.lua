@@ -81,6 +81,7 @@ local events = {
     "PLAYER_DEAD",
     "BATTLEGROUND_POINTS_UPDATE",
     "CURRENCY_DISPLAY_UPDATE", -- For honor/mark changes outside BG
+    "BAG_UPDATE", -- For detecting acquired goal items
 }
 
 for _, event in ipairs(events) do
@@ -198,6 +199,16 @@ end
 -- Player entering world (includes BG zone-ins)
 function HonorLog:PLAYER_ENTERING_WORLD()
     self:CheckBattlegroundStatus()
+
+    -- Delayed scan for acquired goal items (bags may not be ready immediately)
+    C_Timer.After(2, function()
+        if HonorLog.ScanGoalsForAcquiredItems then
+            local acquired = HonorLog:ScanGoalsForAcquiredItems()
+            if acquired > 0 then
+                HonorLog:UpdateGoalsPanel()
+            end
+        end
+    end)
 end
 
 -- Zone changed
@@ -911,6 +922,24 @@ function HonorLog:CURRENCY_DISPLAY_UPDATE()
     end
 end
 
+-- Bag update - check for acquired goal items
+local bagUpdatePending = false
+function HonorLog:BAG_UPDATE()
+    -- Debounce: BAG_UPDATE fires frequently, batch into a single delayed check
+    if bagUpdatePending then return end
+    bagUpdatePending = true
+
+    C_Timer.After(0.5, function()
+        bagUpdatePending = false
+        -- Scan goals for items now in inventory
+        local acquired = HonorLog:ScanGoalsForAcquiredItems()
+        if acquired > 0 then
+            -- Refresh the goals panel if visible
+            HonorLog:UpdateGoalsPanel()
+        end
+    end)
+end
+
 -- Periodic winner check (safety net for missed events)
 local winnerCheckFrame = CreateFrame("Frame")
 local winnerCheckTimer = 0
@@ -1268,6 +1297,60 @@ function HonorLog:HandleSlashCommand(msg)
         else
             self:ShowScanStatus()
         end
+    elseif cmd == "scangoals" then
+        -- Debug: scan goals and show what's happening
+        print("|cff00ff00HonorLog Goal Scan Debug:|r")
+        local goals = self.db.char.goals.items or {}
+        print("  Active goals: " .. #goals)
+
+        for i, goal in ipairs(goals) do
+            local itemName = GetItemInfo(goal.itemID) or "Unknown"
+            print(string.format("  %d. %s (ID: %d)", i, itemName, goal.itemID))
+
+            -- Check bags
+            local foundInBag = false
+            for bag = 0, 4 do
+                local numSlots = 0
+                if C_Container and C_Container.GetContainerNumSlots then
+                    numSlots = C_Container.GetContainerNumSlots(bag) or 0
+                elseif GetContainerNumSlots then
+                    numSlots = GetContainerNumSlots(bag) or 0
+                end
+
+                for slot = 1, numSlots do
+                    local slotItemID = nil
+                    if C_Container and C_Container.GetContainerItemID then
+                        slotItemID = C_Container.GetContainerItemID(bag, slot)
+                    elseif GetContainerItemID then
+                        slotItemID = GetContainerItemID(bag, slot)
+                    end
+
+                    if slotItemID == goal.itemID then
+                        print(string.format("     FOUND in bag %d slot %d!", bag, slot))
+                        foundInBag = true
+                    end
+                end
+            end
+
+            -- Check equipped
+            local foundEquipped = false
+            for slot = 1, 19 do
+                local equippedItemID = GetInventoryItemID("player", slot)
+                if equippedItemID == goal.itemID then
+                    print(string.format("     FOUND equipped in slot %d!", slot))
+                    foundEquipped = true
+                end
+            end
+
+            if not foundInBag and not foundEquipped then
+                print("     Not found in bags or equipped")
+            end
+        end
+
+        -- Force a scan
+        print("|cff00ff00Forcing scan...|r")
+        local acquired = self:ScanGoalsForAcquiredItems()
+        print("  Items auto-completed: " .. acquired)
     else
         print("|cff00ff00HonorLog|r Unknown command. Type /honorlog help for options.")
     end

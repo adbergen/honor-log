@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.1.21] - 2025-01-30
+
+### Added
+- **Smart Compact View Status**: Minimized header now shows contextual goal status
+  - "X goals ready!" (green) when all active goals are at 100%
+  - "X goals · Y%" when in progress
+  - "Item Name ready!" for single goal at 100%
+  - Acquired count suffix: "2 goals ready! · 3 acquired"
+  - "X goals acquired!" + "All complete!" when all goals are done
+- **Completed Section Auto-Expand**: When no active goals remain, completed section automatically expands to show acquired items
+- **Marks Icons Throughout UI**: All mark displays now use BG-specific mark icons
+  - Session panel: `+3,500 Honor  40[AV] 9[AB] 3[WSG]` instead of `+6 Marks`
+  - Goal cards: Currency requirements show icons instead of text abbreviations
+  - Totals bar: Mark progress uses icons for each BG type
+  - Goal picker: Item costs display marks with icons
+- **Completed Goals Section**: Track acquired gear separately from active goals
+  - **Auto-detection**: Goals automatically complete when item is bought/equipped
+  - Scans bags and equipment on BAG_UPDATE event with debouncing
+  - Manual fallback: Click checkmark button on any goal to mark as acquired
+  - Also scans on login (2s delay) to catch items already owned
+  - Collapsible "Completed (X)" section appears below active goals
+  - Compact, muted cards (22px) with checkmark icon and desaturated item icons
+  - Plus/minus toggle using Blizzard's native texture for reliable rendering
+  - X button restores items back to active goals (for accidental completions)
+- **Ready Indicator**: 100% complete goals have subtle green background tint
+- **Session Panel Tooltip**: Hover explains W-L, win rate, and hourly rate calculations
+- **UI Tooltips**: Helpful tooltips throughout the interface
+  - Stats/Goals tabs explain their purpose
+  - Remove button (X) now says "Remove Goal"
+  - Completed items show full item info on hover
+- **Goal Completion Celebration**: Multi-layer notification when gear is acquired
+  - Quest complete sound effect for audio feedback
+  - Center-screen alert (raid warning style)
+  - Green message in error frame (top of screen)
+  - Chat log message for history
+
+### Fixed
+- **X Button Bug**: Removing a goal no longer opens the goal picker window
+- **Games Remaining Estimate**: Fixed nil safety in average calculations; added fallback estimates when no BG data exists yet (250 honor/game, 1.5 marks/game)
+- **Bag Scanning API**: Fixed TBC Classic compatibility for auto-detection; proper fallback from C_Container to legacy API
+- **Compact View Data Sync**: Fixed orphan goal items causing mismatch between compact header and goals panel (now uses same filtered goal list)
+- **Completed Section Visibility**: Panel no longer shows empty state when all goals are completed
+- **Totals Bar Currency Labels**: Changed "H" to gold "Honor" and "A" to purple "Arena" for consistency with goal cards
+
+### Changed
+- **Currency Spacing**: Added visual separation between numbers and mark icons
+- **Code Architecture Refactoring**: Improved code organization and maintainability
+  - Moved `BG_ICONS` to shared `UI/Theme.lua` for consistency across panels
+  - Extracted animation system to `UI/Animation.lua` (~100 LOC)
+  - Added `ANIM` timing constants (no more magic numbers)
+  - Encapsulated drag state into `dragState` object
+  - Encapsulated animation flags into `animState` object
+  - Improved card pooling with `ReleaseCard()` and `ClearCardPool()` helpers
+  - Added high-water mark tracking for card pool debugging
+
 ## [1.1.20] - 2025-01-29
 
 ### Added

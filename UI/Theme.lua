@@ -91,6 +91,23 @@ HonorLog.BG_COLOR_HEX = {
     EotS = "cc80f2", -- Purple
 }
 
+-- Mark of Honor icons (TBC Classic mark item icons)
+HonorLog.BG_ICONS = {
+    AV = "Interface\\Icons\\INV_Jewelry_Necklace_21",   -- Alterac Valley Mark
+    AB = "Interface\\Icons\\INV_Jewelry_Amulet_07",     -- Arathi Basin Mark
+    WSG = "Interface\\Icons\\INV_Misc_Rune_07",         -- Warsong Gulch Mark
+    EotS = "Interface\\Icons\\Spell_Nature_EyeOfTheStorm", -- Eye of the Storm Mark
+}
+
+-- Currency icons (TBC Classic compatible, faction-specific for honor)
+HonorLog.CURRENCY_ICONS = {
+    honor = {
+        Alliance = "Interface\\Icons\\Spell_Holy_ChampionsBond",  -- Gold medallion
+        Horde = "Interface\\Icons\\Spell_Holy_ChampionsBond",     -- Gold medallion
+    },
+    arena = "Interface\\Icons\\INV_Jewelry_Talisman_08",  -- Purple talisman
+}
+
 --------------------------------------------------------------------------------
 -- BATTLEGROUND ORDER
 --------------------------------------------------------------------------------

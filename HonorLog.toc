@@ -2,7 +2,7 @@
 ## Title: HonorLog
 ## Notes: Track battleground statistics with gear goal tracking, hourly honor rates, and session/lifetime stats for TBC Classic Anniversary
 ## Author: adbergen
-## Version: 1.1.20
+## Version: 1.1.21
 ## SavedVariables: HonorLogDB
 ## SavedVariablesPerCharacter: HonorLogCharDB
 
@@ -31,6 +31,7 @@ Modules\VendorScanner.lua
 
 # UI
 UI\Theme.lua
+UI\Animation.lua
 UI\MainFrame.lua
 UI\GoalsPanel.lua
 UI\Options.lua

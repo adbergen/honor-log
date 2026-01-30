@@ -30,13 +30,8 @@ end
 local ADDON_VERSION = GetMeta("Version") or "?"
 local ADDON_AUTHOR = GetMeta("Author") or "Unknown"
 
--- Mark of Honor icons (TBC Classic mark item icons)
-local BG_ICONS = {
-    AV = "Interface\\Icons\\INV_Jewelry_Necklace_21",   -- Alterac Valley Mark (blue crystal)
-    AB = "Interface\\Icons\\INV_Jewelry_Amulet_07",  -- Arathi Basin Mark
-    WSG = "Interface\\Icons\\INV_Misc_Rune_07",  -- Warsong Gulch Mark (green medallion)
-    EotS = "Interface\\Icons\\Spell_Nature_EyeOfTheStorm",        -- Eye of the Storm Mark (purple)
-}
+-- BG Icons (from shared UI/Theme.lua)
+local BG_ICONS = HonorLog.BG_ICONS
 
 --------------------------------------------------------------------------------
 -- LAYOUT CONSTANTS (from shared UI/Theme.lua)
@@ -479,6 +474,22 @@ local function CreateMainFrame()
     sessionPanel:SetBackdropColor(0.08, 0.15, 0.20, 0.9)
     sessionPanel:SetBackdropBorderColor(unpack(COLORS.accentDim))
     sessionPanel:EnableMouse(true)
+    -- Tooltip explaining today's stats
+    sessionPanel:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Today's Progress", 1, 0.82, 0)
+        GameTooltip:AddLine("Stats reset at midnight server time", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("W-L", "Wins and losses today", 0.4, 0.8, 1, 0.7, 0.7, 0.7)
+        GameTooltip:AddDoubleLine("XX%", "Win rate percentage", 0.4, 0.8, 1, 0.7, 0.7, 0.7)
+        GameTooltip:AddDoubleLine("XXX/hr", "Honor earned per hour", 1, 0.84, 0, 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Hourly rate calculated from first BG entry", 0.5, 0.5, 0.5)
+        GameTooltip:Show()
+    end)
+    sessionPanel:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+    end)
     -- Right-click handler set at end of CreateMainFrame
     frame.sessionPanel = sessionPanel
 
@@ -962,9 +973,26 @@ function HonorLog:UpdateMainFrame()
             frame.sessionRate:SetText("")
         end
 
-        -- Rewards on second line
-        frame.sessionRewards:SetText(string.format("+%d Honor  +%d Marks",
-            totalSession.honor, totalSession.marks))
+        -- Rewards on second line - show marks breakdown by BG with icons
+        local rewardsText = string.format("+%d Honor", totalSession.honor)
+
+        -- Build marks breakdown with BG mark icons
+        local marksBreakdown = {}
+        for _, bgType in ipairs(HonorLog.BG_ORDER) do
+            local bgSession = self.db.char.session[bgType]
+            if bgSession and bgSession.marks > 0 then
+                local icon = BG_ICONS[bgType]
+                local colorHex = HonorLog.BG_COLOR_HEX[bgType] or "ffffff"
+                -- Format: count[icon] with colored number (WoW convention)
+                table.insert(marksBreakdown, string.format("|cff%s%d|r|T%s:14:14:0:0|t", colorHex, bgSession.marks, icon))
+            end
+        end
+
+        if #marksBreakdown > 0 then
+            rewardsText = rewardsText .. "   " .. table.concat(marksBreakdown, "  ")
+        end
+
+        frame.sessionRewards:SetText(rewardsText)
         frame.sessionRewards:SetTextColor(unpack(COLORS.neutral))
     else
         frame.sessionStats:SetText("No games yet")
@@ -986,8 +1014,26 @@ function HonorLog:UpdateGoalsCompact()
     if not self.mainFrame then return end
     local frame = self.mainFrame
 
-    local goalCount = self:GetGoalCount()
-    if goalCount == 0 then
+    -- Use GetAllGoalsProgress to get actual displayable goals (filters out orphans)
+    local goals = self:GetAllGoalsProgress() or {}
+    local goalCount = #goals
+    local completedGoals = self:GetCompletedGoals()
+    local numCompleted = 0
+    if completedGoals and type(completedGoals) == "table" then
+        for _ in pairs(completedGoals) do
+            numCompleted = numCompleted + 1
+        end
+    end
+
+    if goalCount == 0 and numCompleted > 0 then
+        -- All goals complete!
+        frame.goalsCompactSummary:SetText(numCompleted .. (numCompleted == 1 and " goal acquired!" or " goals acquired!"))
+        frame.goalsCompactSummary:SetTextColor(0.30, 0.90, 0.40, 1) -- Green
+        frame.goalsCompactIcon:SetTexture("Interface\\Icons\\Spell_Holy_Crusade") -- TBC-safe checkmark/victory icon
+        frame.goalsCompactIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        frame.goalsCompactIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
+        frame.goalsCompactCurrency:SetText("|cff40d860All complete!|r")
+    elseif goalCount == 0 then
         frame.goalsCompactSummary:SetText("No goals set")
         frame.goalsCompactSummary:SetTextColor(unpack(COLORS.textTertiary))
         frame.goalsCompactIcon:SetTexture("Interface\\Icons\\INV_Misc_Token_HonorHold")
@@ -1054,12 +1100,24 @@ function HonorLog:UpdateGoalsCompact()
 
             local avgProgress = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
 
-            -- Summary text
+            -- Summary text - more descriptive based on progress state
             local summaryText
-            if #goals == 1 then
-                summaryText = string.format("%s · %.0f%%", topGoal.name or "Goal", avgProgress)
+            local acquiredSuffix = numCompleted > 0 and string.format(" · %d acquired", numCompleted) or ""
+
+            if avgProgress >= 100 then
+                -- Ready to purchase!
+                if #goals == 1 then
+                    summaryText = (topGoal.name or "Goal") .. " ready!" .. acquiredSuffix
+                else
+                    summaryText = #goals .. " goals ready!" .. acquiredSuffix
+                end
             else
-                summaryText = string.format("%d goals · %.0f%%", #goals, avgProgress)
+                -- In progress
+                if #goals == 1 then
+                    summaryText = string.format("%s · %.0f%%", topGoal.name or "Goal", avgProgress) .. acquiredSuffix
+                else
+                    summaryText = string.format("%d goals · %.0f%%", #goals, avgProgress) .. acquiredSuffix
+                end
             end
             frame.goalsCompactSummary:SetText(summaryText)
 

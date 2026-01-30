@@ -32,6 +32,7 @@ local DEFAULTS = {
         -- Gear Goals system
         goals = {
             items = {}, -- Array of { itemID, addedAt, priority }
+            completed = {}, -- Array of { itemID, addedAt, completedAt }
             settings = {
                 autoRemoveCompleted = false,
                 showInLDB = true,
@@ -581,14 +582,16 @@ function HonorLog:GetAverageHonorPerGame(scope)
     local totalGames = 0
 
     for bgType, bgStats in pairs(stats) do
-        totalHonor = totalHonor + bgStats.honorLifetime
-        totalGames = totalGames + bgStats.played
+        totalHonor = totalHonor + (bgStats.honorLifetime or 0)
+        totalGames = totalGames + (bgStats.played or 0)
     end
 
     if totalGames > 0 then
         return totalHonor / totalGames
     end
-    return 0
+
+    -- Fallback: reasonable estimate for TBC Classic (~250 honor/game average)
+    return 250
 end
 
 -- Get average marks per game for a specific BG
@@ -597,10 +600,12 @@ function HonorLog:GetAverageMarksPerGame(bgType, scope)
     local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
     local bgStats = stats[bgType]
 
-    if bgStats and bgStats.played > 0 then
-        return bgStats.marksLifetime / bgStats.played
+    if bgStats and (bgStats.played or 0) > 0 then
+        return (bgStats.marksLifetime or 0) / bgStats.played
     end
-    return 0
+
+    -- Fallback: ~1.5 marks per game (3 for win, 0-1 for loss)
+    return 1.5
 end
 
 -- Get average honor per game for a specific BG
@@ -609,10 +614,12 @@ function HonorLog:GetAverageHonorPerBG(bgType, scope)
     local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
     local bgStats = stats[bgType]
 
-    if bgStats and bgStats.played > 0 then
-        return bgStats.honorLifetime / bgStats.played
+    if bgStats and (bgStats.played or 0) > 0 then
+        return (bgStats.honorLifetime or 0) / bgStats.played
     end
-    return 0
+
+    -- Fallback: reasonable estimate for TBC Classic
+    return 250
 end
 
 --[[
@@ -691,6 +698,153 @@ function HonorLog:RemoveGoal(itemID)
         end
     end
     return false
+end
+
+-- Complete a goal (move from active to completed)
+function HonorLog:CompleteGoal(itemID)
+    local goals = self.db.char.goals.items
+    local completed = self.db.char.goals.completed
+
+    for i, goal in ipairs(goals) do
+        if goal.itemID == itemID then
+            -- Move to completed list
+            table.insert(completed, {
+                itemID = goal.itemID,
+                addedAt = goal.addedAt,
+                completedAt = time(),
+            })
+            -- Remove from active list
+            table.remove(goals, i)
+            -- Re-prioritize remaining goals
+            for j = i, #goals do
+                goals[j].priority = j
+            end
+            if self.OnDataUpdated then
+                self:OnDataUpdated()
+            end
+            return true
+        end
+    end
+    return false
+end
+
+-- Restore a completed goal back to active
+function HonorLog:RestoreGoal(itemID)
+    local goals = self.db.char.goals.items
+    local completed = self.db.char.goals.completed
+
+    for i, goal in ipairs(completed) do
+        if goal.itemID == itemID then
+            -- Add back to active list at the end
+            table.insert(goals, {
+                itemID = goal.itemID,
+                addedAt = goal.addedAt,
+                priority = #goals + 1,
+            })
+            -- Remove from completed list
+            table.remove(completed, i)
+            if self.OnDataUpdated then
+                self:OnDataUpdated()
+            end
+            return true
+        end
+    end
+    return false
+end
+
+-- Remove a completed goal permanently
+function HonorLog:RemoveCompletedGoal(itemID)
+    local completed = self.db.char.goals.completed
+    for i, goal in ipairs(completed) do
+        if goal.itemID == itemID then
+            table.remove(completed, i)
+            if self.OnDataUpdated then
+                self:OnDataUpdated()
+            end
+            return true
+        end
+    end
+    return false
+end
+
+-- Get completed goals list
+function HonorLog:GetCompletedGoals()
+    return self.db.char.goals.completed or {}
+end
+
+-- Check if an item is in player's bags or equipped
+function HonorLog:IsItemInInventory(itemID)
+    -- Check bags (0 = backpack, 1-4 = additional bags)
+    for bag = 0, 4 do
+        local numSlots = 0
+        if C_Container and C_Container.GetContainerNumSlots then
+            numSlots = C_Container.GetContainerNumSlots(bag) or 0
+        elseif GetContainerNumSlots then
+            numSlots = GetContainerNumSlots(bag) or 0
+        end
+
+        for slot = 1, numSlots do
+            local slotItemID = nil
+            if C_Container and C_Container.GetContainerItemID then
+                slotItemID = C_Container.GetContainerItemID(bag, slot)
+            elseif GetContainerItemID then
+                slotItemID = GetContainerItemID(bag, slot)
+            end
+
+            if slotItemID and slotItemID == itemID then
+                return true
+            end
+        end
+    end
+
+    -- Check equipped items (slots 1-19 cover all equipment slots)
+    for slot = 1, 19 do
+        local equippedItemID = GetInventoryItemID("player", slot)
+        if equippedItemID and equippedItemID == itemID then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Scan all active goals and auto-complete any that are in inventory
+function HonorLog:ScanGoalsForAcquiredItems()
+    local goals = self.db.char.goals.items
+    local acquiredItems = {}
+
+    -- First pass: find all acquired items
+    for _, goal in ipairs(goals) do
+        if self:IsItemInInventory(goal.itemID) then
+            table.insert(acquiredItems, goal.itemID)
+        end
+    end
+
+    -- Second pass: complete them (separate loop to avoid modifying table while iterating)
+    for _, itemID in ipairs(acquiredItems) do
+        local itemName, _, itemQuality = GetItemInfo(itemID)
+        itemName = itemName or "Item"
+        self:CompleteGoal(itemID)
+
+        -- Celebratory notification!
+        -- 1. Play quest complete sound
+        PlaySound(878) -- SOUNDKIT.IG_QUEST_LIST_COMPLETE
+
+        -- 2. Show center-screen alert (like achievements)
+        if RaidNotice_AddMessage and RaidBossEmoteFrame then
+            RaidNotice_AddMessage(RaidBossEmoteFrame, "|cff00ff00Goal Acquired!|r " .. itemName, ChatTypeInfo["RAID_WARNING"])
+        end
+
+        -- 3. Show in UIErrorsFrame (green, top of screen)
+        if UIErrorsFrame then
+            UIErrorsFrame:AddMessage("|cff40d860[HonorLog]|r Goal acquired: " .. itemName, 0.25, 0.85, 0.37, 1, 3)
+        end
+
+        -- 4. Chat message (for log)
+        print("|cff40d860[HonorLog]|r \124\124 Goal acquired: |cffffffff" .. itemName .. "|r")
+    end
+
+    return #acquiredItems
 end
 
 -- Reorder a goal
