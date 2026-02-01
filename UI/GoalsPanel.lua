@@ -320,14 +320,17 @@ local function CreateGoalCard(parent, index)
     card.barShimmer = CreateFrame("Frame", nil, card)
     card.sparkle = CreateFrame("Frame", nil, card)
 
-    -- Hover effect with item tooltip and shift-compare
+    -- Hover effect with item tooltip, shift-compare, and ctrl-preview
     card:EnableMouse(true)
     card.shiftWasDown = false
+    card.ctrlWasDown = false
 
     local function ShowCardTooltip(self)
         if self.itemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetItemByID(self.itemID)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("|cff888888Ctrl+Click to preview|r", 1, 1, 1)
             GameTooltip:Show()
             if IsShiftKeyDown() then
                 GameTooltip_ShowCompareItem()
@@ -343,6 +346,13 @@ local function CreateGoalCard(parent, index)
             self:SetBackdropColor(unpack(COLORS.bgCardHover))
             self:SetBackdropBorderColor(unpack(COLORS.borderAccent))
             ShowCardTooltip(self)
+            -- Show magnifying glass cursor if Ctrl is held
+            if IsControlKeyDown() and self.itemID then
+                SetCursor("INSPECT_CURSOR")
+                self.ctrlWasDown = true
+            else
+                self.ctrlWasDown = false
+            end
         end
     end)
     card:SetScript("OnLeave", function(self)
@@ -352,14 +362,42 @@ local function CreateGoalCard(parent, index)
             GameTooltip:Hide()
             if ShoppingTooltip1 then ShoppingTooltip1:Hide() end
             if ShoppingTooltip2 then ShoppingTooltip2:Hide() end
+            ResetCursor()
+            self.ctrlWasDown = false
         end
     end)
     card:SetScript("OnUpdate", function(self)
         if not self:IsMouseOver() then return end
         if dragState.card then return end
+        -- Handle Shift for compare tooltip
         local shiftDown = IsShiftKeyDown()
         if shiftDown ~= self.shiftWasDown then
             ShowCardTooltip(self)
+        end
+        -- Handle Ctrl for magnifying glass cursor
+        local ctrlDown = IsControlKeyDown()
+        if ctrlDown ~= self.ctrlWasDown then
+            if ctrlDown and self.itemID then
+                SetCursor("INSPECT_CURSOR")
+            else
+                ResetCursor()
+            end
+            self.ctrlWasDown = ctrlDown
+        end
+    end)
+
+    -- Ctrl+Click to preview item in dressing room
+    card:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and IsControlKeyDown() and self.itemID then
+            local _, itemLink = GetItemInfo(self.itemID)
+            if itemLink then
+                DressUpItemLink(itemLink)
+                -- Position dressing room to the side of HonorLog frame
+                if DressUpFrame and HonorLog.mainFrame then
+                    DressUpFrame:ClearAllPoints()
+                    DressUpFrame:SetPoint("TOPLEFT", HonorLog.mainFrame, "TOPRIGHT", 10, 0)
+                end
+            end
         end
     end)
 

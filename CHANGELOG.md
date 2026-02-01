@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.25] - 2025-02-01
+
+### Added
+- **Gear preview**: Ctrl+Click any goal card to open dressing room and see how gear looks on your character
+- **Preview cursor**: Magnifying glass cursor appears when holding Ctrl over goal cards (native WoW behavior)
+- **Smart positioning**: Dressing room opens to the side of HonorLog instead of overlapping
+
 ## [1.1.24] - 2025-01-31
 
 ### Added
