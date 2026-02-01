@@ -1102,7 +1102,7 @@ local function CreateGoalsPanel(parent)
     -- Scroll frame for goals (handles overflow when frame is resized)
     local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 0, -4)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 44) -- Leave room for totals bar (32px at y=6) + add button + padding
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 46) -- Leave room for totals bar (36px at y=4) + padding
     panel.scrollFrame = scrollFrame
 
     -- Hide scroll bar when not needed
@@ -1197,40 +1197,33 @@ local function CreateGoalsPanel(parent)
     end
 
     -- Totals bar (shows combined cost of all goals with progress bar)
+    -- Styled to match the Stats "Today" panel
     local totalsBar = CreateFrame("Frame", nil, panel, "BackdropTemplate")
-    totalsBar:SetHeight(32)
-    totalsBar:SetPoint("BOTTOMLEFT", PADDING, 6)
-    totalsBar:SetPoint("BOTTOMRIGHT", -44, 6) -- Leave room for add button
+    totalsBar:SetHeight(36)
+    totalsBar:SetPoint("BOTTOMLEFT", PADDING, 4)
+    totalsBar:SetPoint("BOTTOMRIGHT", -48, 4) -- Leave room for add button + gap
     totalsBar:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 1,
     })
-    totalsBar:SetBackdropColor(unpack(COLORS.bgCard))
-    totalsBar:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    totalsBar:SetBackdropColor(0.08, 0.15, 0.20, 0.9) -- Match Today panel
+    totalsBar:SetBackdropBorderColor(unpack(COLORS.accentDim)) -- Match Today panel
     panel.totalsBar = totalsBar
 
-    -- Subtle top highlight for depth
-    local totalsHighlight = totalsBar:CreateTexture(nil, "ARTWORK", nil, -1)
-    totalsHighlight:SetHeight(1)
-    totalsHighlight:SetPoint("TOPLEFT", 1, -1)
-    totalsHighlight:SetPoint("TOPRIGHT", -1, -1)
-    totalsHighlight:SetTexture("Interface\\Buttons\\WHITE8x8")
-    totalsHighlight:SetVertexColor(1, 1, 1, 0.06)
-
-    -- "Total" label (positioned in top half of bar)
-    local totalsLabel = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalsLabel:SetPoint("TOPLEFT", 6, -5)
-    totalsLabel:SetText("Total")
-    totalsLabel:SetTextColor(unpack(COLORS.textPrimary))
+    -- "Total:" label (matches Today: label styling)
+    local totalsLabel = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    totalsLabel:SetPoint("TOPLEFT", 8, -3)
+    totalsLabel:SetText("Total:")
+    totalsLabel:SetTextColor(unpack(COLORS.accent))
     panel.totalsLabel = totalsLabel
 
-    -- Progress bar container (XP-style, positioned in top half of bar)
-    -- Anchored directly to totals bar with fixed offset (after "Total" label ~35px)
+    -- Progress bar container (XP-style, positioned in top row)
+    -- Anchored after "Total:" label, same vertical position
     local totalsBarContainer = CreateFrame("Frame", nil, totalsBar, "BackdropTemplate")
-    totalsBarContainer:SetHeight(8)
-    totalsBarContainer:SetPoint("TOPLEFT", 42, -4)
-    totalsBarContainer:SetPoint("TOPRIGHT", -40, -4)
+    totalsBarContainer:SetHeight(10)
+    totalsBarContainer:SetPoint("LEFT", totalsLabel, "RIGHT", 6, 0)
+    totalsBarContainer:SetPoint("TOPRIGHT", -45, -5)
     totalsBarContainer:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -1254,7 +1247,7 @@ local function CreateGoalsPanel(parent)
 
     -- Progress bar fill
     local totalsFill = totalsBarContainer:CreateTexture(nil, "ARTWORK")
-    totalsFill:SetHeight(6)
+    totalsFill:SetHeight(8)
     totalsFill:SetPoint("TOPLEFT", 1, -1)
     totalsFill:SetPoint("BOTTOMLEFT", 1, 1)
     totalsFill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
@@ -1263,7 +1256,7 @@ local function CreateGoalsPanel(parent)
 
     -- Inner glow effect for more vibrant bar
     local totalsGlow = totalsBarContainer:CreateTexture(nil, "ARTWORK", nil, -1)
-    totalsGlow:SetHeight(10)
+    totalsGlow:SetHeight(12)
     totalsGlow:SetPoint("TOPLEFT", totalsFill, "TOPLEFT", -2, 2)
     totalsGlow:SetPoint("BOTTOMLEFT", totalsFill, "BOTTOMLEFT", -2, -2)
     totalsGlow:SetWidth(3)
@@ -1273,7 +1266,7 @@ local function CreateGoalsPanel(parent)
 
     -- Shine overlay
     local totalsShine = totalsBarContainer:CreateTexture(nil, "ARTWORK", nil, 1)
-    totalsShine:SetHeight(3)
+    totalsShine:SetHeight(4)
     totalsShine:SetPoint("TOPLEFT", totalsFill, "TOPLEFT", 0, 0)
     totalsShine:SetPoint("TOPRIGHT", totalsFill, "TOPRIGHT", 0, 0)
     totalsShine:SetTexture("Interface\\Buttons\\WHITE8x8")
@@ -1282,62 +1275,77 @@ local function CreateGoalsPanel(parent)
 
     -- Spark at end of bar (XP bar effect)
     local totalsSpark = totalsBarContainer:CreateTexture(nil, "OVERLAY")
-    totalsSpark:SetSize(8, 16)
+    totalsSpark:SetSize(10, 18)
     totalsSpark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
     totalsSpark:SetBlendMode("ADD")
     totalsSpark:SetAlpha(0.7)
     totalsSpark:Hide()
     panel.totalsSpark = totalsSpark
 
-    -- Progress percentage (positioned in top half)
-    local totalsPercent = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalsPercent:SetPoint("TOPRIGHT", -6, -5)
-    totalsPercent:SetWidth(32)
+    -- Progress percentage (right side of top row, matches sessionRate style)
+    local totalsPercent = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    totalsPercent:SetPoint("TOPRIGHT", -8, -3)
     totalsPercent:SetJustifyH("RIGHT")
     panel.totalsPercent = totalsPercent
 
-    -- Currency totals text (below progress bar row)
+    -- Currency totals text (bottom row, matches sessionRewards style)
     local totalsText = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalsText:SetPoint("BOTTOMLEFT", 6, 4)
-    totalsText:SetPoint("BOTTOMRIGHT", -6, 4)
+    totalsText:SetPoint("BOTTOMLEFT", 8, 3)
+    totalsText:SetPoint("BOTTOMRIGHT", -8, 3)
     totalsText:SetJustifyH("LEFT")
-    totalsText:SetTextColor(unpack(COLORS.textSecondary))
+    totalsText:SetTextColor(unpack(COLORS.neutral))
     totalsText:SetWordWrap(false)
     totalsText:SetMaxLines(1)
     panel.totalsText = totalsText
 
-    -- Footer add button (small "+" button next to totals bar)
+    -- Footer add button (polished "+" button next to totals bar)
     local footerAddBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
-    footerAddBtn:SetSize(32, 32)
-    footerAddBtn:SetPoint("BOTTOMRIGHT", -PADDING, 6)
+    footerAddBtn:SetSize(36, 36)
+    footerAddBtn:SetPoint("BOTTOMRIGHT", -PADDING, 4)
     footerAddBtn:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
-    footerAddBtn:SetBackdropColor(unpack(COLORS.bgCard))
-    footerAddBtn:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    footerAddBtn:SetBackdropColor(0.08, 0.15, 0.20, 0.9) -- Match totals bar
+    footerAddBtn:SetBackdropBorderColor(unpack(COLORS.accentDim)) -- Match totals bar
     panel.footerAddBtn = footerAddBtn
 
+    -- Inner glow layer for hover effect
+    local btnGlow = footerAddBtn:CreateTexture(nil, "BACKGROUND")
+    btnGlow:SetAllPoints()
+    btnGlow:SetColorTexture(0.35, 0.78, 1.0, 0)
+    footerAddBtn.glow = btnGlow
+
+    -- Plus icon with accent color
     local footerAddIcon = footerAddBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     footerAddIcon:SetPoint("CENTER", 0, 0)
     footerAddIcon:SetText("+")
-    footerAddIcon:SetTextColor(unpack(COLORS.textSecondary))
+    footerAddIcon:SetTextColor(0.55, 0.55, 0.62, 1)
     footerAddBtn.icon = footerAddIcon
 
     footerAddBtn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(unpack(COLORS.bgCardHover))
-        self:SetBackdropBorderColor(unpack(COLORS.borderLight))
-        self.icon:SetTextColor(unpack(COLORS.textPrimary))
+        self:SetBackdropColor(0.20, 0.22, 0.28, 1)
+        self:SetBackdropBorderColor(1.0, 0.82, 0.0, 0.8) -- Gold accent border
+        self.glow:SetColorTexture(1.0, 0.85, 0.25, 0.08) -- Subtle gold glow
+        self.icon:SetTextColor(1.0, 0.85, 0.25, 1) -- Gold "+"
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Add Goal")
         GameTooltip:Show()
     end)
     footerAddBtn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(unpack(COLORS.bgCard))
-        self:SetBackdropBorderColor(unpack(COLORS.borderDark))
-        self.icon:SetTextColor(unpack(COLORS.textSecondary))
+        self:SetBackdropColor(0.08, 0.15, 0.20, 0.9) -- Match totals bar
+        self:SetBackdropBorderColor(unpack(COLORS.accentDim)) -- Match totals bar
+        self.glow:SetColorTexture(0.35, 0.78, 1.0, 0)
+        self.icon:SetTextColor(0.55, 0.55, 0.62, 1)
         GameTooltip:Hide()
+    end)
+    footerAddBtn:SetScript("OnMouseDown", function(self)
+        self.icon:SetPoint("CENTER", 0, -1) -- Subtle press effect
+    end)
+    footerAddBtn:SetScript("OnMouseUp", function(self)
+        self.icon:SetPoint("CENTER", 0, 0)
     end)
     footerAddBtn:SetScript("OnClick", function()
         HonorLog:ShowGoalPicker()
@@ -1529,6 +1537,16 @@ local function CreateGoalsPanel(parent)
             self.totalsBar:Hide()
             self.footerAddBtn:Show()
             self.addGoalRow:Hide()
+
+            -- Animate add button on tab switch
+            if animState.onTabSwitch then
+                self.footerAddBtn:SetAlpha(0)
+                AnimateValue("addbtn_fade_empty", 0, 1, ANIM.CARD_FADE_IN, function(alpha)
+                    if self.footerAddBtn then
+                        self.footerAddBtn:SetAlpha(alpha)
+                    end
+                end)
+            end
             self.completedHeader:Hide()
             for _, card in ipairs(self.goalCards) do
                 card:Hide()
@@ -1543,6 +1561,16 @@ local function CreateGoalsPanel(parent)
             self.totalsBar:Hide() -- No totals since no active goals
             self.footerAddBtn:Show()
             self.addGoalRow:Hide()
+
+            -- Animate add button on tab switch
+            if animState.onTabSwitch then
+                self.footerAddBtn:SetAlpha(0)
+                AnimateValue("addbtn_fade_completed", 0, 1, ANIM.CARD_FADE_IN, function(alpha)
+                    if self.footerAddBtn then
+                        self.footerAddBtn:SetAlpha(alpha)
+                    end
+                end)
+            end
 
             -- Hide active goal cards
             for _, card in ipairs(self.goalCards) do
@@ -1603,15 +1631,23 @@ local function CreateGoalsPanel(parent)
             self.totalsBar:Show()
             self.footerAddBtn:Show()
 
-            -- Fade in totals bar on tab switch (after cards start fading)
+            -- Fade in totals bar and add button on tab switch (after cards start fading)
             if animState.onTabSwitch then
                 self.totalsBar:SetAlpha(0)
+                self.footerAddBtn:SetAlpha(0)
                 local totalsDelay = #goals * ANIM.CARD_STAGGER + 0.1 -- Start after last card begins + small buffer
                 C_Timer.After(totalsDelay, function()
                     if self.totalsBar and self.totalsBar:IsShown() then
                         AnimateValue("totals_fade", 0, 1, ANIM.CARD_FADE_IN, function(alpha)
                             if self.totalsBar then
                                 self.totalsBar:SetAlpha(alpha)
+                            end
+                        end)
+                    end
+                    if self.footerAddBtn and self.footerAddBtn:IsShown() then
+                        AnimateValue("addbtn_fade", 0, 1, ANIM.CARD_FADE_IN, function(alpha)
+                            if self.footerAddBtn then
+                                self.footerAddBtn:SetAlpha(alpha)
                             end
                         end)
                     end
@@ -2955,6 +2991,21 @@ function HonorLog:SwitchTab(tabName)
                         end
                     end)
                 end
+            end
+
+            -- Also animate World card (after BG cards)
+            if frame.worldCard then
+                cardIndex = cardIndex + 1
+                frame.worldCard:SetAlpha(0)
+                local worldDelay = (cardIndex - 1) * ANIM.CARD_STAGGER
+                CancelAnimation("stats_card_fade_world")
+                C_Timer.After(worldDelay, function()
+                    if frame.worldCard and frame.worldCard:IsShown() then
+                        AnimateValue("stats_card_fade_world", 0, 1, ANIM.CARD_FADE_IN, function(alpha)
+                            if frame.worldCard then frame.worldCard:SetAlpha(alpha) end
+                        end)
+                    end
+                end)
             end
 
             -- Fade in session panel after cards

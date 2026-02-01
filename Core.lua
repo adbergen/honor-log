@@ -844,7 +844,19 @@ function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
     if honorAmount then
         honorAmount = tonumber(honorAmount)
         if honorAmount and honorAmount > 0 then
-            if isInBG then
+            -- Safety check: detect actual BG instance even if isInBG variable is stale
+            -- This handles cases like /reload where isInBG might not be set yet
+            local actuallyInBG = isInBG
+            if not actuallyInBG then
+                local _, instanceType = GetInstanceInfo()
+                actuallyInBG = (instanceType == "pvp")
+            end
+
+            if actuallyInBG then
+                -- If we detected we're in a BG but isInBG wasn't set, trigger detection
+                if not isInBG then
+                    self:CheckBattlegroundStatus()
+                end
                 -- In BG (active or ended): accumulate for BG tracking
                 if not bgEnded then
                     bgHonorAccumulated = bgHonorAccumulated + honorAmount
@@ -949,6 +961,13 @@ function HonorLog:BAG_UPDATE()
     end)
 end
 
+-- Helper: Check if we're actually in a BG instance (handles stale isInBG variable)
+local function IsActuallyInBG()
+    if isInBG then return true end
+    local _, instanceType = GetInstanceInfo()
+    return instanceType == "pvp"
+end
+
 -- Combat log event - track world kills outside battlegrounds
 -- Track the last enemy player who damaged us for death detection
 local lastEnemyPlayerAttacker = nil
@@ -956,7 +975,8 @@ local lastEnemyPlayerAttackerTime = 0
 
 function HonorLog:COMBAT_LOG_EVENT_UNFILTERED()
     -- Skip if we're in a battleground (BG tracking is separate)
-    if isInBG then return end
+    -- Use instance check to handle /reload scenarios where isInBG might be stale
+    if IsActuallyInBG() then return end
 
     local timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceFlags,
           sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags = CombatLogGetCurrentEventInfo()
@@ -993,8 +1013,8 @@ end
 -- Override PLAYER_DEAD to detect world PvP deaths
 local originalPlayerDead = HonorLog.PLAYER_DEAD
 function HonorLog:PLAYER_DEAD()
-    -- Skip if we're in a battleground
-    if not isInBG then
+    -- Skip if we're in a battleground (use instance check for reliability)
+    if not IsActuallyInBG() then
         -- Check if we were killed by an enemy player (within last 10 seconds)
         if lastEnemyPlayerAttacker and (GetTime() - lastEnemyPlayerAttackerTime) < 10 then
             self:RecordWorldDeath()
@@ -1094,6 +1114,8 @@ function HonorLog:HandleSlashCommand(msg)
                     totalDuration = 0, honorLifetime = 0, marksLifetime = 0
                 }
             end
+            -- Also reset World PvP stats
+            self.db.char.worldPvP = { kills = 0, deaths = 0, honor = 0 }
             self.db.char.history = {}
             self:ResetSession()
             if self.UpdateMainFrame then
@@ -1108,6 +1130,8 @@ function HonorLog:HandleSlashCommand(msg)
                     totalDuration = 0, honorLifetime = 0, marksLifetime = 0
                 }
             end
+            -- Also reset World PvP stats
+            self.db.global.worldPvP = { kills = 0, deaths = 0, honor = 0 }
             self.db.global.history = {}
             if self.UpdateMainFrame then
                 self:UpdateMainFrame()
@@ -1167,6 +1191,13 @@ function HonorLog:HandleSlashCommand(msg)
         print("  Detected BG: " .. tostring(detected))
         local session = self:GetTotalSessionStats()
         print("  Session games: " .. session.played)
+        -- Show per-BG session breakdown
+        print("  |cffffd700Session breakdown:|r")
+        for bgType, s in pairs(self.db.char.session) do
+            if s.played then
+                print(string.format("    %s: %d played, %d wins, %d losses", bgType, s.played or 0, s.wins or 0, s.losses or 0))
+            end
+        end
     elseif cmd == "test" then
         -- Test command to manually record a game or world kill
         local subCmd = arg:lower()

@@ -1,7 +1,11 @@
 -- HonorLog Options Panel
--- Blizzard Interface Options integration
+-- Blizzard Interface Options integration with scrollable two-column layout
 
 local ADDON_NAME, HonorLog = ...
+
+--------------------------------------------------------------------------------
+-- HELPER FUNCTIONS
+--------------------------------------------------------------------------------
 
 local function CreateCheckbox(parent, name, label, tooltip, onClick)
     local check = CreateFrame("CheckButton", name, parent, "InterfaceOptionsCheckButtonTemplate")
@@ -16,16 +20,14 @@ local function CreateCheckbox(parent, name, label, tooltip, onClick)
 end
 
 local function CreateSlider(parent, name, label, minVal, maxVal, step, tooltip)
-    -- Create slider frame manually for TBC Classic compatibility
     local slider = CreateFrame("Slider", name, parent, "BackdropTemplate")
-    slider:SetWidth(200)
+    slider:SetWidth(180)
     slider:SetHeight(17)
     slider:SetOrientation("HORIZONTAL")
     slider:SetMinMaxValues(minVal, maxVal)
     slider:SetValueStep(step)
     slider:SetObeyStepOnDrag(true)
 
-    -- Set up backdrop for slider track
     slider:SetBackdrop({
         bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
         edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
@@ -33,33 +35,27 @@ local function CreateSlider(parent, name, label, minVal, maxVal, step, tooltip)
         insets = { left = 3, right = 3, top = 6, bottom = 6 }
     })
 
-    -- Create thumb texture
     local thumb = slider:CreateTexture(nil, "ARTWORK")
     thumb:SetTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
     thumb:SetSize(32, 32)
     slider:SetThumbTexture(thumb)
 
-    -- Create label text above slider
     local labelText = slider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     labelText:SetPoint("BOTTOM", slider, "TOP", 0, 3)
     labelText:SetText(label)
     slider.labelText = labelText
 
-    -- Create min value text
     local lowText = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     lowText:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", 0, 0)
     lowText:SetText(minVal)
     slider.lowText = lowText
 
-    -- Create max value text
     local highText = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     highText:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", 0, 0)
     highText:SetText(maxVal)
     slider.highText = highText
 
     slider.tooltipText = tooltip
-
-    -- Enable mouse interaction
     slider:EnableMouse(true)
     slider:SetScript("OnEnter", function(self)
         if self.tooltipText then
@@ -67,16 +63,14 @@ local function CreateSlider(parent, name, label, minVal, maxVal, step, tooltip)
             GameTooltip:SetText(self.tooltipText, nil, nil, nil, nil, true)
         end
     end)
-    slider:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
+    slider:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     return slider
 end
 
 local function CreateDropdown(parent, name, label, items, onClick)
     local dropdown = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
-    UIDropDownMenu_SetWidth(dropdown, 120)
+    UIDropDownMenu_SetWidth(dropdown, 140)
 
     local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     labelText:SetPoint("BOTTOMLEFT", dropdown, "TOPLEFT", 16, 3)
@@ -101,73 +95,106 @@ local function CreateDropdown(parent, name, label, items, onClick)
     return dropdown
 end
 
+local function CreateSectionHeader(parent, text)
+    local header = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    header:SetText("|cffffd700" .. text .. "|r")
+    return header
+end
+
+local function CreateButton(parent, name, text, width, onClick)
+    local btn = CreateFrame("Button", name, parent, "UIPanelButtonTemplate")
+    btn:SetSize(width, 24)
+    btn:SetText(text)
+    btn:SetScript("OnClick", onClick)
+    return btn
+end
+
+--------------------------------------------------------------------------------
+-- OPTIONS PANEL
+--------------------------------------------------------------------------------
+
 function HonorLog:InitializeOptions()
-    -- Create main options panel
     local panel = CreateFrame("Frame", "HonorLogOptionsPanel", UIParent)
     panel.name = "HonorLog"
     self.optionsPanel = panel
 
-    -- Title
+    -- Title (fixed at top)
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
     title:SetText("HonorLog Options")
 
     local subtitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
     subtitle:SetText("Battleground statistics tracker for BCC Anniversary")
 
-    -- General section
-    local generalHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    generalHeader:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -16)
-    generalHeader:SetText("|cffffd700General Settings|r")
+    -- Scroll frame for content
+    local scrollFrame = CreateFrame("ScrollFrame", "HonorLogOptionsScroll", panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -12)
+    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 8)
+
+    local scrollChild = CreateFrame("Frame", "HonorLogOptionsScrollChild", scrollFrame)
+    scrollChild:SetWidth(scrollFrame:GetWidth() or 580)
+    scrollChild:SetHeight(500) -- Will be adjusted
+    scrollFrame:SetScrollChild(scrollChild)
+
+    -- Update scroll child width when panel shows
+    panel:SetScript("OnShow", function()
+        scrollChild:SetWidth(scrollFrame:GetWidth())
+    end)
+
+    -- Column widths
+    local COL_WIDTH = 280
+    local COL_SPACING = 20
+    local LEFT_COL = 0
+    local RIGHT_COL = COL_WIDTH + COL_SPACING
+
+    local leftY = 0
+    local rightY = 0
+
+    ----------------------------------------------------------------------------
+    -- LEFT COLUMN: Display & Frame
+    ----------------------------------------------------------------------------
+
+    -- === DISPLAY SETTINGS ===
+    local displayHeader = CreateSectionHeader(scrollChild, "Display")
+    displayHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
+    leftY = leftY - 24
 
     -- View Mode dropdown
-    local viewModeDropdown = CreateDropdown(panel, "HonorLogViewModeDropdown", "Default View Mode", {
+    local viewModeDropdown = CreateDropdown(scrollChild, "HonorLogViewModeDropdown", "Default View Mode", {
         { text = "Character", value = "character" },
         { text = "Account-wide", value = "account" },
     }, function(value)
         self.db.settings.viewMode = value
         self:UpdateMainFrame()
     end)
-    viewModeDropdown:SetPoint("TOPLEFT", generalHeader, "BOTTOMLEFT", -13, -24)
+    viewModeDropdown:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL - 13, leftY - 10)
     viewModeDropdown.setting = "viewMode"
     UIDropDownMenu_SetSelectedValue(viewModeDropdown, self.db.settings.viewMode)
     UIDropDownMenu_SetText(viewModeDropdown, self.db.settings.viewMode == "account" and "Account-wide" or "Character")
-    panel.viewModeDropdown = viewModeDropdown
+    leftY = leftY - 60
 
     -- Export Format dropdown
-    local exportFormatDropdown = CreateDropdown(panel, "HonorLogExportFormatDropdown", "Export Format", {
+    local exportFormatDropdown = CreateDropdown(scrollChild, "HonorLogExportFormatDropdown", "Export Format", {
         { text = "Text (Discord/Forums)", value = "text" },
         { text = "CSV (Spreadsheet)", value = "csv" },
     }, function(value)
         self.db.settings.exportFormat = value
     end)
-    exportFormatDropdown:SetPoint("TOPLEFT", viewModeDropdown, "TOPRIGHT", 20, 0)
+    exportFormatDropdown:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL - 13, leftY - 10)
     exportFormatDropdown.setting = "exportFormat"
     UIDropDownMenu_SetSelectedValue(exportFormatDropdown, self.db.settings.exportFormat)
     UIDropDownMenu_SetText(exportFormatDropdown, self.db.settings.exportFormat == "csv" and "CSV (Spreadsheet)" or "Text (Discord/Forums)")
-    panel.exportFormatDropdown = exportFormatDropdown
+    leftY = leftY - 60
 
-    -- History Limit slider
-    local historySlider = CreateSlider(panel, "HonorLogHistorySlider", "History Limit", 10, 100, 10, "Number of games to store in history")
-    historySlider:SetPoint("TOPLEFT", viewModeDropdown, "BOTTOMLEFT", 20, -40)
-    historySlider:SetValue(self.db.char.historyLimit or 50)
-    historySlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        self.labelText:SetText("History Limit: " .. value)
-        HonorLog:SetHistoryLimit(value)
-    end)
-    historySlider.labelText:SetText("History Limit: " .. (self.db.char.historyLimit or 50))
-    panel.historySlider = historySlider
-
-    -- Frame section
-    local frameHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frameHeader:SetPoint("TOPLEFT", historySlider, "BOTTOMLEFT", -20, -25)
-    frameHeader:SetText("|cffffd700Frame Settings|r")
+    -- === FRAME SETTINGS ===
+    local frameHeader = CreateSectionHeader(scrollChild, "Frame")
+    frameHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
+    leftY = leftY - 28
 
     -- Frame Scale slider
-    local scaleSlider = CreateSlider(panel, "HonorLogScaleSlider", "Frame Scale", 0.5, 2.0, 0.1, "Size of the stats frame")
-    scaleSlider:SetPoint("TOPLEFT", frameHeader, "BOTTOMLEFT", 20, -20)
+    local scaleSlider = CreateSlider(scrollChild, "HonorLogScaleSlider", "Frame Scale", 0.5, 2.0, 0.1, "Size of the stats frame")
+    scaleSlider:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL + 10, leftY)
     scaleSlider:SetValue(self.db.settings.frameScale or 1.0)
     scaleSlider:SetScript("OnValueChanged", function(self, value)
         self.labelText:SetText(string.format("Frame Scale: %.1f", value))
@@ -177,63 +204,87 @@ function HonorLog:InitializeOptions()
         end
     end)
     scaleSlider.labelText:SetText(string.format("Frame Scale: %.1f", self.db.settings.frameScale or 1.0))
-    panel.scaleSlider = scaleSlider
+    leftY = leftY - 50
 
     -- Lock Frame checkbox
-    local lockCheck = CreateCheckbox(panel, "HonorLogLockCheck", "Lock Frame Position", "Prevent the frame from being moved", function(checked)
+    local lockCheck = CreateCheckbox(scrollChild, "HonorLogLockCheck", "Lock Frame Position", "Prevent the frame from being moved", function(checked)
         HonorLog.db.settings.frameLocked = checked
     end)
-    lockCheck:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", -4, -15)
+    lockCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
     lockCheck:SetChecked(self.db.settings.frameLocked)
-    panel.lockCheck = lockCheck
+    leftY = leftY - 28
 
-    -- Notifications section
-    local notifyHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    notifyHeader:SetPoint("TOPLEFT", lockCheck, "BOTTOMLEFT", 4, -12)
-    notifyHeader:SetText("|cffffd700Notifications|r")
+    -- === VISIBLE STAT CARDS ===
+    local cardsHeader = CreateSectionHeader(scrollChild, "Visible Stat Cards")
+    cardsHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
+    leftY = leftY - 24
+
+    -- Ensure visibleCards exists
+    if not self.db.settings.visibleCards then
+        self.db.settings.visibleCards = { AV = true, AB = true, WSG = true, EotS = true, World = true }
+    end
+
+    -- Card checkboxes (EotS hidden until TBC launch)
+    local cardData = {
+        { key = "AV", label = "Alterac Valley" },
+        { key = "AB", label = "Arathi Basin" },
+        { key = "WSG", label = "Warsong Gulch" },
+        -- { key = "EotS", label = "Eye of the Storm" }, -- Hidden until TBC launch
+        { key = "World", label = "World PvP" },
+    }
+
+    local cardStartY = leftY
+    for i, card in ipairs(cardData) do
+        local check = CreateCheckbox(scrollChild, "HonorLog" .. card.key .. "Check", card.label, nil, function(checked)
+            HonorLog.db.settings.visibleCards[card.key] = checked
+            if HonorLog.UpdateMainFrame then HonorLog:UpdateMainFrame() end
+        end)
+        check:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, cardStartY - ((i - 1) * 24))
+        check:SetChecked(self.db.settings.visibleCards[card.key] ~= false)
+    end
+    leftY = cardStartY - (#cardData * 24) - 12
+
+    ----------------------------------------------------------------------------
+    -- RIGHT COLUMN: Features & Data
+    ----------------------------------------------------------------------------
+
+    -- === FEATURES ===
+    local featuresHeader = CreateSectionHeader(scrollChild, "Features")
+    featuresHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+    rightY = rightY - 24
 
     -- Enable Notifications checkbox
-    local notifyCheck = CreateCheckbox(panel, "HonorLogNotifyCheck", "Enable Milestone Notifications", "Show messages when you reach milestones (100 wins, 70% winrate, etc.)", function(checked)
+    local notifyCheck = CreateCheckbox(scrollChild, "HonorLogNotifyCheck", "Milestone Notifications", "Show messages when you reach milestones", function(checked)
         HonorLog.db.settings.notificationsEnabled = checked
     end)
-    notifyCheck:SetPoint("TOPLEFT", notifyHeader, "BOTTOMLEFT", -4, -10)
+    notifyCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
     notifyCheck:SetChecked(self.db.settings.notificationsEnabled)
-    panel.notifyCheck = notifyCheck
-
-    -- Goals section
-    local goalsHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    goalsHeader:SetPoint("TOPLEFT", notifyCheck, "BOTTOMLEFT", 4, -12)
-    goalsHeader:SetText("|cffffd700Goals Settings|r")
+    rightY = rightY - 26
 
     -- Waterfall Progress checkbox
-    local waterfallCheck = CreateCheckbox(panel, "HonorLogWaterfallCheck", "Waterfall Progress Mode", "Fill goals from top to bottom sequentially instead of showing equal percentage across all goals", function(checked)
+    local waterfallCheck = CreateCheckbox(scrollChild, "HonorLogWaterfallCheck", "Waterfall Progress Mode", "Fill goals top to bottom instead of equal %", function(checked)
         HonorLog.db.settings.goalProgressMode = checked and "waterfall" or "shared"
         if HonorLog.OnDataUpdated then
             HonorLog:OnDataUpdated()
         end
     end)
-    waterfallCheck:SetPoint("TOPLEFT", goalsHeader, "BOTTOMLEFT", -4, -10)
+    waterfallCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
     waterfallCheck:SetChecked(self.db.settings.goalProgressMode == "waterfall")
-    panel.waterfallCheck = waterfallCheck
-
-    -- LDB section
-    local ldbHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ldbHeader:SetPoint("TOPLEFT", waterfallCheck, "BOTTOMLEFT", 4, -12)
-    ldbHeader:SetText("|cffffd700Data Broker|r")
+    rightY = rightY - 26
 
     -- Enable LDB checkbox
-    local ldbCheck = CreateCheckbox(panel, "HonorLogLDBCheck", "Enable LDB/Broker Data Feed", "Expose stats to Titan Panel, Bazooka, ChocolateBar, etc.", function(checked)
+    local ldbCheck = CreateCheckbox(scrollChild, "HonorLogLDBCheck", "Data Broker Feed", "Expose stats to Titan Panel, etc.", function(checked)
         HonorLog.db.settings.ldbEnabled = checked
         if HonorLog.UpdateLDB then
             HonorLog:UpdateLDB()
         end
     end)
-    ldbCheck:SetPoint("TOPLEFT", ldbHeader, "BOTTOMLEFT", -4, -10)
+    ldbCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
     ldbCheck:SetChecked(self.db.settings.ldbEnabled)
-    panel.ldbCheck = ldbCheck
+    rightY = rightY - 26
 
     -- Show Minimap Button checkbox
-    local minimapCheck = CreateCheckbox(panel, "HonorLogMinimapCheck", "Show Minimap Button", "Display a minimap button for quick access", function(checked)
+    local minimapCheck = CreateCheckbox(scrollChild, "HonorLogMinimapCheck", "Minimap Button", "Display a minimap button for quick access", function(checked)
         if HonorLog.minimapIcon then
             if checked then
                 HonorLog.minimapIcon:Show("HonorLog")
@@ -244,31 +295,35 @@ function HonorLog:InitializeOptions()
             end
         end
     end)
-    minimapCheck:SetPoint("TOPLEFT", ldbCheck, "BOTTOMLEFT", 0, -5)
+    minimapCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
     minimapCheck:SetChecked(not self.db.settings.minimapButton.hide)
-    panel.minimapCheck = minimapCheck
+    rightY = rightY - 36
 
-    -- Reset buttons section
-    local resetHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    resetHeader:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 4, -15)
-    resetHeader:SetText("|cffffd700Data Management|r")
+    -- === DATA ===
+    local dataHeader = CreateSectionHeader(scrollChild, "Data")
+    dataHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+    rightY = rightY - 28
 
-    -- Reset Session button
-    local resetSessionBtn = CreateFrame("Button", "HonorLogResetSessionBtn", panel, "UIPanelButtonTemplate")
-    resetSessionBtn:SetSize(120, 25)
-    resetSessionBtn:SetPoint("TOPLEFT", resetHeader, "BOTTOMLEFT", 0, -10)
-    resetSessionBtn:SetText("Reset Today")
-    resetSessionBtn:SetScript("OnClick", function()
-        HonorLog:ResetSession()
-        print("|cff00ff00HonorLog|r Today's stats reset.")
+    -- History Limit slider
+    local historySlider = CreateSlider(scrollChild, "HonorLogHistorySlider", "History Limit", 10, 500, 10, "Number of games to store in history")
+    historySlider:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL + 10, rightY)
+    historySlider:SetValue(self.db.char.historyLimit or 200)
+    historySlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value)
+        self.labelText:SetText("History Limit: " .. value)
+        HonorLog:SetHistoryLimit(value)
     end)
+    historySlider.labelText:SetText("History Limit: " .. (self.db.char.historyLimit or 200))
+    rightY = rightY - 50
 
-    -- Reset Frame Position button
-    local resetPosBtn = CreateFrame("Button", "HonorLogResetPosBtn", panel, "UIPanelButtonTemplate")
-    resetPosBtn:SetSize(140, 25)
-    resetPosBtn:SetPoint("LEFT", resetSessionBtn, "RIGHT", 10, 0)
-    resetPosBtn:SetText("Reset Frame Position")
-    resetPosBtn:SetScript("OnClick", function()
+    -- Reset buttons
+    local resetTodayBtn = CreateButton(scrollChild, "HonorLogResetSessionBtn", "Reset Today", 100, function()
+        HonorLog:ResetSession()
+        print("|cff40d860HonorLog|r Today's stats reset.")
+    end)
+    resetTodayBtn:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+
+    local resetPosBtn = CreateButton(scrollChild, "HonorLogResetPosBtn", "Reset Frame", 100, function()
         HonorLog.db.settings.framePoint = { "CENTER", nil, "CENTER", 0, 0 }
         HonorLog.db.settings.frameScale = 1.0
         if HonorLog.mainFrame then
@@ -277,28 +332,37 @@ function HonorLog:InitializeOptions()
             HonorLog.mainFrame:SetScale(1.0)
         end
         scaleSlider:SetValue(1.0)
-        print("|cff00ff00HonorLog|r Frame position reset.")
+        print("|cff40d860HonorLog|r Frame position reset.")
     end)
+    resetPosBtn:SetPoint("LEFT", resetTodayBtn, "RIGHT", 8, 0)
+    rightY = rightY - 34
 
+    ----------------------------------------------------------------------------
+    -- Finalize scroll child height
+    ----------------------------------------------------------------------------
+    local contentHeight = math.max(math.abs(leftY), math.abs(rightY)) + 20
+    scrollChild:SetHeight(contentHeight)
+
+    -- Store references
+    panel.scaleSlider = scaleSlider
+
+    ----------------------------------------------------------------------------
     -- Register with Blizzard options
+    ----------------------------------------------------------------------------
     if Settings and Settings.RegisterCanvasLayoutCategory then
-        -- Modern Settings API (Anniversary/Retail)
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-        category.ID = panel.name  -- Set ID to match name for OpenToCategory lookup
+        category.ID = panel.name
         Settings.RegisterAddOnCategory(category)
         self.optionsCategory = category
     else
-        -- Classic style
         InterfaceOptions_AddCategory(panel)
     end
 end
 
 function HonorLog:OpenOptions()
     if Settings and Settings.OpenToCategory then
-        -- Use string name for lookup (matches category.ID we set during registration)
         Settings.OpenToCategory("HonorLog")
     else
-        -- TBC Classic fallback (pre-Settings API)
         InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
         InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
     end

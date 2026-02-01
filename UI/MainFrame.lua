@@ -587,12 +587,11 @@ local function CreateMainFrame()
     sessionStats:SetJustifyH("LEFT")
     frame.sessionStats = sessionStats
 
-    -- Hourly rate (right side of top line)
-    local sessionRate = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    sessionRate:SetPoint("TOPRIGHT", -8, -3)
-    sessionRate:SetJustifyH("RIGHT")
-    sessionRate:SetTextColor(1, 0.84, 0, 1) -- Gold
-    frame.sessionRate = sessionRate
+    -- World PvP (right side of top line - pairs with W/L stats)
+    local sessionWorld = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sessionWorld:SetPoint("TOPRIGHT", -8, -3)
+    sessionWorld:SetJustifyH("RIGHT")
+    frame.sessionWorld = sessionWorld
 
     -- Session rewards (second line, left side)
     local sessionRewards = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -600,11 +599,12 @@ local function CreateMainFrame()
     sessionRewards:SetJustifyH("LEFT")
     frame.sessionRewards = sessionRewards
 
-    -- World PvP (second line, right side - mirrors sessionRate position)
-    local sessionWorld = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sessionWorld:SetPoint("BOTTOMRIGHT", -8, 3)
-    sessionWorld:SetJustifyH("RIGHT")
-    frame.sessionWorld = sessionWorld
+    -- Hourly rate (second line, right side - pairs with honor earned)
+    local sessionRate = sessionPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sessionRate:SetPoint("BOTTOMRIGHT", -8, 3)
+    sessionRate:SetJustifyH("RIGHT")
+    sessionRate:SetTextColor(1, 0.84, 0, 1) -- Gold
+    frame.sessionRate = sessionRate
 
     -- Set scroll content height (3 BG cards + 1 World card + padding)
     local contentHeight = (4 * CARD_HEIGHT) + (4 * CARD_SPACING) + 10
@@ -820,6 +820,21 @@ function HonorLog:InitializeMainFrame()
 
     -- Initial update
     self:UpdateMainFrame()
+
+    -- Real-time update timer for live hourly rate during BGs
+    local updateTimer = CreateFrame("Frame")
+    local timeSinceUpdate = 0
+    local UPDATE_INTERVAL = 1 -- Update every second while in BG for "alive" feel
+    updateTimer:SetScript("OnUpdate", function(_, elapsed)
+        timeSinceUpdate = timeSinceUpdate + elapsed
+        if timeSinceUpdate >= UPDATE_INTERVAL then
+            timeSinceUpdate = 0
+            -- Only update if in BG, frame is visible, and on stats tab
+            if self:IsInBG() and self.mainFrame and self.mainFrame:IsShown() and self.currentTab == "stats" then
+                self:UpdateMainFrame()
+            end
+        end
+    end)
 end
 
 -- Reset frame size to defaults
@@ -927,7 +942,12 @@ function HonorLog:UpdateCompactView()
         -- Show stats compact, hide goals compact
         frame.statusIcon:Show()
         frame.statusLine:Show()
-        frame.sessionQuick:Show()
+        -- Hide session quick stats when expanded (redundant with Today panel)
+        if self.db.settings.frameExpanded then
+            frame.sessionQuick:Hide()
+        else
+            frame.sessionQuick:Show()
+        end
         if frame.goalsCompact then
             frame.goalsCompact:Hide()
         end
@@ -974,10 +994,16 @@ function HonorLog:UpdateMainFrame()
         frame.statusIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
         frame.statusIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
     else
-        frame.statusLine:SetText("Not in Battleground")
-        frame.statusLine:SetTextColor(unpack(COLORS.textTertiary))
-        frame.statusIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-NotReady")
-        frame.statusIcon:SetVertexColor(0.5, 0.5, 0.55, 0.7)
+        -- World PvP mode when not in a battleground
+        local worldSession = self:GetSessionWorldPvPStats()
+        local worldText = "World PvP"
+        if worldSession and (worldSession.kills > 0 or worldSession.deaths > 0) then
+            worldText = string.format("World PvP  |cff40d860%d|r-|cffe65959%d|r", worldSession.kills, worldSession.deaths)
+        end
+        frame.statusLine:SetText(worldText)
+        frame.statusLine:SetTextColor(0.65, 0.65, 0.72, 1)
+        frame.statusIcon:SetTexture("Interface\\Icons\\Ability_DualWield")
+        frame.statusIcon:SetVertexColor(0.7, 0.7, 0.75, 0.9)
     end
 
     -- Session quick stats (compact view)
@@ -997,8 +1023,43 @@ function HonorLog:UpdateMainFrame()
         frame.sessionQuick:SetTextColor(unpack(COLORS.textMuted))
     end
 
+    -- Card visibility settings
+    local visibleCards = self.db.settings.visibleCards or { AV = true, AB = true, WSG = true, EotS = true, World = true }
+
+    -- Reposition visible BG cards
+    local yOffset = -6
+    for _, bgType in ipairs(HonorLog.BG_ORDER) do
+        local card = frame.bgCards[bgType]
+        if card then
+            if visibleCards[bgType] ~= false then
+                card:Show()
+                card:ClearAllPoints()
+                card:SetPoint("TOPLEFT", PADDING, yOffset)
+                card:SetPoint("TOPRIGHT", -PADDING, yOffset)
+                yOffset = yOffset - CARD_HEIGHT - CARD_SPACING
+            else
+                card:Hide()
+            end
+        end
+    end
+
+    -- Position World card after visible BG cards
+    if frame.worldCard then
+        if visibleCards.World ~= false then
+            frame.worldCard:Show()
+            frame.worldCard:ClearAllPoints()
+            frame.worldCard:SetPoint("TOPLEFT", PADDING, yOffset)
+            frame.worldCard:SetPoint("TOPRIGHT", -PADDING, yOffset)
+        else
+            frame.worldCard:Hide()
+        end
+    end
+
     -- Update BG cards
     for bgType, card in pairs(frame.bgCards) do
+        if not card:IsShown() then
+            -- Skip hidden cards
+        else
         local stats = self:GetBGStats(bgType, scope)
         local derived = self:GetDerivedStats(bgType, scope)
 
@@ -1030,9 +1091,9 @@ function HonorLog:UpdateMainFrame()
             card.bgFullName:SetAlpha(0.7)
             card.accentBar:SetAlpha(1)
         else
-            card.record:SetText("--")
+            card.record:SetText("0-0")
             card.record:SetTextColor(unpack(COLORS.textMuted))
-            card.winrate:SetText("--")
+            card.winrate:SetText("0%")
             card.winrate:SetTextColor(unpack(COLORS.textMuted))
             card.honor:SetText("0 Honor")
             card.honor:SetTextColor(unpack(COLORS.textMuted))
@@ -1044,11 +1105,12 @@ function HonorLog:UpdateMainFrame()
             card.bgFullName:SetAlpha(0.3)
             card.accentBar:SetAlpha(0.3)
         end
+        end -- closes else for visible card
     end
 
-    -- Update World PvP card
+    -- Update World PvP card (only if visible)
     local worldCard = frame.worldCard
-    if worldCard then
+    if worldCard and visibleCards.World ~= false then
         local worldStats = self:GetWorldPvPStats(scope)
         local worldSession = self:GetSessionWorldPvPStats()
 
@@ -1083,11 +1145,12 @@ function HonorLog:UpdateMainFrame()
             worldCard.worldFullName:SetAlpha(0.7)
             worldCard.accentBar:SetAlpha(1)
         else
-            worldCard.record:SetText("--")
+            worldCard.record:SetText("0-0")
             worldCard.record:SetTextColor(unpack(COLORS.textMuted))
-            worldCard.kd:SetText("--")
+            worldCard.sessionText:SetText("0 Honor")
+            worldCard.sessionText:SetTextColor(unpack(COLORS.textMuted))
+            worldCard.kd:SetText("0.0 K/D")
             worldCard.kd:SetTextColor(unpack(COLORS.textMuted))
-            worldCard.sessionText:SetText("")
 
             -- Dimmed
             worldCard.worldIcon:SetAlpha(0.4)
@@ -1130,24 +1193,33 @@ function HonorLog:UpdateMainFrame()
         frame.sessionRewards:SetText(rewardsText)
         frame.sessionRewards:SetTextColor(unpack(COLORS.neutral))
 
-        -- Line 2 right: World PvP
+        -- Line 2 right: World PvP (always shown)
         local worldSession = self:GetSessionWorldPvPStats()
-        if worldSession and (worldSession.kills > 0 or worldSession.deaths > 0 or (worldSession.honor and worldSession.honor > 0)) then
-            local honorText = ""
-            if worldSession.honor and worldSession.honor > 0 then
-                honorText = string.format(" |cffffd100(+%d)|r", worldSession.honor)
-            end
-            frame.sessionWorld:SetText(string.format("|cffe5a040%d|r-|cffe65959%d|r%s |T%s:14:14:0:0|t",
-                worldSession.kills, worldSession.deaths, honorText, "Interface\\Icons\\Ability_DualWield"))
-        else
-            frame.sessionWorld:SetText("")
+        local worldKills = worldSession and worldSession.kills or 0
+        local worldDeaths = worldSession and worldSession.deaths or 0
+        local worldHonor = worldSession and worldSession.honor or 0
+        local honorText = ""
+        if worldHonor > 0 then
+            honorText = string.format(" |cffffd100(+%d)|r", worldHonor)
         end
+        frame.sessionWorld:SetText(string.format("|cffe5a040%d|r-|cffe65959%d|r%s |T%s:14:14:0:0|t",
+            worldKills, worldDeaths, honorText, "Interface\\Icons\\Ability_DualWield"))
     else
         frame.sessionStats:SetText("No games yet")
         frame.sessionStats:SetTextColor(unpack(COLORS.textTertiary))
         frame.sessionRate:SetText("")
         frame.sessionRewards:SetText("")
-        frame.sessionWorld:SetText("")
+        -- Still show World PvP even with no BGs (always visible per changelog)
+        local worldSession = self:GetSessionWorldPvPStats()
+        local worldKills = worldSession and worldSession.kills or 0
+        local worldDeaths = worldSession and worldSession.deaths or 0
+        local worldHonor = worldSession and worldSession.honor or 0
+        local honorText = ""
+        if worldHonor > 0 then
+            honorText = string.format(" |cffffd100(+%d)|r", worldHonor)
+        end
+        frame.sessionWorld:SetText(string.format("|cffe5a040%d|r-|cffe65959%d|r%s |T%s:14:14:0:0|t",
+            worldKills, worldDeaths, honorText, "Interface\\Icons\\Ability_DualWield"))
     end
 
     -- Update goals compact if in goals view
@@ -1426,6 +1498,8 @@ local function InitializeMenu(frame, level, menuList)
                     totalDuration = 0, honorLifetime = 0, marksLifetime = 0
                 }
             end
+            -- Also reset World PvP stats
+            HonorLog.db.char.worldPvP = { kills = 0, deaths = 0, honor = 0 }
             HonorLog.db.char.history = {}
             HonorLog:ResetSession()
             HonorLog:UpdateMainFrame()
@@ -1444,6 +1518,8 @@ local function InitializeMenu(frame, level, menuList)
                     totalDuration = 0, honorLifetime = 0, marksLifetime = 0
                 }
             end
+            -- Also reset World PvP stats
+            HonorLog.db.global.worldPvP = { kills = 0, deaths = 0, honor = 0 }
             HonorLog.db.global.history = {}
             HonorLog:UpdateMainFrame()
             print("|cff40d860HonorLog|r Account stats reset.")

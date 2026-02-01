@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.1.24] - 2025-01-31
+
+### Added
+- **Configurable stat cards**: Options to show/hide individual BG cards (AV, AB, WSG, EotS) and World PvP card
+
+### Changed
+- **History limit increased**: Default history storage increased from 50 to 200 games (configurable up to 500 in options)
+- **Options panel redesigned**: Two-column scrollable layout with grouped sections (Display, Frame, Visible Cards, Features, Data)
+
+### Fixed
+- **Honor/hour now calculates correctly**: Hourly rate now based on cumulative BG play time instead of time since first BG entry.
+- **BG honor no longer counts as World PvP after /reload**: Honor earned in BGs now correctly attributed even when `isInBG` state is stale (uses `GetInstanceInfo()` fallback)
+- **Goals totals bar styling**: Add button now matches totals bar colors for unified appearance
+- **Goals totals bar spacing**: Added 4px gap between totals bar and add button
+- **Today panel World PvP always visible**: World PvP stats now always shown in Today panel (displays `0-0 ⚔` when no activity)
+- **World PvP stats now reset with character/account reset**: Reset Stats menu and `/hl reset` commands now properly clear World PvP kills/deaths/honor
+- **World card now included in tab switch animation**: World PvP card fades in with other cards when switching to Stats tab
+- **Add goal button now included in tab switch animation**: Add button fades in with totals bar when switching to Goals tab
+- **Improved empty state placeholders**: Cards without data now show `0-0`, `0%`, `0.0 K/D` instead of `--` for clearer context
+- **Live hourly rate during BGs**: Honor/hour updates in real-time (every second) while in a battleground, including current match duration
+- **Reduced header redundancy in expanded view**: Session stats hidden from header when expanded (visible in Today panel instead)
+
 ## [1.1.23] - 2025-01-30
 
 ### Changed

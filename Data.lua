@@ -22,7 +22,7 @@ local DEFAULTS = {
             honor = 0,
         },
         history = {}, -- Account-wide history
-        historyLimit = 50,
+        historyLimit = 200,
         characters = {}, -- Track which characters contributed
     },
     char = {
@@ -40,7 +40,7 @@ local DEFAULTS = {
             honor = 0,
         },
         history = {}, -- Per-character history
-        historyLimit = 50,
+        historyLimit = 200,
         -- Gear Goals system
         goals = {
             items = {}, -- Array of { itemID, addedAt, priority }
@@ -60,7 +60,8 @@ local DEFAULTS = {
             EotS = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             worldPvP = { kills = 0, deaths = 0, honor = 0 },
         },
-        sessionStartTime = 0, -- Timestamp when session started
+        sessionStartTime = 0, -- Timestamp when session started (deprecated, use sessionTotalDuration)
+        sessionTotalDuration = 0, -- Cumulative BG duration in seconds (for accurate hourly rate)
         lastUpdateTime = 0, -- Timestamp when session was last updated
         wasLogout = false, -- Track if last exit was logout vs reload (deprecated, kept for migration)
         lastGameTime = 0, -- GetTime() at last save - used to detect reload vs fresh login
@@ -89,6 +90,13 @@ local DEFAULTS = {
             hide = false,
         },
         goalProgressMode = "shared", -- "shared" (all show same %) or "waterfall" (fills top-to-bottom)
+        visibleCards = { -- Which stat cards to show
+            AV = true,
+            AB = true,
+            WSG = true,
+            EotS = true,
+            World = true,
+        },
     },
 }
 
@@ -153,6 +161,24 @@ function HonorLog:InitializeDB()
     -- Get today's date as YYYYMMDD number for easy comparison
     local today = tonumber(date("%Y%m%d", now))
 
+    -- Debug: Print session state on load
+    local sessionDebug = false -- Set to true to debug session issues
+    if sessionDebug then
+        print("|cffff00ff[HonorLog Session Debug]|r")
+        print("  lastSessionDate: " .. tostring(lastSessionDate) .. " (type: " .. type(lastSessionDate) .. ")")
+        print("  today: " .. tostring(today) .. " (type: " .. type(today) .. ")")
+        print("  currentGameTime: " .. tostring(currentGameTime))
+        print("  lastGameTime: " .. tostring(lastGameTime))
+        -- Show current session stats before any reset
+        if HonorLogCharDB.session then
+            for bgType, s in pairs(HonorLogCharDB.session) do
+                if s.played then
+                    print("  session." .. bgType .. ": " .. s.played .. " played, " .. s.wins .. " wins")
+                end
+            end
+        end
+    end
+
     -- Check if we need to reset session
     local shouldResetSession = false
     local resetReason = ""
@@ -164,6 +190,7 @@ function HonorLog:InitializeDB()
         HonorLogCharDB.sessionDate = today
         lastSessionDate = today
         self.isReload = true
+        resetReason = "migration (keeping existing session)"
     -- Reset if it's a new day
     elseif lastSessionDate ~= today then
         shouldResetSession = true
@@ -178,32 +205,23 @@ function HonorLog:InitializeDB()
     else
         -- This is a /reload - keep everything
         self.isReload = true
+        resetReason = "reload (keeping everything)"
+    end
+
+    if sessionDebug then
+        print("  Decision: " .. resetReason .. ", shouldReset: " .. tostring(shouldResetSession))
     end
 
     if shouldResetSession then
         print("|cff00ff00[HonorLog]|r New day detected - resetting daily stats for " .. date("%Y-%m-%d", now))
         HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
         HonorLogCharDB.bgState = DeepCopy(DEFAULTS.char.bgState)
-        HonorLogCharDB.sessionStartTime = 0 -- Will be set when first BG is entered
+        HonorLogCharDB.sessionStartTime = 0 -- Deprecated, kept for backwards compatibility
+        HonorLogCharDB.sessionTotalDuration = 0 -- Reset cumulative BG time
         HonorLogCharDB.sessionDate = today
         self.isReload = false
     else
         HonorLogCharDB.lastUpdateTime = now
-    end
-
-    -- Safety: Ensure sessionStartTime is valid for hourly rate calculation
-    -- Only auto-set if there are existing session games (migration from older versions)
-    if not HonorLogCharDB.sessionStartTime or HonorLogCharDB.sessionStartTime == 0 then
-        local hasSessionGames = false
-        for _, s in pairs(HonorLogCharDB.session) do
-            if s.played and s.played > 0 then
-                hasSessionGames = true
-                break
-            end
-        end
-        if hasSessionGames then
-            HonorLogCharDB.sessionStartTime = now
-        end
     end
 
     -- Update tracking values
@@ -276,6 +294,9 @@ end
 
 -- Record a completed game
 function HonorLog:RecordGame(bgType, won, duration, honor, marks)
+    -- Track cumulative BG time for accurate hourly rate calculation
+    self.db.char.sessionTotalDuration = (self.db.char.sessionTotalDuration or 0) + duration
+
     -- Update character stats
     local charBG = self.db.char.battlegrounds[bgType]
     charBG.played = charBG.played + 1
@@ -349,6 +370,7 @@ function HonorLog:ResetSession(bgType)
         self.db.char.session[bgType] = DeepCopy(DEFAULTS.char.session[bgType])
     else
         self.db.char.session = DeepCopy(DEFAULTS.char.session)
+        self.db.char.sessionTotalDuration = 0 -- Reset cumulative BG time
     end
 
     if self.OnDataUpdated then
@@ -485,14 +507,23 @@ function HonorLog:GetTotalSessionStats()
 
     total.winrate = total.played > 0 and (total.wins / total.played * 100) or 0
 
-    -- Calculate hourly rate based on session duration
-    local sessionStart = self.db.char.sessionStartTime or 0
-    if sessionStart > 0 and total.honor > 0 then
-        local now = time()
-        total.sessionDuration = now - sessionStart
-        -- Only calculate rate if we have at least 1 minute of data
-        if total.sessionDuration >= 60 then
-            local hours = total.sessionDuration / 3600
+    -- Calculate hourly rate based on cumulative BG duration (actual play time)
+    local cumulativeDuration = self.db.char.sessionTotalDuration or 0
+
+    -- Include current in-progress BG duration for live rate updates
+    local bgState = self.db.char.bgState
+    if bgState and bgState.isInBG and bgState.bgStartTime then
+        local currentBGElapsed = GetTime() - bgState.bgStartTime
+        if currentBGElapsed > 0 then
+            cumulativeDuration = cumulativeDuration + currentBGElapsed
+        end
+    end
+
+    if cumulativeDuration > 0 and total.honor > 0 then
+        total.sessionDuration = cumulativeDuration
+        -- Only calculate rate if we have at least 1 minute of BG time
+        if cumulativeDuration >= 60 then
+            local hours = cumulativeDuration / 3600
             total.hourlyRate = math.floor(total.honor / hours)
         end
     end

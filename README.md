@@ -10,7 +10,7 @@ Track battleground and world PvP statistics with gear goal tracking for WoW TBC 
 - **Honor & Marks**: Track honor and marks earned per BG and lifetime totals
 - **Session tracking**: See your current session stats with hourly honor rate (resets daily at midnight)
 - **Dual scope**: View stats per-character or account-wide
-- **Match history**: Stores your last 50 games with timestamps
+- **Match history**: Stores your last 200 games with timestamps (configurable up to 500)
 - **Gear Goal Tracker**: Set PvP gear goals and track progress
   - Track unlimited goals simultaneously
   - Shows honor and marks progress for each goal
