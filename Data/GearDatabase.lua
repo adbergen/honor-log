@@ -25,6 +25,7 @@ HonorLog.SEASONS = {
     S3 = "Vengeful Gladiator",
     S4 = "Brutal Gladiator",
     PREPATCH = "Prepatch",
+    HONOR70 = "Level 70 Honor", -- TBC launch honor gear (pre-arena)
 }
 
 -- Archived seasons (not yet available in game)
@@ -35,6 +36,7 @@ HonorLog.ARCHIVED_SEASONS = {
     S2 = true,  -- Merciless Gladiator - unlocks with Arena Season 2
     S3 = true,  -- Vengeful Gladiator - unlocks with Arena Season 3
     S4 = true,  -- Brutal Gladiator - unlocks with Arena Season 4
+    HONOR70 = true, -- Level 70 honor gear - unlocks at TBC launch
 }
 
 -- Check if a season is currently available

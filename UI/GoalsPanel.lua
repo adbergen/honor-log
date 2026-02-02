@@ -2591,10 +2591,11 @@ local function CreateGoalPicker()
                 local _, itemLink = GetItemInfo(self.itemID)
                 if itemLink then
                     DressUpItemLink(itemLink)
-                    -- Position dressing room to the side of HonorLog frame
-                    if DressUpFrame and HonorLog.mainFrame then
+                    -- Position dressing room to the side of the gear picker frame
+                    local pickerFrame = _G["HonorLogGoalPicker"]
+                    if DressUpFrame and pickerFrame then
                         DressUpFrame:ClearAllPoints()
-                        DressUpFrame:SetPoint("TOPLEFT", HonorLog.mainFrame, "TOPRIGHT", 10, 0)
+                        DressUpFrame:SetPoint("TOPLEFT", pickerFrame, "TOPRIGHT", 10, 0)
                     end
                 end
             end
