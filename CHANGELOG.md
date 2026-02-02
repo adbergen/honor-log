@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.26] - 2025-02-01
+
+### Added
+- **Gear browser preview**: Ctrl+Click items in the gear selection screen to preview in dressing room (same as goal cards)
+
 ## [1.1.25] - 2025-02-01
 
 ### Added

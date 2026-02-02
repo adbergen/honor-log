@@ -2522,13 +2522,16 @@ local function CreateGoalPicker()
         ownedBadge:Hide()
         row.ownedBadge = ownedBadge
 
-        -- Track shift state for compare tooltip
+        -- Track shift state for compare tooltip and ctrl state for preview
         row.shiftWasDown = false
+        row.ctrlWasDown = false
 
         local function ShowItemTooltip(self)
             if self.itemID then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetItemByID(self.itemID)
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("|cff888888Ctrl+Click to preview|r", 1, 1, 1)
                 GameTooltip:Show()
                 -- Show compare tooltip if shift is held
                 if IsShiftKeyDown() then
@@ -2544,6 +2547,13 @@ local function CreateGoalPicker()
             self.bg:SetColorTexture(0.14, 0.14, 0.20, 1)
             self.iconBorder:SetColorTexture(0.35, 0.35, 0.45, 1)
             ShowItemTooltip(self)
+            -- Show magnifying glass cursor if Ctrl is held
+            if IsControlKeyDown() and self.itemID then
+                SetCursor("INSPECT_CURSOR")
+                self.ctrlWasDown = true
+            else
+                self.ctrlWasDown = false
+            end
         end)
         row:SetScript("OnLeave", function(self)
             self.bg:SetColorTexture(0.10, 0.10, 0.14, 0.9)
@@ -2552,13 +2562,41 @@ local function CreateGoalPicker()
             -- Hide shopping/compare tooltips
             if ShoppingTooltip1 then ShoppingTooltip1:Hide() end
             if ShoppingTooltip2 then ShoppingTooltip2:Hide() end
+            ResetCursor()
+            self.ctrlWasDown = false
         end)
-        -- Detect shift key changes while hovering
+        -- Detect shift/ctrl key changes while hovering
         row:SetScript("OnUpdate", function(self)
             if not self:IsMouseOver() then return end
+            -- Handle Shift for compare tooltip
             local shiftDown = IsShiftKeyDown()
             if shiftDown ~= self.shiftWasDown then
                 ShowItemTooltip(self)
+            end
+            -- Handle Ctrl for magnifying glass cursor
+            local ctrlDown = IsControlKeyDown()
+            if ctrlDown ~= self.ctrlWasDown then
+                if ctrlDown and self.itemID then
+                    SetCursor("INSPECT_CURSOR")
+                else
+                    ResetCursor()
+                end
+                self.ctrlWasDown = ctrlDown
+            end
+        end)
+
+        -- Ctrl+Click to preview item in dressing room
+        row:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" and IsControlKeyDown() and self.itemID then
+                local _, itemLink = GetItemInfo(self.itemID)
+                if itemLink then
+                    DressUpItemLink(itemLink)
+                    -- Position dressing room to the side of HonorLog frame
+                    if DressUpFrame and HonorLog.mainFrame then
+                        DressUpFrame:ClearAllPoints()
+                        DressUpFrame:SetPoint("TOPLEFT", HonorLog.mainFrame, "TOPRIGHT", 10, 0)
+                    end
+                end
             end
         end)
 
