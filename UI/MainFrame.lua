@@ -343,23 +343,21 @@ local function CreateMainFrame()
     expanded:Hide()
     frame.expanded = expanded
 
-    -- Subtle separator
-    local topSep = expanded:CreateTexture(nil, "ARTWORK")
-    topSep:SetHeight(1)
-    topSep:SetPoint("TOPLEFT", PADDING, 0)
-    topSep:SetPoint("TOPRIGHT", -PADDING, 0)
-    topSep:SetColorTexture(unpack(COLORS.separator))
-
     -- Scroll Frame for content (leave room at bottom for fixed session panel)
     local scrollFrame = CreateFrame("ScrollFrame", nil, expanded, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 0, -2)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 44)  -- 44px for fixed session panel
+    scrollFrame:SetPoint("TOPLEFT", 0, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 46)  -- Match Goals panel
     frame.scrollFrame = scrollFrame
 
-    -- Hide scroll bar when not needed
+    -- Style scroll bar to match Goals panel
     local scrollBar = scrollFrame.ScrollBar or _G[scrollFrame:GetName() .. "ScrollBar"]
     if scrollBar then
-        scrollBar:SetAlpha(0.6)
+        scrollBar:SetAlpha(0.5)
+        -- Darken scrollbar track background
+        local track = scrollBar.Track or scrollBar:GetChildren()
+        if track and track.SetAlpha then
+            track:SetAlpha(0.3)
+        end
     end
 
     -- Scroll content container
@@ -370,7 +368,7 @@ local function CreateMainFrame()
 
     -- BG Stats Cards
     frame.bgCards = {}
-    local yOffset = -6
+    local yOffset = 0
 
     for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local card = CreateFrame("Frame", nil, scrollContent, "BackdropTemplate")
@@ -606,8 +604,9 @@ local function CreateMainFrame()
     sessionRate:SetTextColor(1, 0.84, 0, 1) -- Gold
     frame.sessionRate = sessionRate
 
-    -- Set scroll content height (3 BG cards + 1 World card + padding)
-    local contentHeight = (4 * CARD_HEIGHT) + (4 * CARD_SPACING) + 10
+    -- Set scroll content height (BG cards + World card + padding)
+    local numCards = #HonorLog.BG_ORDER + 1  -- BG cards from BG_ORDER + World card
+    local contentHeight = (numCards * CARD_HEIGHT) + (numCards * CARD_SPACING) + 4
     scrollContent:SetHeight(contentHeight)
 
     -- Function to update scroll content width when frame is resized
@@ -1027,7 +1026,7 @@ function HonorLog:UpdateMainFrame()
     local visibleCards = self.db.settings.visibleCards or { AV = true, AB = true, WSG = true, EotS = true, World = true }
 
     -- Reposition visible BG cards
-    local yOffset = -6
+    local yOffset = 0
     for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local card = frame.bgCards[bgType]
         if card then

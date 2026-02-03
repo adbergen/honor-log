@@ -111,9 +111,8 @@ HonorLog.CURRENCY_ICONS = {
 --------------------------------------------------------------------------------
 -- BATTLEGROUND ORDER
 --------------------------------------------------------------------------------
--- Active BGs for UI display. EotS hidden until TBC releases.
--- To enable EotS: add "EotS" to this list
-HonorLog.BG_ORDER = { "AV", "AB", "WSG" }
+-- Active BGs for UI display
+HonorLog.BG_ORDER = { "AV", "AB", "WSG", "EotS" }
 
 --------------------------------------------------------------------------------
 -- LAYOUT CONSTANTS

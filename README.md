@@ -1,5 +1,7 @@
 # HonorLog
 
+[![CurseForge Downloads](https://img.shields.io/curseforge/dt/1442154?style=flat&logo=curseforge&label=Downloads&color=f16436)](https://www.curseforge.com/wow/addons/honorlog)
+
 Track battleground and world PvP statistics with gear goal tracking for WoW TBC Classic Anniversary.
 
 ## Features

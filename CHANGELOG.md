@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0] - 2025-02-01
+
+### Added
+- **TBC Level 70 Honor Gear**: Complete database of TBC launch PvP gear
+  - Grand Marshal's (Alliance) and High Warlord's (Horde) rare (blue) armor sets for all classes
+  - All spec variants included (Feral, Balance, Resto for Druids; Enhancement, Elemental, Resto for Shaman; etc.)
+  - Level 70 PvP weapons: daggers, swords, axes, maces, fist weapons, polearms, staves, crossbows, shields, off-hands
+  - **Veteran's off-pieces**: bracers, belts, boots for all armor types (cloth, leather, mail, plate)
+  - **Accessories**: neck pieces (Pendants), rings (Bands), and PvP trinkets (Medallion of Alliance/Horde)
+  - Accurate honor and mark costs for all items
+  - All item data with verified slot assignments
+- **Eye of the Storm support**: EotS stat card and tracking now enabled for TBC launch
+- **Stormpike Guard items**: Added missing Alliance AV reputation vendor gear (tabard, cloaks, pendants, girdles)
+- **Cross-faction class rank armor**: Added TBC prepatch items for Blood Elf Paladins and Draenei Shamans
+  - Alliance: Lieutenant Commander's Earthshaker (Shaman Mail set)
+  - Horde: Champion's Redoubt (Paladin Lamellar set)
+
+### Fixed
+- **World PvP honor tracking**: Now only counts honorable kills (ignores quest reward honor)
+- **Defiler's Lamellar items**: Fixed swapped item IDs for Girdle (20177-20180) and Greaves (20181-20184)
+
 ## [1.1.26] - 2025-02-01
 
 ### Added

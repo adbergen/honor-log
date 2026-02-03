@@ -827,9 +827,14 @@ end
 --   "You have been awarded X honor points."
 function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
     local honorAmount = nil
+    local isHonorableKill = false
 
     -- Try pattern 1: "(X Honor Points)" - honorable kills
+    -- This pattern only matches actual player kills, not quest rewards
     honorAmount = msg:match("%((%d+) Honor Point")
+    if honorAmount then
+        isHonorableKill = true
+    end
 
     -- Try pattern 2: "awarded X honor points" - BG bonus honor
     if not honorAmount then
@@ -865,12 +870,14 @@ function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
                 if debugMode then
                     print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (BG) - parsed: " .. honorAmount .. " honor, total: " .. bgHonorAccumulated)
                 end
-            else
-                -- Outside BG: track as world PvP honor
+            elseif isHonorableKill then
+                -- Outside BG: only track honor from actual honorable kills, not quest rewards
                 self:RecordWorldHonor(honorAmount)
                 if debugMode then
-                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (World) - parsed: " .. honorAmount .. " honor")
+                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (World Kill) - parsed: " .. honorAmount .. " honor")
                 end
+            elseif debugMode then
+                print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (Ignored - not a kill) - parsed: " .. honorAmount .. " honor")
             end
         end
     elseif debugMode then

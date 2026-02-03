@@ -29,14 +29,13 @@ HonorLog.SEASONS = {
 }
 
 -- Archived seasons (not yet available in game)
--- TBC Anniversary: Only prepatch gear is available initially
--- When TBC releases, move seasons from ARCHIVED to ACTIVE
+-- When arena seasons release, remove them from this list
 HonorLog.ARCHIVED_SEASONS = {
     S1 = true,  -- Gladiator gear - unlocks with TBC Arena Season 1
     S2 = true,  -- Merciless Gladiator - unlocks with Arena Season 2
     S3 = true,  -- Vengeful Gladiator - unlocks with Arena Season 3
     S4 = true,  -- Brutal Gladiator - unlocks with Arena Season 4
-    HONOR70 = true, -- Level 70 honor gear - unlocks at TBC launch
+    -- HONOR70 available at TBC launch
 }
 
 -- Check if a season is currently available
@@ -412,6 +411,14 @@ HonorLog.GearDB = {
     [23273] = { slot = "LEGS", class = "PALADIN", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Lamellar Leggings" },
     [23275] = { slot = "FEET", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Lamellar Sabatons" },
 
+    -- PALADIN - Champion's Redoubt (Horde, set 697) - Cross-faction for Blood Elf Paladins
+    [29604] = { slot = "HEAD", class = "PALADIN", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Champion's Lamellar Headguard" },
+    [29605] = { slot = "SHOULDER", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Champion's Lamellar Shoulders" },
+    [29602] = { slot = "CHEST", class = "PALADIN", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Legionnaire's Lamellar Chestplate" },
+    [29600] = { slot = "HANDS", class = "PALADIN", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Lamellar Gauntlets" },
+    [29603] = { slot = "LEGS", class = "PALADIN", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Lamellar Leggings" },
+    [29601] = { slot = "FEET", class = "PALADIN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Lamellar Greaves" },
+
     -- =========================================================================
     -- HUNTER - RARE SETS
     -- =========================================================================
@@ -443,6 +450,14 @@ HonorLog.GearDB = {
     [22867] = { slot = "HANDS", class = "SHAMAN", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Blood Guard's Mail Gauntlets" },
     [22887] = { slot = "LEGS", class = "SHAMAN", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Legionnaire's Mail Leggings" },
     [22857] = { slot = "FEET", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Blood Guard's Mail Greaves" },
+
+    -- SHAMAN - Lieutenant Commander's Earthshaker (Alliance, set 718) - Cross-faction for Draenei Shamans
+    [29598] = { slot = "HEAD", class = "SHAMAN", honor = 4335, arena = 0, marks = { AV = 3 }, season = "PREPATCH", name = "Lieutenant Commander's Mail Headguard" },
+    [29599] = { slot = "SHOULDER", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Lieutenant Commander's Mail Pauldrons" },
+    [29596] = { slot = "CHEST", class = "SHAMAN", honor = 4590, arena = 0, marks = { AB = 3 }, season = "PREPATCH", name = "Knight-Captain's Mail Hauberk" },
+    [29595] = { slot = "HANDS", class = "SHAMAN", honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Mail Gauntlets" },
+    [29597] = { slot = "LEGS", class = "SHAMAN", honor = 4335, arena = 0, marks = { WSG = 3 }, season = "PREPATCH", name = "Knight-Captain's Mail Leggings" },
+    [29594] = { slot = "FEET", class = "SHAMAN", honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Knight-Lieutenant's Mail Greaves" },
 
     -- =========================================================================
     -- ROGUE - RARE SETS
@@ -891,17 +906,17 @@ HonorLog.GearDB = {
     -- SHOULDER - Defiler's Lizardhide Shoulders (Druid/Rogue)
     [20175] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Lizardhide Shoulders" },
 
-    -- FEET - Defiler's Lamellar Greaves (Paladin)
-    [20177] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
-    [20178] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
-    [20179] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
-    [20180] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
-
     -- WAIST - Defiler's Lamellar Girdle (Paladin)
-    [20181] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
-    [20182] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
-    [20183] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
-    [20184] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20177] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20178] = { slot = "WAIST", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20179] = { slot = "WAIST", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+    [20180] = { slot = "WAIST", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Girdle" },
+
+    -- FEET - Defiler's Lamellar Greaves (Paladin)
+    [20181] = { slot = "FEET", class = nil, honor = 2805, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+    [20182] = { slot = "FEET", class = nil, honor = 382, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+    [20183] = { slot = "FEET", class = nil, honor = 258, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
+    [20184] = { slot = "FEET", class = nil, honor = 175, arena = 0, marks = { AB = 2 }, season = "PREPATCH", name = "Defiler's Lamellar Greaves" },
 
     -- SHOULDER - Defiler's Lamellar Spaulders (Paladin)
     [20185] = { slot = "SHOULDER", class = nil, honor = 8415, arena = 0, marks = { AB = 4 }, season = "PREPATCH", name = "Defiler's Lamellar Spaulders" },
@@ -1069,6 +1084,29 @@ HonorLog.GearDB = {
 
     --[[
     ============================================================================
+    AV REPUTATION REWARDS - Alliance (Stormpike Guard)
+    ============================================================================
+    --]]
+
+    -- TABARD
+    [19032] = { slot = "TABARD", class = nil, honor = 0, arena = 0, marks = { AV = 60 }, season = "PREPATCH", name = "Stormpike Battle Tabard" },
+
+    -- BACK - Cloaks
+    [19084] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Stormpike Soldier's Cloak" },
+    [19086] = { slot = "BACK", class = nil, honor = 1530, arena = 0, marks = { AV = 1 }, season = "PREPATCH", name = "Stormpike Sage's Cloak" },
+
+    -- NECK - Pendants
+    [19097] = { slot = "NECK", class = nil, honor = 1530, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Stormpike Soldier's Pendant" },
+    [19098] = { slot = "NECK", class = nil, honor = 1530, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Stormpike Sage's Pendant" },
+
+    -- WAIST - Girdles (all armor types)
+    [19091] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Stormpike Plate Girdle" },
+    [19092] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Stormpike Mail Girdle" },
+    [19093] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Stormpike Leather Girdle" },
+    [19094] = { slot = "WAIST", class = nil, honor = 2805, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Stormpike Cloth Girdle" },
+
+    --[[
+    ============================================================================
     AV REPUTATION REWARDS - Horde (Frostwolf)
     ============================================================================
     --]]
@@ -1113,6 +1151,505 @@ HonorLog.GearDB = {
     [19311] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Tome of Fiery Arcana" },
     [19312] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Lei of the Lifegiver" },
     [19315] = { slot = "OFF_HAND", class = nil, honor = 4760, arena = 0, marks = { AV = 2 }, season = "PREPATCH", name = "Therazane's Touch" },
+
+    --[[
+    ============================================================================
+    TBC LEVEL 70 RARE (BLUE) HONOR GEAR - HONOR70 SEASON
+    Grand Marshal (Alliance) / High Warlord (Horde) sets
+    Available at TBC launch before Arena Season 1 begins
+    Item IDs from AtlasLoot ItemSet.lua
+    ============================================================================
+    --]]
+
+    -- ==========================================
+    -- WARRIOR - Grand Marshal's Battlegear (Alliance) - Set 590
+    -- AtlasLoot order: {28701,28703,28699,28700,28702} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28701] = { slot = "HEAD", class = "WARRIOR", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Plate Helm" },
+    [28703] = { slot = "SHOULDER", class = "WARRIOR", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Plate Shoulders" },
+    [28699] = { slot = "CHEST", class = "WARRIOR", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Plate Chestpiece" },
+    [28700] = { slot = "HANDS", class = "WARRIOR", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Plate Gauntlets" },
+    [28702] = { slot = "LEGS", class = "WARRIOR", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Plate Legguards" },
+
+    -- WARRIOR - High Warlord's Battlegear (Horde) - Set 588
+    -- AtlasLoot order: {28853,28855,28851,28852,28854} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28853] = { slot = "HEAD", class = "WARRIOR", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Plate Helm" },
+    [28855] = { slot = "SHOULDER", class = "WARRIOR", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Plate Shoulders" },
+    [28851] = { slot = "CHEST", class = "WARRIOR", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Plate Chestpiece" },
+    [28852] = { slot = "HANDS", class = "WARRIOR", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Plate Gauntlets" },
+    [28854] = { slot = "LEGS", class = "WARRIOR", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Plate Legguards" },
+
+    -- ==========================================
+    -- PALADIN - Grand Marshal's Aegis (Alliance) - Set 589
+    -- AtlasLoot order: {28681,28683,28679,28680,28724} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28681] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Lamellar Helm" },
+    [28683] = { slot = "SHOULDER", class = "PALADIN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Lamellar Shoulders" },
+    [28679] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Lamellar Chestpiece" },
+    [28680] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Lamellar Gauntlets" },
+    [28724] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Lamellar Legguards" },
+
+    -- PALADIN - High Warlord's Aegis (Horde) - Set 587
+    -- AtlasLoot order: {28833,28835,28831,28832,28834} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28833] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Lamellar Helm" },
+    [28835] = { slot = "SHOULDER", class = "PALADIN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Lamellar Shoulders" },
+    [28831] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Lamellar Chestpiece" },
+    [28832] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Lamellar Gauntlets" },
+    [28834] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Lamellar Legguards" },
+
+    -- PALADIN - Grand Marshal's Vindication (Alliance) - Set 607
+    -- AtlasLoot order: {28711,28713,28709,28710,28712} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28711] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Ornamented Headcover" },
+    [28713] = { slot = "SHOULDER", class = "PALADIN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Ornamented Spaulders" },
+    [28709] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Ornamented Chestplate" },
+    [28710] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Ornamented Gloves" },
+    [28712] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Ornamented Leggings" },
+
+    -- PALADIN - High Warlord's Vindication (Horde) - Set 608
+    -- AtlasLoot order: {28863,28865,28861,28862,28864} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28863] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Ornamented Headcover" },
+    [28865] = { slot = "SHOULDER", class = "PALADIN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Ornamented Spaulders" },
+    [28861] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Ornamented Chestplate" },
+    [28862] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Ornamented Gloves" },
+    [28864] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Ornamented Leggings" },
+
+    -- PALADIN - Grand Marshal's Redemption (Alliance) - Set 693
+    -- AtlasLoot order: {31632,31634,31630,31631,31633} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31632] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Scaled Helm" },
+    [31634] = { slot = "SHOULDER", class = "PALADIN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Scaled Shoulders" },
+    [31630] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Scaled Chestpiece" },
+    [31631] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Scaled Gauntlets" },
+    [31633] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Scaled Legguards" },
+
+    -- PALADIN - High Warlord's Redemption (Horde) - Set 694
+    -- AtlasLoot order: {31637,31639,31635,31636,31638} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31637] = { slot = "HEAD", class = "PALADIN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Scaled Helm" },
+    [31639] = { slot = "SHOULDER", class = "PALADIN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Scaled Shoulders" },
+    [31635] = { slot = "CHEST", class = "PALADIN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Scaled Chestpiece" },
+    [31636] = { slot = "HANDS", class = "PALADIN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Scaled Gauntlets" },
+    [31638] = { slot = "LEGS", class = "PALADIN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Scaled Legguards" },
+
+    -- ==========================================
+    -- HUNTER - Grand Marshal's Pursuit (Alliance) - Set 595
+    -- AtlasLoot order: {28615,28617,28613,28614,28616} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28615] = { slot = "HEAD", class = "HUNTER", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Chain Helm" },
+    [28617] = { slot = "SHOULDER", class = "HUNTER", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Chain Spaulders" },
+    [28613] = { slot = "CHEST", class = "HUNTER", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Chain Armor" },
+    [28614] = { slot = "HANDS", class = "HUNTER", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Chain Gauntlets" },
+    [28616] = { slot = "LEGS", class = "HUNTER", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Chain Leggings" },
+
+    -- HUNTER - High Warlord's Pursuit (Horde) - Set 596
+    -- AtlasLoot order: {28807,28809,28805,28806,28808} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28807] = { slot = "HEAD", class = "HUNTER", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Chain Helm" },
+    [28809] = { slot = "SHOULDER", class = "HUNTER", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Chain Spaulders" },
+    [28805] = { slot = "CHEST", class = "HUNTER", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Chain Armor" },
+    [28806] = { slot = "HANDS", class = "HUNTER", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Chain Gauntlets" },
+    [28808] = { slot = "LEGS", class = "HUNTER", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Chain Leggings" },
+
+    -- ==========================================
+    -- ROGUE - Grand Marshal's Vestments (Alliance) - Set 605
+    -- AtlasLoot order: {28685,28687,28688,28684,28686} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28685] = { slot = "HEAD", class = "ROGUE", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Leather Helm" },
+    [28687] = { slot = "SHOULDER", class = "ROGUE", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Leather Spaulders" },
+    [28688] = { slot = "CHEST", class = "ROGUE", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Leather Tunic" },
+    [28684] = { slot = "HANDS", class = "ROGUE", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Leather Gloves" },
+    [28686] = { slot = "LEGS", class = "ROGUE", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Leather Legguards" },
+
+    -- ROGUE - High Warlord's Vestments (Horde) - Set 606
+    -- AtlasLoot order: {28837,28839,28840,28836,28838} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28837] = { slot = "HEAD", class = "ROGUE", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Leather Helm" },
+    [28839] = { slot = "SHOULDER", class = "ROGUE", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Leather Spaulders" },
+    [28840] = { slot = "CHEST", class = "ROGUE", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Leather Tunic" },
+    [28836] = { slot = "HANDS", class = "ROGUE", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Leather Gloves" },
+    [28838] = { slot = "LEGS", class = "ROGUE", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Leather Legguards" },
+
+    -- ==========================================
+    -- PRIEST - Grand Marshal's Raiment (Alliance) - Set 597
+    -- AtlasLoot order: {28705,28707,28708,28704,28706} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28705] = { slot = "HEAD", class = "PRIEST", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Satin Hood" },
+    [28707] = { slot = "SHOULDER", class = "PRIEST", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Satin Mantle" },
+    [28708] = { slot = "CHEST", class = "PRIEST", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Satin Robe" },
+    [28704] = { slot = "HANDS", class = "PRIEST", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Satin Gloves" },
+    [28706] = { slot = "LEGS", class = "PRIEST", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Satin Leggings" },
+
+    -- PRIEST - High Warlord's Raiment (Horde) - Set 598
+    -- AtlasLoot order: {28857,28859,28860,28856,28858} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28857] = { slot = "HEAD", class = "PRIEST", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Satin Hood" },
+    [28859] = { slot = "SHOULDER", class = "PRIEST", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Satin Mantle" },
+    [28860] = { slot = "CHEST", class = "PRIEST", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Satin Robe" },
+    [28856] = { slot = "HANDS", class = "PRIEST", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Satin Gloves" },
+    [28858] = { slot = "LEGS", class = "PRIEST", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Satin Leggings" },
+
+    -- PRIEST - Grand Marshal's Investiture (Alliance) - Set 691
+    -- AtlasLoot order: {31622,31624,31625,31620,31623} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31622] = { slot = "HEAD", class = "PRIEST", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Mooncloth Cowl" },
+    [31624] = { slot = "SHOULDER", class = "PRIEST", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Mooncloth Mantle" },
+    [31625] = { slot = "CHEST", class = "PRIEST", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Mooncloth Robe" },
+    [31620] = { slot = "HANDS", class = "PRIEST", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Mooncloth Gloves" },
+    [31623] = { slot = "LEGS", class = "PRIEST", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Mooncloth Leggings" },
+
+    -- PRIEST - High Warlord's Investiture (Horde) - Set 692
+    -- AtlasLoot order: {31626,31628,31629,31621,31627} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31626] = { slot = "HEAD", class = "PRIEST", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Mooncloth Cowl" },
+    [31628] = { slot = "SHOULDER", class = "PRIEST", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Mooncloth Mantle" },
+    [31629] = { slot = "CHEST", class = "PRIEST", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Mooncloth Robe" },
+    [31621] = { slot = "HANDS", class = "PRIEST", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Mooncloth Gloves" },
+    [31627] = { slot = "LEGS", class = "PRIEST", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Mooncloth Leggings" },
+
+    -- ==========================================
+    -- SHAMAN - Grand Marshal's Earthshaker (Alliance) - Set 593
+    -- AtlasLoot order: {28691,28693,28689,28690,28692} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28691] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Helm" },
+    [28693] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Spaulders" },
+    [28689] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Armor" },
+    [28690] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Gauntlets" },
+    [28692] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Leggings" },
+
+    -- SHAMAN - High Warlord's Earthshaker (Horde) - Set 594
+    -- AtlasLoot order: {28843,28845,28841,28842,28844} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28843] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Linked Helm" },
+    [28845] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Linked Spaulders" },
+    [28841] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Linked Armor" },
+    [28842] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Linked Gauntlets" },
+    [28844] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Linked Leggings" },
+
+    -- SHAMAN - Grand Marshal's Thunderfist (Alliance) - Set 603
+    -- AtlasLoot order: {28696,28698,28694,28695,28697} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28696] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Helm" },
+    [28698] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Spaulders" },
+    [28694] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Armor" },
+    [28695] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Gauntlets" },
+    [28697] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Leggings" },
+
+    -- SHAMAN - High Warlord's Thunderfist (Horde) - Set 604
+    -- AtlasLoot order: {28848,28850,28846,28847,28849} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28848] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Mail Helm" },
+    [28850] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Mail Spaulders" },
+    [28846] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Mail Armor" },
+    [28847] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Mail Gauntlets" },
+    [28849] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Mail Leggings" },
+
+    -- SHAMAN - Grand Marshal's Wartide (Alliance) - Set 695
+    -- AtlasLoot order: {31642,31644,31640,31641,31643} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31642] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Headpiece" },
+    [31644] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Shoulders" },
+    [31640] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Chestguard" },
+    [31641] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Gloves" },
+    [31643] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Legguards" },
+
+    -- SHAMAN - High Warlord's Wartide (Horde) - Set 696
+    -- AtlasLoot order: {31648,31650,31646,31647,31649} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31648] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Ringmail Headpiece" },
+    [31650] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Ringmail Shoulders" },
+    [31646] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Ringmail Chestguard" },
+    [31647] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Ringmail Gloves" },
+    [31649] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Ringmail Legguards" },
+
+    -- ==========================================
+    -- MAGE - Grand Marshal's Regalia (Alliance) - Set 599
+    -- AtlasLoot order: {28715,28714,28717,28716,28718} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28715] = { slot = "HEAD", class = "MAGE", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Silk Cowl" },
+    [28714] = { slot = "SHOULDER", class = "MAGE", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Silk Amice" },
+    [28717] = { slot = "CHEST", class = "MAGE", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Silk Raiment" },
+    [28716] = { slot = "HANDS", class = "MAGE", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Silk Handguards" },
+    [28718] = { slot = "LEGS", class = "MAGE", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Silk Trousers" },
+
+    -- MAGE - High Warlord's Regalia (Horde) - Set 600
+    -- AtlasLoot order: {28867,28866,28869,28868,28870} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28867] = { slot = "HEAD", class = "MAGE", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Silk Cowl" },
+    [28866] = { slot = "SHOULDER", class = "MAGE", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Silk Amice" },
+    [28869] = { slot = "CHEST", class = "MAGE", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Silk Raiment" },
+    [28868] = { slot = "HANDS", class = "MAGE", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Silk Handguards" },
+    [28870] = { slot = "LEGS", class = "MAGE", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Silk Trousers" },
+
+    -- ==========================================
+    -- WARLOCK - Grand Marshal's Dreadgear (Alliance) - Set 591
+    -- AtlasLoot order: {28625,28627,28628,28624,28626} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28625] = { slot = "HEAD", class = "WARLOCK", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Dreadweave Hood" },
+    [28627] = { slot = "SHOULDER", class = "WARLOCK", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Dreadweave Mantle" },
+    [28628] = { slot = "CHEST", class = "WARLOCK", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Dreadweave Robe" },
+    [28624] = { slot = "HANDS", class = "WARLOCK", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Dreadweave Gloves" },
+    [28626] = { slot = "LEGS", class = "WARLOCK", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Dreadweave Leggings" },
+
+    -- WARLOCK - High Warlord's Dreadgear (Horde) - Set 592
+    -- AtlasLoot order: {28818,28820,28821,28817,28819} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28818] = { slot = "HEAD", class = "WARLOCK", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Dreadweave Hood" },
+    [28820] = { slot = "SHOULDER", class = "WARLOCK", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Dreadweave Mantle" },
+    [28821] = { slot = "CHEST", class = "WARLOCK", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Dreadweave Robe" },
+    [28817] = { slot = "HANDS", class = "WARLOCK", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Dreadweave Gloves" },
+    [28819] = { slot = "LEGS", class = "WARLOCK", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Dreadweave Leggings" },
+
+    -- ==========================================
+    -- DRUID - Grand Marshal's Sanctuary (Alliance) - Feral - Set 601
+    -- AtlasLoot order: {28619,28622,28623,28618,28620} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    -- ==========================================
+    [28619] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Dragonhide Helm" },
+    [28622] = { slot = "SHOULDER", class = "DRUID", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Dragonhide Spaulders" },
+    [28623] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Dragonhide Tunic" },
+    [28618] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Dragonhide Gloves" },
+    [28620] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Dragonhide Legguards" },
+
+    -- DRUID - High Warlord's Sanctuary (Horde) - Feral - Set 602
+    -- AtlasLoot order: {28812,28814,28815,28811,28813} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28812] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Dragonhide Helm" },
+    [28814] = { slot = "SHOULDER", class = "DRUID", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Dragonhide Spaulders" },
+    [28815] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Dragonhide Tunic" },
+    [28811] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Dragonhide Gloves" },
+    [28813] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Dragonhide Legguards" },
+
+    -- DRUID - Grand Marshal's Wildhide (Alliance) - Balance - Set 609
+    -- AtlasLoot order: {28720,28722,28723,28719,28721} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28720] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Wyrmhide Helm" },
+    [28722] = { slot = "SHOULDER", class = "DRUID", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Wyrmhide Spaulders" },
+    [28723] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Wyrmhide Tunic" },
+    [28719] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Wyrmhide Gloves" },
+    [28721] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Wyrmhide Legguards" },
+
+    -- DRUID - High Warlord's Wildhide (Horde) - Balance - Set 610
+    -- AtlasLoot order: {28872,28874,28875,28871,28873} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [28872] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Wyrmhide Helm" },
+    [28874] = { slot = "SHOULDER", class = "DRUID", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Wyrmhide Spaulders" },
+    [28875] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Wyrmhide Tunic" },
+    [28871] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Wyrmhide Gloves" },
+    [28873] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Wyrmhide Legguards" },
+
+    -- DRUID - Grand Marshal's Refuge (Alliance) - Restoration - Set 688
+    -- AtlasLoot order: {31590,31592,31593,31589,31591} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31590] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Kodohide Helm" },
+    [31592] = { slot = "SHOULDER", class = "DRUID", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Kodohide Spaulders" },
+    [31593] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Kodohide Tunic" },
+    [31589] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Kodohide Gloves" },
+    [31591] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Kodohide Legguards" },
+
+    -- DRUID - High Warlord's Refuge (Horde) - Restoration - Set 689
+    -- AtlasLoot order: {31585,31587,31588,31584,31586} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
+    [31585] = { slot = "HEAD", class = "DRUID", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Kodohide Helm" },
+    [31587] = { slot = "SHOULDER", class = "DRUID", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Kodohide Spaulders" },
+    [31588] = { slot = "CHEST", class = "DRUID", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Kodohide Tunic" },
+    [31584] = { slot = "HANDS", class = "DRUID", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Kodohide Gloves" },
+    [31586] = { slot = "LEGS", class = "DRUID", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Kodohide Legguards" },
+
+    -- ==========================================
+    -- HONOR70 WEAPONS - Grand Marshal's (Alliance)
+    -- ==========================================
+
+    -- One-Handed Daggers
+    [28954] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Shanker" },
+    [28955] = { slot = "OFF_HAND", class = nil, honor = 9178, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Shiv" },
+
+    -- One-Handed Maces
+    [28951] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Pummeler" },
+    [28950] = { slot = "ONE_HAND", class = nil, honor = 17850, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Bonecracker" },
+
+    -- One-Handed Swords
+    [28956] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Slicer" },
+    [28952] = { slot = "ONE_HAND", class = nil, honor = 17850, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Quickblade" },
+
+    -- One-Handed Axes
+    [28944] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Cleaver" },
+    [28946] = { slot = "ONE_HAND", class = nil, honor = 17850, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Hacker" },
+
+    -- One-Handed Fist Weapons
+    [28953] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Right Ripper" },
+    [28947] = { slot = "OFF_HAND", class = nil, honor = 9178, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Left Ripper" },
+
+    -- Caster One-Hand
+    [28957] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Spellblade" },
+
+    -- Two-Handed Swords
+    [28943] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "Grand Marshal's Warblade" },
+
+    -- Two-Handed Axes
+    [28945] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "Grand Marshal's Decapitator" },
+
+    -- Two-Handed Maces
+    [28942] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "Grand Marshal's Bonegrinder" },
+    [28948] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "Grand Marshal's Maul" },
+
+    -- Polearms
+    [28949] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "Grand Marshal's Painsaw" },
+
+    -- Staves
+    [28959] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "Grand Marshal's War Staff" },
+
+    -- Ranged
+    [28960] = { slot = "RANGED", class = nil, honor = 17850, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Heavy Crossbow" },
+
+    -- Off-Hand
+    [28940] = { slot = "OFF_HAND", class = nil, honor = 15300, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Barricade" },
+    [28941] = { slot = "OFF_HAND", class = nil, honor = 9199, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Battletome" },
+
+    -- ==========================================
+    -- HONOR70 WEAPONS - High Warlord's (Horde)
+    -- ==========================================
+
+    -- One-Handed Daggers
+    [28929] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Shanker" },
+    [28930] = { slot = "OFF_HAND", class = nil, honor = 9178, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Shiv" },
+
+    -- One-Handed Maces
+    [28925] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Pummeler" },
+    [28924] = { slot = "ONE_HAND", class = nil, honor = 17850, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Bonecracker" },
+
+    -- One-Handed Swords
+    [28937] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Slicer" },
+    [28926] = { slot = "ONE_HAND", class = nil, honor = 17850, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Quickblade" },
+
+    -- One-Handed Axes
+    [28920] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Cleaver" },
+    [28921] = { slot = "ONE_HAND", class = nil, honor = 17850, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Hacker" },
+
+    -- One-Handed Fist Weapons
+    [28928] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Right Ripper" },
+    [28922] = { slot = "OFF_HAND", class = nil, honor = 9178, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Left Ripper" },
+
+    -- Caster One-Hand
+    [28931] = { slot = "MAIN_HAND", class = nil, honor = 17850, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "High Warlord's Spellblade" },
+
+    -- Two-Handed Swords
+    [28293] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "High Warlord's Claymore" },
+
+    -- Two-Handed Axes
+    [28918] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "High Warlord's Decapitator" },
+
+    -- Two-Handed Maces
+    [28917] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "High Warlord's Bonegrinder" },
+    [28919] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "High Warlord's Maul" },
+
+    -- Polearms
+    [28923] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "High Warlord's Painsaw" },
+
+    -- Staves
+    [28935] = { slot = "TWO_HAND", class = nil, honor = 38250, arena = 0, marks = { EotS = 40 }, season = "HONOR70", name = "High Warlord's War Staff" },
+
+    -- Ranged
+    [28933] = { slot = "RANGED", class = nil, honor = 17850, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "High Warlord's Heavy Crossbow" },
+
+    -- Off-Hand
+    [28939] = { slot = "OFF_HAND", class = nil, honor = 15300, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "High Warlord's Barricade" },
+    [28938] = { slot = "OFF_HAND", class = nil, honor = 9199, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "High Warlord's Battletome" },
+
+    -- ==========================================
+    -- HONOR70 OFF-PIECES - Veteran's Gear
+    -- ==========================================
+
+    -- Neck (Pendants) - All classes
+    [33066] = { slot = "NECK", class = nil, honor = 15300, arena = 0, marks = { EotS = 10 }, season = "HONOR70", name = "Veteran's Pendant of Triumph" },
+    [33068] = { slot = "NECK", class = nil, honor = 15300, arena = 0, marks = { EotS = 10 }, season = "HONOR70", name = "Veteran's Pendant of Salvation" },
+    [33065] = { slot = "NECK", class = nil, honor = 15300, arena = 0, marks = { EotS = 10 }, season = "HONOR70", name = "Veteran's Pendant of Dominance" },
+    [33067] = { slot = "NECK", class = nil, honor = 15300, arena = 0, marks = { EotS = 10 }, season = "HONOR70", name = "Veteran's Pendant of Conquest" },
+
+    -- Rings (Bands) - All classes
+    [33057] = { slot = "FINGER", class = nil, honor = 10500, arena = 0, marks = { AV = 10 }, season = "HONOR70", name = "Veteran's Band of Triumph" },
+    [33064] = { slot = "FINGER", class = nil, honor = 10500, arena = 0, marks = { AV = 10 }, season = "HONOR70", name = "Veteran's Band of Salvation" },
+    [33056] = { slot = "FINGER", class = nil, honor = 10500, arena = 0, marks = { AV = 10 }, season = "HONOR70", name = "Veteran's Band of Dominance" },
+
+    -- ==========================================
+    -- CLOTH OFF-PIECES
+    -- ==========================================
+
+    -- Mage - Veteran's Silk
+    [32820] = { slot = "WRIST", class = "MAGE", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Silk Cuffs" },
+    [32807] = { slot = "WAIST", class = "MAGE", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Silk Belt" },
+    [32795] = { slot = "FEET", class = "MAGE", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Silk Footguards" },
+
+    -- Warlock - Veteran's Dreadweave
+    [32811] = { slot = "WRIST", class = "WARLOCK", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Dreadweave Cuffs" },
+    [32799] = { slot = "WAIST", class = "WARLOCK", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Dreadweave Belt" },
+    [32787] = { slot = "FEET", class = "WARLOCK", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Dreadweave Stalkers" },
+
+    -- Priest - Veteran's Mooncloth
+    [32980] = { slot = "WRIST", class = "PRIEST", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Mooncloth Cuffs" },
+    [32979] = { slot = "WAIST", class = "PRIEST", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Mooncloth Belt" },
+    [32981] = { slot = "FEET", class = "PRIEST", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Mooncloth Slippers" },
+
+    -- ==========================================
+    -- LEATHER OFF-PIECES
+    -- ==========================================
+
+    -- Druid Feral - Veteran's Dragonhide
+    [32810] = { slot = "WRIST", class = "DRUID", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Dragonhide Bracers" },
+    [32798] = { slot = "WAIST", class = "DRUID", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Dragonhide Belt" },
+    [32786] = { slot = "FEET", class = "DRUID", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Dragonhide Boots" },
+
+    -- Rogue - Veteran's Leather
+    [32814] = { slot = "WRIST", class = "ROGUE", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Leather Bracers" },
+    [32802] = { slot = "WAIST", class = "ROGUE", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Leather Belt" },
+    [32790] = { slot = "FEET", class = "ROGUE", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Leather Boots" },
+
+    -- Druid Resto - Veteran's Kodohide
+    [32812] = { slot = "WRIST", class = "DRUID", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Kodohide Bracers" },
+    [32800] = { slot = "WAIST", class = "DRUID", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Kodohide Belt" },
+    [32788] = { slot = "FEET", class = "DRUID", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Kodohide Boots" },
+
+    -- Druid Balance - Veteran's Wyrmhide
+    [32821] = { slot = "WRIST", class = "DRUID", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Wyrmhide Bracers" },
+    [32808] = { slot = "WAIST", class = "DRUID", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Wyrmhide Belt" },
+    [32796] = { slot = "FEET", class = "DRUID", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Wyrmhide Boots" },
+
+    -- ==========================================
+    -- MAIL OFF-PIECES
+    -- ==========================================
+
+    -- Shaman Enhancement - Veteran's Ringmail
+    [32997] = { slot = "WRIST", class = "SHAMAN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Ringmail Bracers" },
+    [32998] = { slot = "WAIST", class = "SHAMAN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Ringmail Girdle" },
+    [32999] = { slot = "FEET", class = "SHAMAN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Ringmail Sabatons" },
+
+    -- Hunter - Veteran's Mail
+    [32817] = { slot = "WRIST", class = "HUNTER", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Mail Bracers" },
+    [32804] = { slot = "WAIST", class = "HUNTER", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Mail Girdle" },
+    [32792] = { slot = "FEET", class = "HUNTER", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Mail Sabatons" },
+
+    -- Shaman Elemental - Veteran's Linked
+    [32816] = { slot = "WRIST", class = "SHAMAN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Linked Bracers" },
+    [32803] = { slot = "WAIST", class = "SHAMAN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Linked Girdle" },
+    [32791] = { slot = "FEET", class = "SHAMAN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Linked Sabatons" },
+
+    -- Shaman Resto - Veteran's Chain
+    [32809] = { slot = "WRIST", class = "SHAMAN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Chain Bracers" },
+    [32797] = { slot = "WAIST", class = "SHAMAN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Chain Girdle" },
+    [32785] = { slot = "FEET", class = "SHAMAN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Chain Sabatons" },
+
+    -- ==========================================
+    -- PLATE OFF-PIECES
+    -- ==========================================
+
+    -- Paladin Retribution - Veteran's Scaled
+    [32819] = { slot = "WRIST", class = "PALADIN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Scaled Bracers" },
+    [32806] = { slot = "WAIST", class = "PALADIN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Scaled Belt" },
+    [32794] = { slot = "FEET", class = "PALADIN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Scaled Greaves" },
+
+    -- Warrior - Veteran's Plate
+    [32818] = { slot = "WRIST", class = "WARRIOR", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Plate Bracers" },
+    [32805] = { slot = "WAIST", class = "WARRIOR", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Plate Belt" },
+    [32793] = { slot = "FEET", class = "WARRIOR", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Plate Greaves" },
+
+    -- Paladin Holy - Veteran's Ornamented
+    [32989] = { slot = "WRIST", class = "PALADIN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Ornamented Bracers" },
+    [32988] = { slot = "WAIST", class = "PALADIN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Ornamented Belt" },
+    [32990] = { slot = "FEET", class = "PALADIN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Ornamented Greaves" },
+
+    -- Paladin Protection - Veteran's Lamellar
+    [32813] = { slot = "WRIST", class = "PALADIN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Lamellar Bracers" },
+    [32801] = { slot = "WAIST", class = "PALADIN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Lamellar Belt" },
+    [32789] = { slot = "FEET", class = "PALADIN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Lamellar Greaves" },
+
+    -- ==========================================
+    -- HONOR70 TRINKETS - Medallions
+    -- ==========================================
+
+    -- Alliance Medallions (PvP Trinket)
+    [37864] = { slot = "TRINKET", class = nil, honor = 40000, arena = 0, marks = {}, season = "HONOR70", name = "Medallion of the Alliance" },
+
+    -- Horde Medallions (PvP Trinket)
+    [37865] = { slot = "TRINKET", class = nil, honor = 40000, arena = 0, marks = {}, season = "HONOR70", name = "Medallion of the Horde" },
 
 }
 

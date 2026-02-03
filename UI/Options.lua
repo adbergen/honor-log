@@ -224,12 +224,12 @@ function HonorLog:InitializeOptions()
         self.db.settings.visibleCards = { AV = true, AB = true, WSG = true, EotS = true, World = true }
     end
 
-    -- Card checkboxes (EotS hidden until TBC launch)
+    -- Card checkboxes
     local cardData = {
         { key = "AV", label = "Alterac Valley" },
         { key = "AB", label = "Arathi Basin" },
         { key = "WSG", label = "Warsong Gulch" },
-        -- { key = "EotS", label = "Eye of the Storm" }, -- Hidden until TBC launch
+        { key = "EotS", label = "Eye of the Storm" },
         { key = "World", label = "World PvP" },
     }
 

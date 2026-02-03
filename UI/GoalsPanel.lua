@@ -30,6 +30,7 @@ end
 --------------------------------------------------------------------------------
 local Layout = HonorLog.Layout
 local PADDING = Layout.PADDING
+local FRAME_WIDTH = Layout.FRAME_WIDTH
 local GOAL_CARD_HEIGHT = Layout.GOAL_CARD_HEIGHT
 local GOAL_CARD_SPACING = Layout.GOAL_CARD_SPACING
 local TAB_WIDTH = Layout.TAB_WIDTH
@@ -1140,18 +1141,23 @@ local function CreateGoalsPanel(parent)
     -- Scroll frame for goals (handles overflow when frame is resized)
     local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 0, -4)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 46) -- Leave room for totals bar (36px at y=4) + padding
+    scrollFrame:SetPoint("BOTTOMRIGHT", -22, 46)  -- Match Stats panel
     panel.scrollFrame = scrollFrame
 
-    -- Hide scroll bar when not needed
+    -- Style scroll bar to match dark theme
     local scrollBar = scrollFrame.ScrollBar or _G[scrollFrame:GetName() .. "ScrollBar"]
     if scrollBar then
-        scrollBar:SetAlpha(0.6)
+        scrollBar:SetAlpha(0.5)
+        -- Darken scrollbar track background
+        local track = scrollBar.Track or scrollBar:GetChildren()
+        if track and track.SetAlpha then
+            track:SetAlpha(0.3)
+        end
     end
 
     -- Goals container (scroll content)
     local goalsContainer = CreateFrame("Frame", nil, scrollFrame)
-    goalsContainer:SetWidth(260) -- Will be updated dynamically
+    goalsContainer:SetWidth(FRAME_WIDTH - 22)  -- Match Stats panel
     scrollFrame:SetScrollChild(goalsContainer)
     panel.goalsContainer = goalsContainer
 
@@ -1165,7 +1171,7 @@ local function CreateGoalsPanel(parent)
             local card = CreateGoalCard(self.goalsContainer, index)
             local yOffset = -((index - 1) * (GOAL_CARD_HEIGHT + GOAL_CARD_SPACING))
             card:SetPoint("TOPLEFT", PADDING, yOffset)
-            card:SetPoint("TOPRIGHT", -PADDING, yOffset)
+            card:SetPoint("TOPRIGHT", -PADDING, yOffset)  -- Match Stats panel
             card.currentAnimY = yOffset  -- Initialize animation tracking
             card:Hide()
 
@@ -1209,9 +1215,8 @@ local function CreateGoalsPanel(parent)
 
     -- Function to update scroll content width
     function panel:UpdateScrollWidth()
-        local panelWidth = self:GetWidth()
-        if self.goalsContainer and panelWidth > 22 then
-            self.goalsContainer:SetWidth(panelWidth - 22)
+        if self.goalsContainer then
+            self.goalsContainer:SetWidth(FRAME_WIDTH - 22)  -- Match Stats panel
         end
     end
 
@@ -2390,8 +2395,8 @@ local function CreateGoalPicker()
         UIDropDownMenu_AddButton(info, level)
 
         -- Only show non-archived seasons
-        local seasons = { "PREPATCH", "S1", "S2", "S3", "S4" }
-        local seasonNames = { "Prepatch", "Season 1", "Season 2", "Season 3", "Season 4" }
+        local seasons = { "PREPATCH", "HONOR70", "S1", "S2", "S3", "S4" }
+        local seasonNames = { "Prepatch", "Level 70 Honor", "Season 1", "Season 2", "Season 3", "Season 4" }
         for i, season in ipairs(seasons) do
             -- Skip archived seasons
             if HonorLog:IsSeasonAvailable(season) then
