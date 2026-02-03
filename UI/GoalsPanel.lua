@@ -1001,7 +1001,7 @@ local function CreateGoalCard(parent, index)
                             end
                         end
                         if #animParts > 0 then
-                            currencyLine:SetText(table.concat(animParts, "  |cff666666·|r  "))
+                            currencyLine:SetText(table.concat(animParts, " |cff666666·|r "))
                         end
 
                         -- Animate color based on current percentage
@@ -1087,7 +1087,7 @@ local function CreateGoalCard(parent, index)
 
         -- Currency line (formatted nicely)
         if #parts > 0 then
-            self.currencyLine:SetText(table.concat(parts, "  |cff666666·|r  "))
+            self.currencyLine:SetText(table.concat(parts, " |cff666666·|r "))
         else
             self.currencyLine:SetText("|cff40d860Ready to purchase!|r")
         end
@@ -1253,6 +1253,23 @@ local function CreateGoalsPanel(parent)
     totalsBar:SetBackdropColor(0.08, 0.15, 0.20, 0.9) -- Match Today panel
     totalsBar:SetBackdropBorderColor(unpack(COLORS.accentDim)) -- Match Today panel
     panel.totalsBar = totalsBar
+
+    -- Tooltip for games estimate
+    totalsBar:EnableMouse(true)
+    totalsBar:SetScript("OnEnter", function(self)
+        local games = panel.totalGamesNeeded or 0
+        if games > 0 then
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText("Estimated Games Remaining", 1, 0.82, 0)
+            GameTooltip:AddLine(string.format("%d games to complete all active goals", games), 1, 1, 1)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Based on your average honor and marks per game.", 0.7, 0.7, 0.7)
+            GameTooltip:Show()
+        end
+    end)
+    totalsBar:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
 
     -- "Total:" label (matches Today: label styling)
     local totalsLabel = totalsBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1842,12 +1859,12 @@ local function CreateGoalsPanel(parent)
             -- Update scroll content height
             self.goalsContainer:SetHeight(contentHeight)
 
-            -- Calculate totals from all goals
-            -- Sum up what's NEEDED from each goal
+            -- Calculate totals from ACTIVE goals
             local totalHonorNeeded = 0
             local totalArenaNeeded = 0
             local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
 
+            local totalGamesNeeded = 0
             for _, goal in ipairs(goals) do
                 if goal.honor.needed > 0 then
                     totalHonorNeeded = totalHonorNeeded + goal.honor.needed
@@ -1860,9 +1877,15 @@ local function CreateGoalsPanel(parent)
                         totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
                     end
                 end
+                -- Sum games needed for all active goals
+                if goal.totalGamesNeeded and goal.totalGamesNeeded > 0 then
+                    totalGamesNeeded = totalGamesNeeded + goal.totalGamesNeeded
+                end
             end
+            -- Store for tooltip
+            self.totalGamesNeeded = totalGamesNeeded
 
-            -- Get actual player currency (not multiplied per goal)
+            -- Get actual player currency for active goals (capped at what's needed)
             local totalHonorCurrent = math.min(HonorLog:GetCurrentHonor(), totalHonorNeeded)
             local totalArenaCurrent = math.min(HonorLog:GetCurrentArenaPoints(), totalArenaNeeded)
             local totalMarksCurrent = {}
@@ -1870,10 +1893,35 @@ local function CreateGoalsPanel(parent)
                 totalMarksCurrent[bgType] = math.min(HonorLog:GetCurrentMarks(bgType), needed)
             end
 
-            -- Calculate overall progress (weighted average based on total currency needed)
+            -- Include COMPLETED goals at 100% progress (cumulative tracking)
+            local completedHonorTotal = 0
+            local completedArenaTotal = 0
+            local completedMarksTotal = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+
+            for _, completedGoal in ipairs(completedGoals) do
+                local itemData = HonorLog.GearDB and HonorLog.GearDB[completedGoal.itemID]
+                if itemData then
+                    if itemData.honor and itemData.honor > 0 then
+                        completedHonorTotal = completedHonorTotal + itemData.honor
+                    end
+                    if itemData.arena and itemData.arena > 0 then
+                        completedArenaTotal = completedArenaTotal + itemData.arena
+                    end
+                    if itemData.marks then
+                        for bgType, markCount in pairs(itemData.marks) do
+                            if markCount > 0 then
+                                completedMarksTotal[bgType] = completedMarksTotal[bgType] + markCount
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Calculate overall progress (active + completed goals)
             local totalNeeded = 0
             local totalCurrent = 0
 
+            -- Active goals: current progress toward needed
             if totalHonorNeeded > 0 then
                 totalNeeded = totalNeeded + totalHonorNeeded
                 totalCurrent = totalCurrent + totalHonorCurrent
@@ -1884,10 +1932,37 @@ local function CreateGoalsPanel(parent)
             end
             for _, bgType in ipairs(HonorLog.BG_ORDER) do
                 if totalMarksNeeded[bgType] > 0 then
-                    -- Weight marks by 100 to make them comparable to honor values
                     totalNeeded = totalNeeded + (totalMarksNeeded[bgType] * 100)
                     totalCurrent = totalCurrent + (totalMarksCurrent[bgType] * 100)
                 end
+            end
+
+            -- Completed goals: 100% progress (add to both needed AND current)
+            if completedHonorTotal > 0 then
+                totalNeeded = totalNeeded + completedHonorTotal
+                totalCurrent = totalCurrent + completedHonorTotal
+            end
+            if completedArenaTotal > 0 then
+                totalNeeded = totalNeeded + completedArenaTotal
+                totalCurrent = totalCurrent + completedArenaTotal
+            end
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                if completedMarksTotal[bgType] > 0 then
+                    totalNeeded = totalNeeded + (completedMarksTotal[bgType] * 100)
+                    totalCurrent = totalCurrent + (completedMarksTotal[bgType] * 100)
+                end
+            end
+
+            -- Cumulative display values (active progress + completed = 100% done)
+            local displayHonorNeeded = totalHonorNeeded + completedHonorTotal
+            local displayHonorCurrent = totalHonorCurrent + completedHonorTotal
+            local displayArenaNeeded = totalArenaNeeded + completedArenaTotal
+            local displayArenaCurrent = totalArenaCurrent + completedArenaTotal
+            local displayMarksNeeded = {}
+            local displayMarksCurrent = {}
+            for bgType, _ in pairs(totalMarksNeeded) do
+                displayMarksNeeded[bgType] = totalMarksNeeded[bgType] + completedMarksTotal[bgType]
+                displayMarksCurrent[bgType] = totalMarksCurrent[bgType] + completedMarksTotal[bgType]
             end
 
             local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
@@ -1987,29 +2062,32 @@ local function CreateGoalsPanel(parent)
                             glow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
                         end
 
-                        -- Animate currency values from previous to current
+                        -- Animate currency values from previous to current (cumulative including completed)
                         local animParts = {}
-                        if totalHonorNeeded > 0 then
-                            local animHonor = math.floor(startHonor + (totalHonorCurrent - startHonor) * progress)
-                            local color = animHonor >= totalHonorNeeded and "40d860" or "ffd700"
-                            table.insert(animParts, string.format("|cff%s%s/%s|r |cffffd700Honor|r", color, BreakUpLargeNumbers(animHonor), BreakUpLargeNumbers(totalHonorNeeded)))
+                        if displayHonorNeeded > 0 then
+                            -- Add completed total to start value for smooth animation
+                            local animStartHonor = startHonor + completedHonorTotal
+                            local animHonor = math.floor(animStartHonor + (displayHonorCurrent - animStartHonor) * progress)
+                            local color = animHonor >= displayHonorNeeded and "40d860" or "ffd700"
+                            table.insert(animParts, string.format("|cff%s%s/%s|r |cffffd700Honor|r", color, BreakUpLargeNumbers(animHonor), BreakUpLargeNumbers(displayHonorNeeded)))
                         end
-                        if totalArenaNeeded > 0 then
-                            local animArena = math.floor(startArena + (totalArenaCurrent - startArena) * progress)
-                            local color = animArena >= totalArenaNeeded and "40d860" or "aa55ff"
-                            table.insert(animParts, string.format("|cff%s%d/%d|r |cffaa55ffArena|r", color, animArena, totalArenaNeeded))
+                        if displayArenaNeeded > 0 then
+                            local animStartArena = startArena + completedArenaTotal
+                            local animArena = math.floor(animStartArena + (displayArenaCurrent - animStartArena) * progress)
+                            local color = animArena >= displayArenaNeeded and "40d860" or "aa55ff"
+                            table.insert(animParts, string.format("|cff%s%d/%d|r |cffaa55ffArena|r", color, animArena, displayArenaNeeded))
                         end
                         for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                            if totalMarksNeeded[bgType] > 0 then
-                                local prevMark = startMarks[bgType] or 0
-                                local animMarks = math.floor(prevMark + (totalMarksCurrent[bgType] - prevMark) * progress)
-                                local color = animMarks >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
+                            if displayMarksNeeded[bgType] and displayMarksNeeded[bgType] > 0 then
+                                local prevMark = (startMarks[bgType] or 0) + completedMarksTotal[bgType]
+                                local animMarks = math.floor(prevMark + (displayMarksCurrent[bgType] - prevMark) * progress)
+                                local color = animMarks >= displayMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
                                 local icon = BG_ICONS[bgType]
-                                table.insert(animParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, animMarks, totalMarksNeeded[bgType], icon))
+                                table.insert(animParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, animMarks, displayMarksNeeded[bgType], icon))
                             end
                         end
                         if #animParts > 0 then
-                            currencyText:SetText(table.concat(animParts, "  |cff666666·|r  "))
+                            currencyText:SetText(table.concat(animParts, " |cff666666·|r "))
                         end
 
                         -- Update spark position during animation
@@ -2065,26 +2143,26 @@ local function CreateGoalsPanel(parent)
                     self.totalsGlow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
                 end
 
-                -- Build currency totals text directly (no animation)
+                -- Build currency totals text directly (no animation) - cumulative including completed
                 local totalParts = {}
-                if totalHonorNeeded > 0 then
-                    local color = totalHonorCurrent >= totalHonorNeeded and "40d860" or "ffd700"
-                    table.insert(totalParts, string.format("|cff%s%s/%s|r |cffffd700Honor|r", color, BreakUpLargeNumbers(totalHonorCurrent), BreakUpLargeNumbers(totalHonorNeeded)))
+                if displayHonorNeeded > 0 then
+                    local color = displayHonorCurrent >= displayHonorNeeded and "40d860" or "ffd700"
+                    table.insert(totalParts, string.format("|cff%s%s/%s|r |cffffd700Honor|r", color, BreakUpLargeNumbers(displayHonorCurrent), BreakUpLargeNumbers(displayHonorNeeded)))
                 end
-                if totalArenaNeeded > 0 then
-                    local color = totalArenaCurrent >= totalArenaNeeded and "40d860" or "aa55ff"
-                    table.insert(totalParts, string.format("|cff%s%d/%d|r |cffaa55ffArena|r", color, totalArenaCurrent, totalArenaNeeded))
+                if displayArenaNeeded > 0 then
+                    local color = displayArenaCurrent >= displayArenaNeeded and "40d860" or "aa55ff"
+                    table.insert(totalParts, string.format("|cff%s%d/%d|r |cffaa55ffArena|r", color, displayArenaCurrent, displayArenaNeeded))
                 end
                 for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                    if totalMarksNeeded[bgType] > 0 then
-                        local color = totalMarksCurrent[bgType] >= totalMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
+                    if displayMarksNeeded[bgType] and displayMarksNeeded[bgType] > 0 then
+                        local color = displayMarksCurrent[bgType] >= displayMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
                         local icon = BG_ICONS[bgType]
-                        table.insert(totalParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, totalMarksCurrent[bgType], totalMarksNeeded[bgType], icon))
+                        table.insert(totalParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, displayMarksCurrent[bgType], displayMarksNeeded[bgType], icon))
                     end
                 end
 
                 if #totalParts > 0 then
-                    self.totalsText:SetText(table.concat(totalParts, "  |cff666666·|r  "))
+                    self.totalsText:SetText(table.concat(totalParts, " |cff666666·|r "))
                 else
                     self.totalsText:SetText("")
                 end

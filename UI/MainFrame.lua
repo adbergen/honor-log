@@ -993,12 +993,11 @@ function HonorLog:UpdateMainFrame()
         frame.statusIcon:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
         frame.statusIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
     else
-        -- World PvP mode when not in a battleground
+        -- World PvP mode when not in a battleground - always show K/D
         local worldSession = self:GetSessionWorldPvPStats()
-        local worldText = "World PvP"
-        if worldSession and (worldSession.kills > 0 or worldSession.deaths > 0) then
-            worldText = string.format("World PvP  |cff40d860%d|r-|cffe65959%d|r", worldSession.kills, worldSession.deaths)
-        end
+        local kills = worldSession and worldSession.kills or 0
+        local deaths = worldSession and worldSession.deaths or 0
+        local worldText = string.format("World PvP  |cff40d860%d|r-|cffe65959%d|r", kills, deaths)
         frame.statusLine:SetText(worldText)
         frame.statusLine:SetTextColor(0.65, 0.65, 0.72, 1)
         frame.statusIcon:SetTexture("Interface\\Icons\\Ability_DualWield")
@@ -1247,7 +1246,7 @@ function HonorLog:UpdateGoalsCompact()
 
     if goalCount == 0 and numCompleted > 0 then
         -- All goals complete!
-        frame.goalsCompactSummary:SetText(numCompleted .. (numCompleted == 1 and " goal acquired!" or " goals acquired!"))
+        frame.goalsCompactSummary:SetText(string.format("%d/%d goals · 100%%", numCompleted, numCompleted))
         frame.goalsCompactSummary:SetTextColor(0.30, 0.90, 0.40, 1) -- Green
         frame.goalsCompactIcon:SetTexture("Interface\\Icons\\Spell_Holy_Crusade") -- TBC-safe checkmark/victory icon
         frame.goalsCompactIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -1280,6 +1279,7 @@ function HonorLog:UpdateGoalsCompact()
             local totalArenaNeeded = 0
             local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
 
+            local totalGamesNeeded = 0
             for _, goal in ipairs(goals) do
                 if goal.honor.needed > 0 then
                     totalHonorNeeded = totalHonorNeeded + goal.honor.needed
@@ -1292,16 +1292,47 @@ function HonorLog:UpdateGoalsCompact()
                         totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
                     end
                 end
+                -- Sum up games needed for each goal
+                if goal.totalGamesNeeded and goal.totalGamesNeeded > 0 then
+                    totalGamesNeeded = totalGamesNeeded + goal.totalGamesNeeded
+                end
             end
 
-            -- Get actual player currency
+            -- Get actual player currency for active goals
             local totalHonorCurrent = math.min(self:GetCurrentHonor(), totalHonorNeeded)
             local totalArenaCurrent = math.min(self:GetCurrentArenaPoints(), totalArenaNeeded)
 
-            -- Calculate weighted total
+            -- Include completed goals at 100% progress (cumulative tracking)
+            local completedHonorTotal = 0
+            local completedArenaTotal = 0
+            local completedMarksTotal = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+
+            if completedGoals then
+                for _, completedGoal in ipairs(completedGoals) do
+                    local itemData = self.GearDB and self.GearDB[completedGoal.itemID]
+                    if itemData then
+                        if itemData.honor and itemData.honor > 0 then
+                            completedHonorTotal = completedHonorTotal + itemData.honor
+                        end
+                        if itemData.arena and itemData.arena > 0 then
+                            completedArenaTotal = completedArenaTotal + itemData.arena
+                        end
+                        if itemData.marks then
+                            for bgType, markCount in pairs(itemData.marks) do
+                                if markCount > 0 then
+                                    completedMarksTotal[bgType] = completedMarksTotal[bgType] + markCount
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Calculate weighted total (active + completed goals)
             local totalNeeded = 0
             local totalCurrent = 0
 
+            -- Active goals: current progress toward needed
             if totalHonorNeeded > 0 then
                 totalNeeded = totalNeeded + totalHonorNeeded
                 totalCurrent = totalCurrent + totalHonorCurrent
@@ -1318,26 +1349,37 @@ function HonorLog:UpdateGoalsCompact()
                 end
             end
 
+            -- Completed goals: 100% progress (add to both needed AND current)
+            if completedHonorTotal > 0 then
+                totalNeeded = totalNeeded + completedHonorTotal
+                totalCurrent = totalCurrent + completedHonorTotal
+            end
+            if completedArenaTotal > 0 then
+                totalNeeded = totalNeeded + completedArenaTotal
+                totalCurrent = totalCurrent + completedArenaTotal
+            end
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                if completedMarksTotal[bgType] > 0 then
+                    totalNeeded = totalNeeded + (completedMarksTotal[bgType] * 100)
+                    totalCurrent = totalCurrent + (completedMarksTotal[bgType] * 100)
+                end
+            end
+
             local avgProgress = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
 
-            -- Summary text - more descriptive based on progress state
+            -- Summary text - completion ratio format (14/16 goals · 88% · ~Xg)
             local summaryText
-            local acquiredSuffix = numCompleted > 0 and string.format(" · %d acquired", numCompleted) or ""
+            local totalGoalCount = #goals + numCompleted
 
             if avgProgress >= 100 then
-                -- Ready to purchase!
-                if #goals == 1 then
-                    summaryText = (topGoal.name or "Goal") .. " ready!" .. acquiredSuffix
-                else
-                    summaryText = #goals .. " goals ready!" .. acquiredSuffix
-                end
+                -- All active goals ready to purchase
+                summaryText = string.format("%d/%d goals · 100%%", numCompleted, totalGoalCount)
+            elseif totalGamesNeeded > 0 then
+                -- In progress with games estimate
+                summaryText = string.format("%d/%d goals · %.0f%% · %d games", numCompleted, totalGoalCount, avgProgress, totalGamesNeeded)
             else
-                -- In progress
-                if #goals == 1 then
-                    summaryText = string.format("%s · %.0f%%", topGoal.name or "Goal", avgProgress) .. acquiredSuffix
-                else
-                    summaryText = string.format("%d goals · %.0f%%", #goals, avgProgress) .. acquiredSuffix
-                end
+                -- In progress but no games estimate available
+                summaryText = string.format("%d/%d goals · %.0f%%", numCompleted, totalGoalCount, avgProgress)
             end
             frame.goalsCompactSummary:SetText(summaryText)
 

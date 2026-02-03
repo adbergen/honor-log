@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.1] - 2025-02-03
+
+### Added
+- **Total games estimate**: See how many games remain to complete all your goals
+  - Header summary shows games after the percentage (e.g., "2/14 goals · 45% · 32 games")
+  - Hover over the Totals bar for a detailed tooltip with the estimate
+  - Based on your average honor and marks per game
+
+### Changed
+- **Cumulative goal progress**: Total bar now tracks overall journey progress including completed goals
+  - Completed items count as 100% done toward the total
+  - Progress percentage never decreases when completing goals
+  - Honor/currency display matches the cumulative percentage
+- **Compact header format**: Changed from verbose "2 goals · 88% · 14 acquired" to cleaner "14/16 goals · 88%"
+
+### Fixed
+- **World PvP stats display**: Status line now always shows K/D ratio even when 0-0
+
 ## [1.2.0] - 2025-02-01
 
 ### Added
