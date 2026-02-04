@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2] - 2025-02-03
+
+### Changed
+- **UI color scheme refresh**: Unified dark neutral theme replacing blue accents
+- **Tighter currency spacing**: Reduced spacing around separators in totals display
+
+### Fixed
+- **Debug messages removed**: Cleaned up chat spam from debug prints running outside debug mode
+
 ## [1.2.1] - 2025-02-03
 
 ### Added

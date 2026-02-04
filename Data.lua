@@ -213,7 +213,7 @@ function HonorLog:InitializeDB()
     end
 
     if shouldResetSession then
-        print("|cff00ff00[HonorLog]|r New day detected - resetting daily stats for " .. date("%Y-%m-%d", now))
+        -- Silent reset - no chat spam
         HonorLogCharDB.session = DeepCopy(DEFAULTS.char.session)
         HonorLogCharDB.bgState = DeepCopy(DEFAULTS.char.bgState)
         HonorLogCharDB.sessionStartTime = 0 -- Deprecated, kept for backwards compatibility

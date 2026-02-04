@@ -70,15 +70,15 @@ local function CreateInnerShadow(frame)
     return shadow
 end
 
--- Create glow border
+-- Create glow border (rounded)
 local function CreateGlowBorder(frame, color)
     local glow = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    glow:SetPoint("TOPLEFT", -2, 2)
-    glow:SetPoint("BOTTOMRIGHT", 2, -2)
+    glow:SetPoint("TOPLEFT", -3, 3)
+    glow:SetPoint("BOTTOMRIGHT", 3, -3)
     glow:SetBackdrop({
         bgFile = nil,
-        edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeSize = 2,
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 12,
     })
     glow:SetBackdropBorderColor(unpack(color or COLORS.borderGlow))
     glow:SetFrameLevel(frame:GetFrameLevel() - 1)
@@ -185,11 +185,7 @@ local function CreateMainFrame()
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
     frame:SetBackdropColor(unpack(COLORS.bgPrimary))
-    frame:SetBackdropBorderColor(unpack(COLORS.borderDark))
-
-    -- Outer glow effect
-    local outerGlow = CreateGlowBorder(frame, COLORS.borderGlow)
-    frame.outerGlow = outerGlow
+    frame:SetBackdropBorderColor(0.18, 0.18, 0.22, 1) -- Clean dark border
 
     ----------------------------------------------------------------------------
     -- HEADER

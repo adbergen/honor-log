@@ -18,13 +18,13 @@ HonorLog.Theme = {
     -- Accent gradients
     headerGradientTop = { 0.18, 0.18, 0.24, 1 },
     headerGradientBot = { 0.10, 0.10, 0.14, 1 },
-    accentGlow = { 0.30, 0.70, 0.95, 0.15 },
+    accentGlow = { 0.25, 0.25, 0.30, 0.15 },   -- Neutral (was blue)
 
     -- Borders
     borderDark = { 0.06, 0.06, 0.08, 1 },
     borderLight = { 0.30, 0.30, 0.38, 0.8 },
-    borderGlow = { 0.40, 0.75, 1.0, 0.25 },
-    borderAccent = { 0.35, 0.65, 0.90, 0.6 },
+    borderGlow = { 0.20, 0.22, 0.25, 0.4 },     -- Subtle dark glow (was blue)
+    borderAccent = { 0.30, 0.32, 0.35, 0.8 },   -- Neutral accent (was blue)
 
     -- Status colors
     win = { 0.30, 0.90, 0.40, 1 },
@@ -43,14 +43,14 @@ HonorLog.Theme = {
     textMuted = { 0.38, 0.38, 0.45, 1 },
 
     -- Brand accent
-    accent = { 0.35, 0.78, 1.0, 1 },
-    accentDim = { 0.25, 0.55, 0.75, 0.8 },
+    accent = { 0.85, 0.75, 0.45, 1 },          -- Warm gold for labels (was blue)
+    accentDim = { 0.25, 0.27, 0.30, 0.9 },     -- Dark neutral for borders (was blue)
     brand = { 0.25, 0.85, 0.45, 1 },
     brandDim = { 0.18, 0.60, 0.32, 0.8 },
 
     -- Separators
     separator = { 0.25, 0.25, 0.32, 0.6 },
-    separatorGlow = { 0.35, 0.65, 0.90, 0.2 },
+    separatorGlow = { 0.30, 0.30, 0.35, 0.3 },  -- Neutral (was blue)
 
     -- Progress colors (for goal tracking)
     progressFull = { 0.30, 0.90, 0.40, 1 },

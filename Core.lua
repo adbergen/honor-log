@@ -111,7 +111,9 @@ function HonorLog:RestoreBGState()
         bgStartHonor = state.bgStartHonor
         bgHonorAccumulated = state.bgHonorAccumulated or 0
         isInBG = state.isInBG
-        print("|cff00ff00[HonorLog]|r Restored BG state: " .. tostring(currentBG) .. ", honor: " .. tostring(bgHonorAccumulated))
+        if debugMode then
+            print("|cff00ff00[HonorLog]|r Restored BG state: " .. tostring(currentBG) .. ", honor: " .. tostring(bgHonorAccumulated))
+        end
     end
 end
 
@@ -924,17 +926,11 @@ end
 
 -- Player logout - save current GetTime() for reload detection
 function HonorLog:PLAYER_LOGOUT()
-    -- Debug: always print when this fires
-    print("|cff00ff00[HonorLog]|r PLAYER_LOGOUT fired! GetTime()=" .. string.format("%.1f", GetTime()))
-
     if self.db and self.db.char then
         -- Store current GetTime() - on /reload this value will be less than GetTime() at next load
         -- On fresh login after logout, GetTime() will have reset, so it will be less than this stored value
         self.db.char.lastGameTime = GetTime()
         self.db.char.wasLogout = true -- Keep for backwards compatibility
-        print("|cff00ff00[HonorLog]|r   Saved lastGameTime=" .. string.format("%.1f", self.db.char.lastGameTime))
-    else
-        print("|cffff0000[HonorLog]|r   ERROR: self.db or self.db.char is nil!")
     end
 end
 
