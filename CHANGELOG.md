@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.3] - 2025-02-05
+
+### Changed
+- **World PvP min view**: Now shows honor alongside K/D (e.g., "World PvP 0-1 0 Honor")
+- **Consistent K/D formatting**: Neutral gray dash between colored kill/death numbers
+
 ## [1.2.2] - 2025-02-03
 
 ### Changed

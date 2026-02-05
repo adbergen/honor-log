@@ -993,7 +993,9 @@ function HonorLog:UpdateMainFrame()
         local worldSession = self:GetSessionWorldPvPStats()
         local kills = worldSession and worldSession.kills or 0
         local deaths = worldSession and worldSession.deaths or 0
-        local worldText = string.format("World PvP  |cff40d860%d|r-|cffe65959%d|r", kills, deaths)
+        local worldHonor = worldSession and worldSession.honor or 0
+        local honorStr = worldHonor >= 1000 and string.format("%.1fk", worldHonor / 1000) or tostring(worldHonor)
+        local worldText = string.format("World PvP  |cff40d860%d|r|cff888888-|r|cffe65959%d|r  |cffffd700%s Honor|r", kills, deaths, honorStr)
         frame.statusLine:SetText(worldText)
         frame.statusLine:SetTextColor(0.65, 0.65, 0.72, 1)
         frame.statusIcon:SetTexture("Interface\\Icons\\Ability_DualWield")
