@@ -2851,7 +2851,7 @@ local function CreateGoalPicker()
                         itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Battle Healer") or
                         itemName:find("Frostwolf") or itemName:find("Warsong Battle") or
                         itemName:find("Deathguard") or itemName:find("Blood Guard") or itemName:find("Champion's") or
-                        itemName:find("Insignia of the Horde")
+                        itemName:find("Insignia of the Horde") or itemName:find("of the Horde")
 
                     -- Alliance-only items:
                     -- - Grand Marshal (R14 weapons), Field Marshal's (head/shoulder/chest)
@@ -2867,7 +2867,7 @@ local function CreateGoalPicker()
                         itemName:find("Protector's") or itemName:find("Lorekeeper") or
                         itemName:find("Caretaker") or itemName:find("Outrunner") or
                         itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
-                        itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance")
+                        itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance") or itemName:find("of the Alliance")
 
                     if isHordeItem and playerFaction ~= "Horde" then
                         passFilter = false
