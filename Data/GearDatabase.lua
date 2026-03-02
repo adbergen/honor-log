@@ -31,7 +31,7 @@ HonorLog.SEASONS = {
 -- Archived seasons (not yet available in game)
 -- When arena seasons release, remove them from this list
 HonorLog.ARCHIVED_SEASONS = {
-    S1 = true,  -- Gladiator gear - unlocks with TBC Arena Season 1
+    -- S1 = true,  -- Gladiator gear - NOW AVAILABLE (TBC Arena Season 1)
     S2 = true,  -- Merciless Gladiator - unlocks with Arena Season 2
     S3 = true,  -- Vengeful Gladiator - unlocks with Arena Season 3
     S4 = true,  -- Brutal Gladiator - unlocks with Arena Season 4
@@ -1303,11 +1303,11 @@ HonorLog.GearDB = {
     -- SHAMAN - Grand Marshal's Earthshaker (Alliance) - Set 593
     -- AtlasLoot order: {28691,28693,28689,28690,28692} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
     -- ==========================================
-    [28691] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Helm" },
-    [28693] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Spaulders" },
-    [28689] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Armor" },
-    [28690] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Gauntlets" },
-    [28692] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Linked Leggings" },
+    [28691] = { slot = "HEAD", class = "SHAMAN", honor = 16665, arena = 0, marks = { EotS = 15 }, season = "S1", name = "Grand Marshal's Linked Helm" },
+    [28693] = { slot = "SHOULDER", class = "SHAMAN", honor = 10475, arena = 0, marks = { AB = 10 }, season = "S1", name = "Grand Marshal's Linked Spaulders" },
+    [28689] = { slot = "CHEST", class = "SHAMAN", honor = 17140, arena = 0, marks = { AV = 15 }, season = "S1", name = "Grand Marshal's Linked Armor" },
+    [28690] = { slot = "HANDS", class = "SHAMAN", honor = 10475, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Grand Marshal's Linked Gauntlets" },
+    [28692] = { slot = "LEGS", class = "SHAMAN", honor = 16665, arena = 0, marks = { WSG = 15 }, season = "S1", name = "Grand Marshal's Linked Leggings" },
 
     -- SHAMAN - High Warlord's Earthshaker (Horde) - Set 594
     -- AtlasLoot order: {28843,28845,28841,28842,28844} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
@@ -1319,11 +1319,11 @@ HonorLog.GearDB = {
 
     -- SHAMAN - Grand Marshal's Thunderfist (Alliance) - Set 603
     -- AtlasLoot order: {28696,28698,28694,28695,28697} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
-    [28696] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Helm" },
-    [28698] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Spaulders" },
-    [28694] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Armor" },
-    [28695] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Gauntlets" },
-    [28697] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Mail Leggings" },
+    [28696] = { slot = "HEAD", class = "SHAMAN", honor = 16665, arena = 0, marks = { EotS = 15 }, season = "S1", name = "Grand Marshal's Mail Helm" },
+    [28698] = { slot = "SHOULDER", class = "SHAMAN", honor = 10475, arena = 0, marks = { AB = 10 }, season = "S1", name = "Grand Marshal's Mail Spaulders" },
+    [28694] = { slot = "CHEST", class = "SHAMAN", honor = 17140, arena = 0, marks = { AV = 15 }, season = "S1", name = "Grand Marshal's Mail Armor" },
+    [28695] = { slot = "HANDS", class = "SHAMAN", honor = 10475, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Grand Marshal's Mail Gauntlets" },
+    [28697] = { slot = "LEGS", class = "SHAMAN", honor = 16665, arena = 0, marks = { WSG = 15 }, season = "S1", name = "Grand Marshal's Mail Leggings" },
 
     -- SHAMAN - High Warlord's Thunderfist (Horde) - Set 604
     -- AtlasLoot order: {28848,28850,28846,28847,28849} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
@@ -1335,11 +1335,11 @@ HonorLog.GearDB = {
 
     -- SHAMAN - Grand Marshal's Wartide (Alliance) - Set 695
     -- AtlasLoot order: {31642,31644,31640,31641,31643} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
-    [31642] = { slot = "HEAD", class = "SHAMAN", honor = 14280, arena = 0, marks = { EotS = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Headpiece" },
-    [31644] = { slot = "SHOULDER", class = "SHAMAN", honor = 11794, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Shoulders" },
-    [31640] = { slot = "CHEST", class = "SHAMAN", honor = 14280, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Chestguard" },
-    [31641] = { slot = "HANDS", class = "SHAMAN", honor = 10360, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Gloves" },
-    [31643] = { slot = "LEGS", class = "SHAMAN", honor = 14280, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Grand Marshal's Ringmail Legguards" },
+    [31642] = { slot = "HEAD", class = "SHAMAN", honor = 16665, arena = 0, marks = { EotS = 15 }, season = "S1", name = "Grand Marshal's Ringmail Headpiece" },
+    [31644] = { slot = "SHOULDER", class = "SHAMAN", honor = 10475, arena = 0, marks = { AB = 10 }, season = "S1", name = "Grand Marshal's Ringmail Shoulders" },
+    [31640] = { slot = "CHEST", class = "SHAMAN", honor = 17140, arena = 0, marks = { AV = 15 }, season = "S1", name = "Grand Marshal's Ringmail Chestguard" },
+    [31641] = { slot = "HANDS", class = "SHAMAN", honor = 10475, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Grand Marshal's Ringmail Gloves" },
+    [31643] = { slot = "LEGS", class = "SHAMAN", honor = 16665, arena = 0, marks = { WSG = 15 }, season = "S1", name = "Grand Marshal's Ringmail Legguards" },
 
     -- SHAMAN - High Warlord's Wartide (Horde) - Set 696
     -- AtlasLoot order: {31648,31650,31646,31647,31649} = {HEAD,SHOULDER,CHEST,HANDS,LEGS}
@@ -1640,6 +1640,38 @@ HonorLog.GearDB = {
     [32813] = { slot = "WRIST", class = "PALADIN", honor = 7548, arena = 0, marks = { WSG = 20 }, season = "HONOR70", name = "Veteran's Lamellar Bracers" },
     [32801] = { slot = "WAIST", class = "PALADIN", honor = 7548, arena = 0, marks = { AB = 20 }, season = "HONOR70", name = "Veteran's Lamellar Belt" },
     [32789] = { slot = "FEET", class = "PALADIN", honor = 10360, arena = 0, marks = { AV = 20 }, season = "HONOR70", name = "Veteran's Lamellar Greaves" },
+
+    --[[
+    ============================================================================
+    SEASON 1 HONOR OFF-PIECES - Marshal's (Alliance)
+    Bracers, Girdles, Sabatons purchasable with honor + marks during Arena Season 1
+    Item IDs verified from Wowhead TBC Classic
+    ============================================================================
+    --]]
+
+    -- ==========================================
+    -- MAIL OFF-PIECES - Marshal's (Alliance S1)
+    -- ==========================================
+
+    -- Shaman Restoration - Marshal's Chain
+    [28973] = { slot = "WRIST", class = "SHAMAN", honor = 9785, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Marshal's Chain Bracers" },
+    [28974] = { slot = "WAIST", class = "SHAMAN", honor = 14815, arena = 0, marks = { AB = 10 }, season = "S1", name = "Marshal's Chain Girdle" },
+    [28975] = { slot = "FEET", class = "SHAMAN", honor = 14815, arena = 0, marks = { AV = 20 }, season = "S1", name = "Marshal's Chain Sabatons" },
+
+    -- Shaman Elemental - Marshal's Linked
+    [28989] = { slot = "WRIST", class = "SHAMAN", honor = 9785, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Marshal's Linked Bracers" },
+    [28990] = { slot = "WAIST", class = "SHAMAN", honor = 14815, arena = 0, marks = { AB = 10 }, season = "S1", name = "Marshal's Linked Girdle" },
+    [28991] = { slot = "FEET", class = "SHAMAN", honor = 14815, arena = 0, marks = { AV = 20 }, season = "S1", name = "Marshal's Linked Sabatons" },
+
+    -- Shaman Enhancement - Marshal's Mail
+    [28992] = { slot = "WRIST", class = "SHAMAN", honor = 9785, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Marshal's Mail Bracers" },
+    [28993] = { slot = "WAIST", class = "SHAMAN", honor = 14815, arena = 0, marks = { AB = 10 }, season = "S1", name = "Marshal's Mail Girdle" },
+    [28994] = { slot = "FEET", class = "SHAMAN", honor = 14815, arena = 0, marks = { AV = 20 }, season = "S1", name = "Marshal's Mail Sabatons" },
+
+    -- Shaman Restoration (Ringmail) - Marshal's Ringmail
+    [32994] = { slot = "WRIST", class = "SHAMAN", honor = 9785, arena = 0, marks = { WSG = 10 }, season = "S1", name = "Marshal's Ringmail Bracers" },
+    [32995] = { slot = "WAIST", class = "SHAMAN", honor = 14815, arena = 0, marks = { AB = 10 }, season = "S1", name = "Marshal's Ringmail Girdle" },
+    [32996] = { slot = "FEET", class = "SHAMAN", honor = 14815, arena = 0, marks = { AV = 20 }, season = "S1", name = "Marshal's Ringmail Sabatons" },
 
     -- ==========================================
     -- HONOR70 TRINKETS - Medallions
