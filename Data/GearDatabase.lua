@@ -9,7 +9,7 @@ HonorLog.SLOTS = {
     "HEAD", "NECK", "SHOULDER", "BACK", "CHEST",
     "WRIST", "HANDS", "WAIST", "LEGS", "FEET",
     "FINGER", "TRINKET", "MAIN_HAND", "OFF_HAND",
-    "TWO_HAND", "RANGED", "RELIC"
+    "TWO_HAND", "RANGED", "RELIC", "GEM"
 }
 
 -- Class constants
@@ -1678,10 +1678,47 @@ HonorLog.GearDB = {
     -- ==========================================
 
     -- Alliance Medallions (PvP Trinket)
-    [37864] = { slot = "TRINKET", class = nil, honor = 40000, arena = 0, marks = {}, season = "HONOR70", name = "Medallion of the Alliance" },
+    [37864] = { slot = "TRINKET", class = nil, honor = 6640, arena = 0, marks = {}, season = "S1", name = "Medallion of the Alliance" },
 
     -- Horde Medallions (PvP Trinket)
-    [37865] = { slot = "TRINKET", class = nil, honor = 40000, arena = 0, marks = {}, season = "HONOR70", name = "Medallion of the Horde" },
+    [37865] = { slot = "TRINKET", class = nil, honor = 6640, arena = 0, marks = {}, season = "S1", name = "Medallion of the Horde" },
+
+    -- Talisman (PvP Trinket - removes movement impairing effects)
+    [25829] = { slot = "TRINKET", class = nil, honor = 9520, arena = 0, marks = {}, season = "S1", name = "Talisman of the Alliance" },
+    [24551] = { slot = "TRINKET", class = nil, honor = 9520, arena = 0, marks = {}, season = "S1", name = "Talisman of the Horde" },
+
+    -- ==========================================
+    -- S1 CLOAKS - Sergeant's Heavy
+    -- ==========================================
+    [28377] = { slot = "BACK", class = nil, honor = 9785, arena = 0, marks = { EotS = 10 }, season = "S1", name = "Sergeant's Heavy Cloak" },
+    [28378] = { slot = "BACK", class = nil, honor = 9785, arena = 0, marks = { EotS = 10 }, season = "S1", name = "Sergeant's Heavy Cape" },
+
+    -- ==========================================
+    -- S1 RINGS - Band of Triumph/Dominance
+    -- ==========================================
+    [28246] = { slot = "FINGER", class = nil, honor = 12695, arena = 0, marks = { AV = 5 }, season = "S1", name = "Band of Triumph" },
+    [28247] = { slot = "FINGER", class = nil, honor = 12695, arena = 0, marks = { AV = 5 }, season = "S1", name = "Band of Dominance" },
+
+    -- ==========================================
+    -- S1 NECKLACES - Pendant of Triumph/Dominance
+    -- ==========================================
+    [28244] = { slot = "NECK", class = nil, honor = 12695, arena = 0, marks = { EotS = 5 }, season = "S1", name = "Pendant of Triumph" },
+    [28245] = { slot = "NECK", class = nil, honor = 12695, arena = 0, marks = { EotS = 5 }, season = "S1", name = "Pendant of Dominance" },
+
+    -- ==========================================
+    -- S1 PVP GEMS - Ornate
+    -- ==========================================
+    -- Red Gems
+    [28362] = { slot = "GEM", class = nil, honor = 2855, arena = 0, marks = {}, season = "S1", name = "Bold Ornate Ruby" },
+    [38549] = { slot = "GEM", class = nil, honor = 2855, arena = 0, marks = {}, season = "S1", name = "Runed Ornate Ruby" },
+
+    -- Yellow Gems
+    [38550] = { slot = "GEM", class = nil, honor = 2855, arena = 0, marks = {}, season = "S1", name = "Smooth Ornate Dawnstone" },
+    [28120] = { slot = "GEM", class = nil, honor = 2855, arena = 0, marks = {}, season = "S1", name = "Gleaming Ornate Dawnstone" },
+
+    -- Orange Gems
+    [28363] = { slot = "GEM", class = nil, honor = 3525, arena = 0, marks = {}, season = "S1", name = "Inscribed Ornate Topaz" },
+    [38548] = { slot = "GEM", class = nil, honor = 3525, arena = 0, marks = {}, season = "S1", name = "Potent Ornate Topaz" },
 
 }
 
