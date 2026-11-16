@@ -12,3 +12,6 @@
 
 # AI generated files
 CLAUDE.md
+# generator downloads
+tools/.cache/
+__pycache__/
