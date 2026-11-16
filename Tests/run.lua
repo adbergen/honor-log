@@ -320,7 +320,7 @@ local function run()
 
     -- 2. DI loss, rank level-up during the game (rank-point delta across a threshold).
     mock.bagItems[274895] = 0
-    mock.rank = { level = 3, earned = 1000, threshold = 1050 }
+    mock.rank = { level = 3, earned = 1000, threshold = 1200 } -- rank 3 is worth the 4th curve entry
     resetPvP()
     enter("Darkspear Islands", 2997)
     check(HL:GetCurrentBG() == "DI", "map 2997 is DI")
@@ -335,10 +335,18 @@ local function run()
     leave() -- before the 20 s window: recorded on leaving
     game = lastGame()
     check(game.bgType == "DI" and game.result == "loss" and game.win == false, "DI loss recorded when leaving")
-    check(game.rankPoints == 90, "rank delta across a level: 50 left + 40 into the next = " .. tostring(game.rankPoints))
+    check(game.rankPoints == 240, "rank delta across a level: 200 left + 40 into the next = " .. tostring(game.rankPoints))
     check(game.marks == 1 and game.honor == 120, "DI marks and honor")
     check(HL.db.char.battlegrounds.DI.losses == 1 and HL.db.char.battlegrounds.DI.wins == 0, "DI stats")
-    check(HL.RankDelta({ level = 2, earned = 100, threshold = 900 }, { level = 5, earned = 10 }) == 800 + 1050 + 1200 + 10, "rank delta spans skipped levels with the curve")
+    -- Reaching rank n costs the first n curve entries: level L is worth curve[L + 1], with or without the rank module.
+    check(HL.RankDelta({ level = 2, earned = 100, threshold = 1050 }, { level = 5, earned = 10 }) == 950 + 1200 + 1350 + 10, "rank delta spans skipped levels (rank module)")
+    check(HL.RankDelta({ level = 3, earned = 1000 }, { level = 4, earned = 40 }) == 240, "rank delta across one level (rank module)")
+    local savedRankModule = HL.Rank
+    HL.Rank = nil
+    check(HL.RankDelta({ level = 2, earned = 100 }, { level = 5, earned = 10 }) == 950 + 1200 + 1350 + 10, "rank delta fallback: curve[level + 1] per level")
+    check(HL.RankDelta({ level = 3, earned = 1000, threshold = 1200 }, { level = 4, earned = 40 }) == 240, "rank delta fallback across a level-up")
+    check(HL.RankDelta({ level = 0, earned = 100 }, { level = 1, earned = 5 }) == 650 + 5, "rank delta fallback from rank 0 uses the first curve entry")
+    HL.Rank = savedRankModule
 
     -- 3. Leaving early is recorded as "left"; it does not count in the win rate.
     resetPvP()
@@ -834,6 +842,324 @@ local function run()
     char.history = savedHistory
     check(not printedMatching("HonorLog ERROR"), "rank tests reported an error: " .. tostring(printedMatching("HonorLog ERROR")))
 
+    ----------------------------------------------------------------------
+    -- Round 3: gear goals on the Forever reward model
+    do
+        local GearDB = HL.GearDB
+        local function near(a, b, tol) return a ~= nil and math.abs(a - b) <= (tol or 2) end
+        local function rowOf(gp, kind, bg)
+            for _, r in ipairs(gp.rows) do if r.kind == kind and r.bg == bg then return r end end
+        end
+        local function missingKinds(gp)
+            local out = {}
+            for _, r in ipairs(gp.missing) do out[#out + 1] = r.kind end
+            return table.concat(out, ",")
+        end
+        -- Ids from the generated database (Alliance warrior, so the mock's faction and class fit).
+        local BLUE, EPIC, WRIST_EPIC, REP_ITEM, MULTI_REP, LEGACY_TABARD, HORDE_BLUE = 272738, 272787, 272790, 271903, 17349, 19032, 272477
+        check(GearDB[BLUE].parts == nil and GearDB[EPIC].parts[1] == BLUE and GearDB[EPIC].parts[2] == 275241, "fixture ids: blue piece, epic with its Seal")
+        check(GearDB[MULTI_REP].rep.faction == nil and GearDB[REP_ITEM].rep.faction == 2799 and GearDB[LEGACY_TABARD].legacy, "fixture ids: reputation items")
+
+        -- A known player: Alliance warrior, rank 4, 8200 honor, measured pace of 12 games a day.
+        mock.faction = "Alliance"
+        setRank(4, 300, 6, 3, 5)
+        mock.seasonSeconds = 86400 * 100
+        mock.currencies[1792].quantity = 8200
+        mock.bagItems = { [20560] = 5, [20558] = 12, [20559] = 3, [274895] = 0 }
+        mock.bagContents, mock.equipped, mock.reputation, mock.money = {}, {}, {}, 123456
+        local stats = HL.db.char.battlegrounds
+        stats.AV.played, stats.AV.honorLifetime, stats.AV.marksLifetime = 10, 5000, 30
+        stats.WSG.played, stats.WSG.honorLifetime, stats.WSG.marksLifetime = 10, 3000, 20
+        stats.AB.played, stats.AB.honorLifetime, stats.AB.marksLifetime = 10, 2000, 10
+        stats.DI.played, stats.DI.honorLifetime, stats.DI.marksLifetime = 0, 0, 0
+        measuredGames(30, 20, 120, 30)
+        char.goals.items, char.goals.completed = {}, {}
+        HonorLogDB.scannedGear = {}
+        check(near(Rank:GetPace().gamesPerDay, 12, 0.5), "test pace is about 12 games a day: " .. tostring(Rank:GetPace().gamesPerDay))
+
+        -- Accessors: no season or arena logic is left; names come from the client once cached.
+        check(HL.SEASONS == nil and HL.ARCHIVED_SEASONS == nil and HL.IsSeasonAvailable == nil and HL.GetCurrentArenaPoints == nil, "the TBC season and arena code is gone")
+        local item = HL:GetGearItem(BLUE)
+        check(item.itemID == BLUE and item.honor == 9000 and item.marks.AV == 15 and item.name == "Item " .. BLUE and not item.scanned, "GetGearItem: generated entry, client name")
+        check(HL:GetGearItem(12345678) == nil, "GetGearItem: unknown id")
+        check(HL:IsGearAvailable(BLUE) and not HL:IsGearAvailable(LEGACY_TABARD), "legacy items are unavailable until a scan sees them")
+
+        -- A blue piece: honor plus marks, partly affordable.
+        local gp = HL:GetGoalProgress(BLUE)
+        check(gp.honor.needed == 9000 and gp.honor.current == 8200 and gp.honor.remaining == 800, "blue piece: honor row")
+        check(gp.marks.AV.needed == 15 and gp.marks.AV.current == 5 and gp.marks.AV.remaining == 10 and gp.marks.WSG == nil, "blue piece: AV marks row only")
+        check(gp.gold.needed == 0 and gp.rank == nil and gp.rep == nil and not gp.isComplete, "blue piece: no gold, rank or reputation row")
+        check(missingKinds(gp) == "honor,marks" and #gp.rows == 3, "blue piece: missing honor and marks: " .. missingKinds(gp))
+        check(gp.honor.cap == 25000 and not gp.honor.overCap, "the honor cap comes from the currency")
+        check(gp.totalGamesNeeded == 4 and gp.readyLimitedBy == "marks" and near(gp.readyDate, time() + math.floor(4 / Rank:GetPace().gamesPerDay * 86400), 5),
+            "blue piece: ready date from the marks rate: " .. tostring(gp.totalGamesNeeded) .. " " .. tostring(gp.readyLimitedBy))
+        mock.bagItems[20560] = 15
+        mock.currencies[1792].quantity = 9000
+        gp = HL:GetGoalProgress(BLUE)
+        check(gp.isComplete and #gp.missing == 0 and gp.readyLimitedBy == "ready" and near(gp.readyDate, time()), "blue piece: complete when honor and marks are in hand")
+        mock.bagItems[20560], mock.currencies[1792].quantity = 5, 8200
+
+        -- An epic: blue piece plus Seal, rank-gated.
+        local plan = Rank:PlanToRank(13)
+        check(plan and plan.limitedBy == "cap" and plan.earliestWeekByCap, "the rank 13 plan is limited by the weekly cap in this setup")
+        gp = HL:GetGoalProgress(EPIC)
+        check(gp.parts and #gp.parts == 2 and gp.parts[1].role == "blue" and gp.parts[2].role == "seal" and not gp.parts[1].owned and not gp.parts[2].owned, "epic: two parts, neither owned")
+        check(gp.honor.needed == 9000 + 2650 and gp.marks.AV.needed == 15, "epic: the summed cost")
+        check(gp.rank.needed == 13 and gp.rank.current == 4 and not gp.rank.met and gp.rank.limitedBy == "cap" and gp.rank.week == plan.earliestWeekByCap, "epic: rank row with the plan")
+        check(missingKinds(gp) == "honor,marks,rank", "epic: missing honor, marks and rank: " .. missingKinds(gp))
+        check(gp.readyLimitedBy == "cap" and gp.readyDate == plan.date, "epic: the ready date is limited by the cap, as the rank plan says")
+        -- Blue piece in the bags: only the Seal's honor is left.
+        mock.bagContents = { BLUE }
+        gp = HL:GetGoalProgress(EPIC)
+        check(gp.parts[1].owned and not gp.parts[2].owned, "epic: the blue piece in the bags counts as owned")
+        check(gp.honor.needed == 2650 and gp.honor.remaining == 0 and gp.marks.AV == nil, "epic with the blue piece owned: only the Seal's honor is left")
+        check(gp.rank.needed == 13 and missingKinds(gp) == "rank", "epic with the blue piece owned: only the rank is missing: " .. missingKinds(gp))
+        -- Worn counts too; the Seal in the bags drops the rank gate (it is already bought).
+        mock.bagContents, mock.equipped = { 275241 }, { [1] = BLUE }
+        gp = HL:GetGoalProgress(EPIC)
+        check(gp.parts[1].owned and gp.parts[2].owned and gp.honor.needed == 0 and gp.rank == nil and gp.isComplete, "epic: worn blue piece and Seal in the bags are both paid")
+        mock.bagContents, mock.equipped = {}, {}
+        -- At rank 13 the gate is met and the date is the rate's.
+        setRank(13, 0, 13, 9, 12)
+        gp = HL:GetGoalProgress(EPIC)
+        check(gp.rank.met and gp.readyLimitedBy ~= "cap" and gp.readyLimitedBy ~= "rank", "epic: rank met, no rank limit")
+        setRank(4, 300, 6, 3, 5)
+        -- No rank data: the row exists, is unknown and short, and nothing errors.
+        mock.rankWindow.noData = true
+        gp = HL:GetGoalProgress(EPIC)
+        check(gp.rank and gp.rank.known == false and not gp.rank.met and not gp.isComplete, "epic without rank data: the rank row is unknown")
+        mock.rankWindow.noData = false
+        -- A rank gate no season can open
+        mock.rankWindow.seasonMax = 10
+        gp = HL:GetGoalProgress(EPIC)
+        check(gp.readyDate == nil and gp.readyLimitedBy == "season", "epic beyond the season maximum: no date, limited by the season")
+        mock.rankWindow.seasonMax = 14
+        -- A scan of the parts flows into the epic's cost
+        HonorLogDB.scannedGear[BLUE] = { honor = 13500, marks = { AV = 15 }, gold = 0, seen = 1, npc = "t" }
+        check(HL:GetGoalProgress(EPIC).honor.needed == 13500 + 2650, "a scanned part price flows into the epic's cost")
+        HonorLogDB.scannedGear = {}
+
+        -- Reputation: standing below and at the requirement.
+        gp = HL:GetGoalProgress(REP_ITEM)
+        check(gp.rep.needed == 5 and gp.rep.faction == 2799 and gp.rep.known and gp.rep.current == 0 and not gp.rep.met, "reputation item: faction not met yet")
+        check(gp.gold.needed == GearDB[REP_ITEM].gold and gp.gold.remaining == 0 and missingKinds(gp) == "rep" and not gp.isComplete, "reputation item: gold in hand, the standing is missing")
+        mock.reputation[2799] = 4
+        gp = HL:GetGoalProgress(REP_ITEM)
+        check(gp.rep.current == 4 and not gp.rep.met and not gp.isComplete, "reputation below the requirement (Neutral < Friendly)")
+        mock.reputation[2799] = 5
+        gp = HL:GetGoalProgress(REP_ITEM)
+        check(gp.rep.current == 5 and gp.rep.met and gp.isComplete and gp.readyLimitedBy == "ready", "reputation at the requirement")
+        mock.money = 1000
+        gp = HL:GetGoalProgress(REP_ITEM)
+        check(missingKinds(gp) == "gold" and gp.readyDate and gp.readyLimitedBy == "gold", "gold and reputation have no rate: today, named for what holds it")
+        mock.money = 123456
+        -- A multi-faction reputation item shows the requirement without progress.
+        gp = HL:GetGoalProgress(MULTI_REP)
+        check(gp.rep and gp.rep.faction == nil and gp.rep.known == false and gp.rep.current == nil and gp.rep.standingName == "Friendly", "multi-faction item: the requirement, no progress")
+        check(#gp.unverified == 1 and #gp.missing == 0 and gp.isComplete, "multi-faction item: unverified, not counted as short")
+
+        -- The waterfall across three goals.
+        local W1, W2, W3 = BLUE, nil, nil
+        for _, entry in ipairs(HL:GetPickerItems({ class = "WARRIOR", source = "HONOR", showUnverified = true })) do
+            if entry.itemID ~= BLUE and not W2 and entry.data.honor == 9350 then W2 = entry.itemID
+            elseif entry.itemID ~= BLUE and not W3 and entry.data.honor == 7500 and entry.data.marks and entry.data.marks.WSG then W3 = entry.itemID end
+        end
+        check(W2 and W3, "waterfall fixture: a chest (AB) and a hands piece (WSG)")
+        for _, id in ipairs({ W1, W2, W3 }) do check(HL:AddGoal(id), "goal added: " .. id) end
+        HL.db.settings.goalProgressMode = "shared"
+        local shared = HL:GetAllGoalsProgress()
+        check(#shared == 3 and shared[1].honor.current == 8200 and shared[2].honor.current == 8200 and shared[3].honor.current == 8200, "shared mode: every goal sees all the honor")
+        HL.db.settings.goalProgressMode = "waterfall"
+        local fall = HL:GetAllGoalsProgress()
+        check(#fall == 3 and fall[1].honor.current == 8200 and fall[2].honor.current == 0 and fall[3].honor.current == 0, "waterfall: the first goal takes the honor")
+        check(fall[1].marks.AV.current == 5 and fall[2].marks.AB.current == 3 and fall[3].marks.WSG.current == 10, "waterfall: marks go to the goals that need them")
+        check(fall[1].honor.remaining == 800 and fall[2].honor.remaining == 9350 and fall[3].honor.remaining == 7500, "waterfall: what each goal is still short")
+        check(fall[3].totalGamesNeeded >= fall[2].totalGamesNeeded and fall[2].totalGamesNeeded >= fall[1].totalGamesNeeded, "waterfall: later goals wait for the ones above")
+        check(fall[3].readyDate >= fall[1].readyDate, "waterfall: later goals are ready no earlier")
+        local wf2 = HL:GetAllGoalsProgressWaterfall()
+        check(#wf2 == 3 and wf2[1].itemID == W1, "GetAllGoalsProgressWaterfall returns the goals in order")
+        local totals = HL:GetGoalsTotals(fall)
+        check(totals.honorNeeded == 9000 + 9350 + 7500 and totals.honorCurrent == 8200 and totals.percent < 100 and totals.games > 0, "goal totals")
+        HL.db.settings.goalProgressMode = "shared"
+
+        -- Honor-cap advice
+        check(HL:GetHonorCapAdvice() == nil, "no cap advice at 8200 honor")
+        mock.currencies[1792].quantity = 24800
+        mock.bagItems[20560] = 15
+        local advice = HL:GetHonorCapAdvice()
+        check(advice and advice.text:find("spend before you cap", 1, true) and advice.goal and advice.goal.itemID == W1 and advice.current == 24800, "cap advice fires and names the first affordable goal")
+        check(advice.text:find(HL:GetGearName(W1), 1, true), "the advice names the goal")
+        mock.currencies[1792].quantity = 22600 -- 90.4% of the cap, and the next game would not pass it
+        check(HL:GetHonorCapAdvice() ~= nil, "cap advice also fires at the warning percentage")
+        mock.currencies[1792].quantity = 21000
+        check(HL:GetHonorCapAdvice() == nil, "no advice below the warning percentage")
+        mock.currencies[1792].quantity = 24800
+        HL.db.settings.goalCapAdvice = false
+        check(HL:GetHonorCapAdvice() == nil, "the setting turns the advice off")
+        HL.db.settings.goalCapAdvice = true
+        slash("goal advice")
+        check(countPlain("spend before you cap") >= 1, "/honorlog goal advice prints it")
+
+        -- The Goals tab renders with goals present (the crash) and with none.
+        HL:SetExpanded(true)
+        HL:SwitchTab("goals")
+        local goalsPanel = HL.mainFrame.goalsPanel
+        local errs = #mock.handledErrors
+        HL:UpdateGoalsPanel()
+        check(HL.mainFrame.currentView == "goals" and goalsPanel:IsShown(), "the Goals tab shows its panel")
+        check(goalsPanel.adviceBar:IsShown() and goalsPanel.adviceBar.text:GetText():find("spend before you cap", 1, true), "the goals header warns before the cap")
+        local card1 = goalsPanel.goalCards[1]
+        check(card1:IsShown() and card1.currencyLine:GetText():find("Honor", 1, true) and card1.statusLine:GetText():find("Ready to purchase", 1, true), "a ready goal card")
+        check(goalsPanel.totalsText:GetText():find("Honor", 1, true), "the totals bar reads: " .. tostring(goalsPanel.totalsText:GetText()))
+        mock.currencies[1792].quantity = 8200
+        mock.bagItems[20560] = 5
+        HL:UpdateGoalsPanel()
+        check(not goalsPanel.adviceBar:IsShown(), "the header warning goes away")
+        check(card1.statusLine:GetText():find("ready", 1, true), "a goal card shows its ready date: " .. tostring(card1.statusLine:GetText()))
+        HL:UpdateGoalsCompact()
+        -- An epic card: the two parts as sub-rows, the rank badge, rank locked until a week
+        HL:AddGoal(EPIC)
+        mock.bagContents = { BLUE }
+        HL:UpdateGoalsPanel()
+        local epicCard = goalsPanel.goalCards[4]
+        check(epicCard.partRows[1]:IsShown() and epicCard.partRows[1]:GetText():find("owned", 1, true) and epicCard.partRows[2]:IsShown() and not epicCard.partRows[2]:GetText():find("owned", 1, true), "epic card: blue piece owned, Seal missing")
+        check(epicCard.partRows[2]:GetText():find("2,650", 1, true) or epicCard.partRows[2]:GetText():find("2650", 1, true), "epic card: the Seal's cost")
+        check(epicCard.statusLine:GetText():find("locked until week " .. plan.earliestWeekByCap, 1, true), "epic card: locked until week N: " .. tostring(epicCard.statusLine:GetText()))
+        check(epicCard.currencyLine:GetText():find("Rank 4/13", 1, true), "epic card: rank row")
+        check(not goalsPanel.goalCards[1].partRows[1]:IsShown(), "a blue piece card has no part rows")
+        mock.rankWindow.cap = 14 -- the cap no longer limits: a date instead
+        local pg = HL:GetGoalProgress(EPIC)
+        check(pg.rank.limitedBy ~= "cap", "no cap limit with a high weekly cap")
+        HL:UpdateGoalsPanel()
+        check(epicCard.statusLine:GetText():find("Rank 13 \194\183", 1, true), "epic card: Rank N date badge: " .. tostring(epicCard.statusLine:GetText()))
+        mock.rankWindow.cap = 6
+        mock.bagContents = {}
+        HL:RemoveGoal(EPIC)
+        -- Reputation cards, multi-faction included
+        HL:AddGoal(REP_ITEM)
+        HL:AddGoal(MULTI_REP)
+        HL:UpdateGoalsPanel()
+        check(goalsPanel.goalCards[4].currencyLine:GetText():find("Neutral/Friendly", 1, true) or goalsPanel.goalCards[4].currencyLine:GetText():find("Friendly", 1, true), "reputation card")
+        check(goalsPanel.goalCards[5].currencyLine:GetText():find("Friendly reputation", 1, true), "multi-faction card: requirement only")
+        -- Tooltip text paths
+        goalsPanel.goalCards[1]:GetScript("OnEnter")(goalsPanel.goalCards[1])
+        goalsPanel.totalsBar:GetScript("OnEnter")(goalsPanel.totalsBar)
+        HL:RemoveGoal(REP_ITEM)
+        HL:RemoveGoal(MULTI_REP)
+        -- Waterfall mode renders too
+        HL.db.settings.goalProgressMode = "waterfall"
+        HL:UpdateGoalsPanel()
+        HL.db.settings.goalProgressMode = "shared"
+        -- With none
+        for _, id in ipairs({ W1, W2, W3 }) do HL:RemoveGoal(id) end
+        HL:UpdateGoalsPanel()
+        HL:UpdateGoalsCompact()
+        check(goalsPanel.emptyState:IsShown() and not goalsPanel.totalsBar:IsShown(), "the Goals tab with no goals shows the empty state")
+        check(#mock.handledErrors == errs and not printedMatching("HonorLog ERROR"), "the Goals tab raised no error: " .. tostring(mock.handledErrors[errs + 1]))
+        HL:SwitchTab("stats")
+        HL:SetExpanded(false)
+
+        -- The picker: faction and class defaults, legacy items, filters.
+        HL:ShowGoalPicker()
+        local picker = _G.HonorLogGoalPicker
+        check(picker and picker.filters.class == "WARRIOR" and picker:IsShown(), "the picker opens on the player's class")
+        check(#picker.shownItems > 0, "the picker lists items: " .. tostring(#picker.shownItems) .. " " .. tostring(mock.handledErrors[1]) .. tostring(picker.filters.class))
+        local function listed(id)
+            for _, e in ipairs(picker.shownItems) do if e.itemID == id then return true end end
+            return false
+        end
+        local otherFaction, otherClass = 0, 0
+        for _, e in ipairs(picker.shownItems) do
+            if e.data.faction == "Horde" then otherFaction = otherFaction + 1 end
+            if e.data.class and e.data.class ~= "WARRIOR" then otherClass = otherClass + 1 end
+        end
+        check(otherFaction == 0 and not listed(HORDE_BLUE), "the faction filter hides the other faction")
+        check(otherClass == 0 and listed(BLUE) and listed(EPIC), "the class default shows the player's class only")
+        picker.filters.class = nil
+        picker:RefreshItems()
+        local mages = 0
+        for _, e in ipairs(picker.shownItems) do if e.data.class == "MAGE" then mages = mages + 1 end end
+        check(mages > 0 and not listed(HORDE_BLUE), "class 'any' shows other classes, still not the other faction")
+        mock.faction = "Horde"
+        picker:RefreshItems()
+        check(listed(HORDE_BLUE) and not listed(BLUE), "a Horde player sees Horde items and not Alliance ones")
+        mock.faction = "Alliance"
+        picker.filters.class = "WARRIOR"
+        picker:RefreshItems()
+        check(not listed(LEGACY_TABARD), "a legacy item is hidden")
+        picker.filters.unverified = true
+        picker:RefreshItems()
+        check(listed(LEGACY_TABARD), "show unverified lists it")
+        picker.filters.unverified = false
+        HonorLogDB.scannedGear[LEGACY_TABARD] = { honor = 0, marks = {}, gold = 10000, seen = 1, npc = "t" }
+        picker:RefreshItems()
+        check(listed(LEGACY_TABARD) and HL:IsGearAvailable(LEGACY_TABARD) and HL:GetGearItem(LEGACY_TABARD).stocked, "a scan that saw it stocked shows a legacy item")
+        HonorLogDB.scannedGear = {}
+        picker.filters.slot, picker.filters.source = "HEAD", "UPGRADE"
+        picker:RefreshItems()
+        local ok = #picker.shownItems > 0
+        for _, e in ipairs(picker.shownItems) do ok = ok and e.data.slot == "HEAD" and e.data.source == "UPGRADE" end
+        check(ok and listed(EPIC) and not listed(BLUE), "slot and source filters")
+        picker.filters.slot, picker.filters.source = nil, nil
+        picker.filters.armor = "CLOTH"
+        picker.filters.class = nil
+        picker:RefreshItems()
+        ok = #picker.shownItems > 0
+        for _, e in ipairs(picker.shownItems) do ok = ok and e.data.armor == "CLOTH" end
+        check(ok, "the armour filter")
+        picker.filters.armor, picker.filters.class = nil, "WARRIOR"
+        picker.filters.search = "item " .. BLUE -- the mock client names every item "Item <id>"
+        picker:RefreshItems()
+        check(#picker.shownItems == 1 and listed(BLUE), "the name search narrows the list: " .. tostring(#picker.shownItems))
+        picker.filters.search = ""
+        HL:AddGoal(BLUE)
+        picker:RefreshItems()
+        check(not listed(BLUE), "a goal is not offered again")
+        HL:RemoveGoal(BLUE)
+        picker:Hide()
+
+        -- A vendor scan overrides a generated cost and marks the item stocked.
+        MerchantFrame:Show()
+        mock.units.npc = { name = "Test Quartermaster" }
+        mock.merchant.items = {
+            { id = BLUE, name = "Premier Plate Helm", price = 0, ext = true, costs = {
+                { link = "|cff1eff00|Hcurrency:1792:0|h[Honor]|h|r", count = 13500, name = "Honor" },
+                { link = "|cff1eff00|Hitem:20560::::::::60|h[Alterac Valley Mark of Honor]|h|r", count = 15, name = "AV" } } },
+            { id = LEGACY_TABARD, name = "Stormpike Battle Tabard", price = 12000, ext = false, costs = {} },
+            { id = 99999999, name = "Linen Cloth", price = 5, ext = false, costs = {} },
+            { id = 88888888, name = "Brand New PvP Thing", price = 0, ext = true, costs = {
+                { link = "|Hcurrency:1792:0|h[Honor]|h", count = 100 } } },
+        }
+        check(HL:ScanCurrentVendor() == 3, "the scan keeps database items and new honor items, not Linen Cloth")
+        local scanned = HonorLogDB.scannedGear[BLUE]
+        check(scanned.honor == 13500 and scanned.marks.AV == 15 and scanned.gold == 0 and scanned.npc == "Test Quartermaster" and scanned.seen, "scan record: honor, marks, gold, seen, npc")
+        item = HL:GetGearItem(BLUE)
+        check(item.honor == 13500 and item.scanned and item.stocked and GearDB[BLUE].honor == 9000, "a scanned cost overrides the generated one, which is untouched")
+        check(HL:GetGoalProgress(BLUE).honor.needed == 13500, "progress uses the scanned cost")
+        check(HonorLogDB.scannedGear[LEGACY_TABARD].gold == 12000 and HL:IsGearAvailable(LEGACY_TABARD), "a legacy item seen in stock becomes available")
+        check(HonorLogDB.scannedGear[99999999] == nil and HonorLogDB.scannedGear[88888888].honor == 100, "scan filter")
+        slash("scan export")
+        check(countPlain("honor 9000 -> 13500") >= 1 and countPlain("NEW Brand New PvP Thing") + countPlain("NEW item 88888888") >= 1, "scan export prints differences from the generated data")
+        check(countPlain("stocked (generated data says legacy)") >= 1, "scan export flags a legacy item seen stocked")
+        slash("scan status")
+        slash("scan clear")
+        check(next(HonorLogDB.scannedGear) == nil, "scan clear")
+        MerchantFrame:Hide()
+        local noWindow = countPlain("No vendor window open")
+        check(HL:ScanCurrentVendor() == 0 and countPlain("No vendor window open") == noWindow + 1, "no vendor open: nothing scanned")
+
+        -- Options carry the goal settings.
+        check(_G.HonorLogGoalCapAdviceCheck and _G.HonorLogGoalUnverifiedCheck and _G.HonorLogWaterfallCheck, "options: goal settings")
+        local optionsSource = io.open(ROOT .. "/UI/Options.lua"):read("*a")
+        check(not optionsSource:find("BCC", 1, true) and optionsSource:find("WoW Forever", 1, true), "the options subtitle names WoW Forever")
+
+        char.goals.items, char.goals.completed = {}, {}
+        measuredGames(30, 20, 120, 30)
+        mock.seasonSeconds = 86400 * 30
+        mock.bagItems = { [20558] = 12, [20559] = 3 }
+        mock.currencies[1792].quantity = 8200
+    end
+
     -- 11. Migration: a TBC-era save with EotS and arena fields loads, migrates, keeps its history.
     local fixture = dofile(ROOT .. "/Tests/fixtures/tbc_savedvars.lua")
     HonorLogDB, HonorLogCharDB = fixture.global, fixture.char
@@ -847,6 +1173,12 @@ local function run()
         "DI defaults added, draws and left start at zero")
     check(HonorLogCharDB.session.EotS == nil and HonorLogCharDB.session.DI and HonorLogCharDB.session.AB.honor == 400, "session migrated")
     check(HonorLogCharDB.bgState.isInBG == false, "a TBC mid-game state is dropped")
+    -- Saved TBC goals are archived once: unknown ids leave the active and completed lists, Forever ids stay.
+    check(#HonorLogCharDB.goals.items == 1 and HonorLogCharDB.goals.items[1].itemID == 272738 and HonorLogCharDB.goals.items[1].priority == 1, "TBC goals leave the active list")
+    check(#HonorLogCharDB.goals.completed == 0 and #HonorLogCharDB.goalsLegacy == 3, "TBC goals move to goalsLegacy (active and completed)")
+    check(printedMatching("3 TBC goals archived"), "the archive is announced once")
+    HL:InitializeDB()
+    check(#HonorLogCharDB.goalsLegacy == 3 and #HonorLogCharDB.goals.items == 1, "the archive does not repeat")
     check(HonorLogDB.settings.visibleCards.EotS == nil and HonorLogDB.settings.visibleCards.DI == true, "card toggles migrated")
     check(HonorLogCharDB.opponents and HonorLogCharDB.honorLog, "new per-character tables created")
     check(#HonorLogCharDB.history == 3 and #HonorLogDB.history == 3, "history kept")

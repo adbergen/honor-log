@@ -88,6 +88,8 @@ local DEFAULTS = {
         worldPvP = NewWorldStats(),
         history = {}, -- Account-wide history
         historyLimit = 200,
+        scannedGear = {}, -- itemID -> { honor, marks, gold, seen, npc } from /honorlog scan
+        scannedVendors = {},
         characters = {}, -- Track which characters contributed
         legacy = {}, -- TBC aggregates for battlegrounds Forever does not have (EotS)
         dbVersion = DB_VERSION,
@@ -116,6 +118,8 @@ local DEFAULTS = {
         rankWeeks = {},
         rankCapAlertWeek = 0,
         rankCelebrated = 0,
+        -- Saved goals whose items are not in the Forever database (TBC items), kept out of sight
+        goalsLegacy = {},
         -- Gear Goals system
         goals = {
             items = {}, -- Array of { itemID, addedAt, priority }
@@ -163,6 +167,8 @@ local DEFAULTS = {
             hide = false,
         },
         goalProgressMode = "shared", -- "shared" (all show same %) or "waterfall" (fills top-to-bottom)
+        goalCapAdvice = true, -- the goals header names what to buy when honor is about to cap
+        goalShowUnverified = false, -- the picker lists retired-looking items nobody has seen stocked
         honorCapWarning = true,
         honorCapWarnPct = 90, -- warn once per crossing at this percent of the honor cap
         showRankBar = true, -- the rank bar under the header of the main panel
@@ -355,6 +361,8 @@ function HonorLog:InitializeDB()
         char = HonorLogCharDB,
         settings = HonorLogDB.settings,
     }
+
+    self:ArchiveUnknownGoals()
 
     return self.db
 end
@@ -876,67 +884,15 @@ CURRENCY APIs - For Gear Goal Tracking
 ============================================================================
 --]]
 
--- Get current honor points
+-- Get current honor points (currency 1792 on Forever)
 function HonorLog:GetCurrentHonor()
-    -- Try C_CurrencyInfo API first
-    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
-        -- Honor is currency 1792 on WoW Forever
-        local info = C_CurrencyInfo.GetCurrencyInfo(1792)
-        if info and info.quantity and info.quantity > 0 then
-            return info.quantity
-        end
-        -- Try other known honor currency IDs as fallback
-        local currencyIDs = {1901, 392, 43308}
-        for _, currencyID in ipairs(currencyIDs) do
-            info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
-            if info and info.quantity and info.quantity > 0 then
-                return info.quantity
-            end
-        end
-    end
-
-    -- TBC Classic (original) uses GetHonorCurrency
-    if GetHonorCurrency then
-        local honor = GetHonorCurrency()
-        if honor and honor > 0 then
-            return honor
-        end
-    end
-
-    -- Fallback: GetPVPCurrency (older Classic)
-    if GetPVPCurrency then
-        local _, honor = GetPVPCurrency()
-        if honor and honor > 0 then
-            return honor
-        end
-    end
-
-    return 0
-end
-
--- Get current arena points
-function HonorLog:GetCurrentArenaPoints()
-    -- Try C_CurrencyInfo API first (TBC Classic Anniversary)
-    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
-        -- Arena Points currency ID 1900 in TBC Classic Anniversary
-        local info = C_CurrencyInfo.GetCurrencyInfo(1900)
-        if info and info.quantity and info.quantity > 0 then
-            return info.quantity
-        end
-    end
-
-    -- TBC Classic (original) uses GetArenaCurrency
-    if GetArenaCurrency then
-        return GetArenaCurrency()
-    end
-
-    return 0
+    local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(HONOR_CURRENCY)
+    return type(info) == "table" and tonumber(info.quantity) or 0
 end
 
 -- Get current marks for a specific BG type
 function HonorLog:GetCurrentMarks(bgType)
-    -- The battleground registry knows Forever's mark items; the gear database's
-    -- table still carries the TBC ones (EotS) that old goals refer to.
+    -- The battleground registry knows Forever's mark items; the gear database's MARK_ITEMS is the fallback.
     local itemID = (self.BG_MARK_ITEMS and self.BG_MARK_ITEMS[bgType]) or (self.MARK_ITEMS and self.MARK_ITEMS[bgType])
     if itemID then
         return GetItemCount(itemID, true) -- true = include bank
@@ -977,7 +933,7 @@ function HonorLog:GetAverageHonorPerGame(scope)
         return totalHonor / totalGames
     end
 
-    -- Fallback: reasonable estimate for TBC Classic (~250 honor/game average)
+    -- No games recorded yet: a rough estimate (~250 honor per game)
     return 250
 end
 
@@ -1005,7 +961,7 @@ function HonorLog:GetAverageHonorPerBG(bgType, scope)
         return (bgStats.honorLifetime or 0) / bgStats.played
     end
 
-    -- Fallback: reasonable estimate for TBC Classic
+    -- No games recorded yet: a rough estimate
     return 250
 end
 
@@ -1267,105 +1223,471 @@ function HonorLog:ReorderGoal(itemID, newPosition)
     return true
 end
 
--- Get goal progress for a specific item
-function HonorLog:GetGoalProgress(itemID)
+--[[
+============================================================================
+GEAR DATABASE ACCESS
+============================================================================
+Data/GearDatabase.lua is generated; HonorLogDB.scannedGear holds what the
+player's own vendor scans saw (/honorlog scan). A scan overrides the generated
+cost and proves the item is stocked right now.
+--]]
+
+HonorLog.STANDING_NAMES = { [1] = "Hated", [2] = "Hostile", [3] = "Unfriendly", [4] = "Neutral",
+    [5] = "Friendly", [6] = "Honored", [7] = "Revered", [8] = "Exalted" }
+
+local function ScannedEntry(itemID)
+    local store = type(HonorLogDB) == "table" and HonorLogDB.scannedGear
+    local scan = type(store) == "table" and store[itemID]
+    return type(scan) == "table" and scan or nil
+end
+
+-- The client's name once the item is cached, the generated one before that.
+function HonorLog:GetGearName(itemID)
+    local name = GetItemInfo(itemID)
+    if type(name) == "string" and name ~= "" then return name end
+    local base = self.GearDB and self.GearDB[itemID]
+    return base and base.name or nil
+end
+
+-- A copy of the database entry with scanned costs laid over it, or nil.
+function HonorLog:GetGearItem(itemID)
+    local base = self.GearDB and self.GearDB[itemID]
+    if not base then return nil end
+    local item = {}
+    for key, value in pairs(base) do item[key] = value end
+    item.itemID = itemID
+    item.name = self:GetGearName(itemID) or base.name
+    local scan = ScannedEntry(itemID)
+    if scan then
+        item.honor = scan.honor or 0
+        item.gold = scan.gold or 0
+        item.marks = nil
+        if type(scan.marks) == "table" and next(scan.marks) then
+            item.marks = {}
+            for bgType, count in pairs(scan.marks) do item.marks[bgType] = count end
+        end
+        item.scanned, item.stocked, item.seen = true, true, scan.seen
+    end
+    return item
+end
+
+-- Items the client may have retired stay in the database as `legacy` and count
+-- as available only once a vendor scan has seen them stocked.
+function HonorLog:IsGearAvailable(itemID)
+    local base = self.GearDB and self.GearDB[itemID]
+    if not base then return false end
+    return not base.legacy or ScannedEntry(itemID) ~= nil
+end
+
+function HonorLog:GetHonorCap()
+    local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(HONOR_CURRENCY)
+    local cap = type(info) == "table" and tonumber(info.maxQuantity) or nil
+    if cap and cap > 0 then return cap end
+    return nil
+end
+
+-- Reputation standing id (4 Neutral .. 8 Exalted) with a faction, or nil when
+-- the client cannot say. A faction the client has not met reads as 0.
+function HonorLog:GetReputationStanding(factionID)
+    if not (C_Reputation and C_Reputation.GetFactionDataByID) then return nil end
+    local ok, data = pcall(C_Reputation.GetFactionDataByID, factionID)
+    if not ok then return nil end
+    if type(data) ~= "table" then return 0 end
+    if issecretvalue and issecretvalue(data.reaction) then return nil end
+    return tonumber(data.reaction) or 0
+end
+
+function HonorLog:FormatMoney(copper)
+    copper = math.floor(tonumber(copper) or 0)
+    local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+    local out = {}
+    if g > 0 then out[#out + 1] = string.format("|cffffd700%sg|r", BreakUpLargeNumbers(g)) end
+    if s > 0 then out[#out + 1] = string.format("|cffc0c0c0%ds|r", s) end
+    if c > 0 or #out == 0 then out[#out + 1] = string.format("|cffcd7f32%dc|r", c) end
+    return table.concat(out, " ")
+end
+
+--[[
+============================================================================
+PICKER
+============================================================================
+--]]
+
+local ARMOR_BY_CLASS = {
+    WARRIOR = "PLATE", PALADIN = "PLATE", HUNTER = "MAIL", SHAMAN = "MAIL",
+    ROGUE = "LEATHER", DRUID = "LEATHER", PRIEST = "CLOTH", MAGE = "CLOTH", WARLOCK = "CLOTH",
+}
+HonorLog.ARMOR_BY_CLASS = ARMOR_BY_CLASS
+
+-- Weapon sub-types a class can use (itemSubType as the client names them).
+local WEAPON_SUBTYPES = {
+    WARRIOR = { "One-Handed Axes", "Two-Handed Axes", "One-Handed Swords", "Two-Handed Swords", "One-Handed Maces",
+        "Two-Handed Maces", "Daggers", "Fist Weapons", "Polearms", "Staves", "Bows", "Crossbows", "Guns", "Thrown" },
+    PALADIN = { "One-Handed Axes", "Two-Handed Axes", "One-Handed Swords", "Two-Handed Swords", "One-Handed Maces",
+        "Two-Handed Maces", "Polearms" },
+    HUNTER = { "One-Handed Axes", "Two-Handed Axes", "One-Handed Swords", "Two-Handed Swords", "Daggers",
+        "Fist Weapons", "Polearms", "Staves", "Bows", "Crossbows", "Guns", "Thrown" },
+    SHAMAN = { "One-Handed Axes", "Two-Handed Axes", "One-Handed Maces", "Two-Handed Maces", "Daggers",
+        "Fist Weapons", "Staves" },
+    ROGUE = { "One-Handed Swords", "One-Handed Maces", "Daggers", "Fist Weapons", "Bows", "Crossbows", "Guns",
+        "Thrown" },
+    DRUID = { "One-Handed Maces", "Two-Handed Maces", "Daggers", "Fist Weapons", "Polearms", "Staves" },
+    MAGE = { "One-Handed Swords", "Daggers", "Staves", "Wands" },
+    WARLOCK = { "One-Handed Swords", "Daggers", "Staves", "Wands" },
+    PRIEST = { "One-Handed Maces", "Daggers", "Staves", "Wands" },
+}
+local WEAPON_SLOTS = { MAIN_HAND = true, OFF_HAND = true, TWO_HAND = true, RANGED = true }
+
+local function ClassUsesWeapon(class, itemID)
+    local list = WEAPON_SUBTYPES[class]
+    if not list then return true end
+    local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemID)
+    if itemType ~= "Weapon" or not itemSubType then return true end -- not cached: do not hide
+    for _, name in ipairs(list) do
+        if name == itemSubType then return true end
+    end
+    return false
+end
+
+-- Items the picker lists. filters: slot, class (nil = any class), armor, source, search (lower case),
+-- showUnverified, hideOwned. Faction is never a filter: it is always the player's own plus neutral items.
+function HonorLog:GetPickerItems(filters)
+    filters = filters or {}
+    local faction = UnitFactionGroup("player")
+    local out = {}
+    for itemID, data in pairs(self.GearDB or {}) do
+        local pass = true
+        if data.faction and data.faction ~= faction then pass = false end
+        if pass and not filters.showUnverified and not self:IsGearAvailable(itemID) then pass = false end
+        if pass and filters.slot and data.slot ~= filters.slot then pass = false end
+        if pass and filters.class then
+            if data.class and data.class ~= filters.class then pass = false end
+            -- Armour with no class of its own (reputation pieces) must be the class's own armour type.
+            if pass and not data.class and data.armor and ARMOR_BY_CLASS[filters.class] and data.armor ~= ARMOR_BY_CLASS[filters.class] then
+                pass = false
+            end
+            if pass and WEAPON_SLOTS[data.slot] and not ClassUsesWeapon(filters.class, itemID) then pass = false end
+        end
+        if pass and filters.armor and data.armor ~= filters.armor then pass = false end
+        if pass and filters.source then
+            local src = data.source
+            if filters.source == "RANK" then
+                if src ~= "RANK" then pass = false end
+            elseif src ~= filters.source then
+                pass = false
+            end
+        end
+        if pass and filters.search and filters.search ~= "" then
+            local name = (self:GetGearName(itemID) or data.name or ""):lower()
+            if not name:find(filters.search, 1, true) then pass = false end
+        end
+        if pass and filters.hideOwned and GetItemCount(itemID, true) > 0 then pass = false end
+        if pass and self:IsGoal(itemID) then pass = false end
+        if pass then out[#out + 1] = { itemID = itemID, data = data, name = self:GetGearName(itemID) or data.name } end
+    end
+    table.sort(out, function(a, b)
+        if a.data.slot ~= b.data.slot then return a.data.slot < b.data.slot end
+        if (a.name or "") ~= (b.name or "") then return (a.name or "") < (b.name or "") end
+        return a.itemID < b.itemID
+    end)
+    return out
+end
+
+--[[
+============================================================================
+GOAL PROGRESS
+============================================================================
+A progress result carries one row per requirement (honor, one per battleground's
+marks, gold, rank, reputation), the rows still short, and the date it will be
+ready. Everything is also exposed under named fields (honor, marks[bg], gold,
+rank, rep) for the panels.
+--]]
+
+local DAY = 86400
+
+local function NewContext(self)
+    local Rank = self.Rank
+    local info = Rank and Rank.GetInfo and Rank:GetInfo() or nil
+    local ctx = {
+        honor = self:GetCurrentHonor(),
+        cap = self:GetHonorCap(),
+        money = GetMoney and GetMoney() or 0,
+        marks = self:GetAllCurrentMarks(),
+        info = info,
+        pace = Rank and Rank.GetPace and Rank:GetPace() or { gamesPerDay = 0, pointsPerGame = 0 },
+        plans = {},
+        now = time(),
+    }
+    return ctx
+end
+
+-- Best honor per game among the battlegrounds the player has played; the average otherwise.
+function HonorLog:GetBestHonorPerGame()
+    local best
+    for _, bgType in ipairs(self.BG_ORDER or {}) do
+        local stats = self.db.char.battlegrounds[bgType]
+        if stats and (stats.played or 0) > 0 then
+            local avg = (stats.honorLifetime or 0) / stats.played
+            if not best or avg > best then best = avg end
+        end
+    end
+    return best or self:GetAverageHonorPerGame()
+end
+
+-- Games it takes to earn the missing honor and marks. Each missing mark type is earned in its own
+-- battleground; those games' honor counts, and any honor still missing is earned in the best battleground.
+function HonorLog:EstimateGames(honorMissing, marksMissing)
+    local games, marksGames, estimated = 0, 0, false
+    local honorFromMarks = 0
+    for _, bgType in ipairs(self.BG_ORDER or {}) do
+        local missing = marksMissing and marksMissing[bgType] or 0
+        if missing > 0 then
+            local stats = self.db.char.battlegrounds[bgType]
+            if not stats or (stats.played or 0) == 0 then estimated = true end
+            local perGame = math.max(0.01, self:GetAverageMarksPerGame(bgType))
+            local g = math.ceil(missing / perGame)
+            marksGames = marksGames + g
+            honorFromMarks = honorFromMarks + g * self:GetAverageHonorPerBG(bgType)
+        end
+    end
+    local honorGames = 0
+    local left = math.max(0, (honorMissing or 0) - honorFromMarks)
+    if left > 0 then
+        local best = math.max(1, self:GetBestHonorPerGame())
+        honorGames = math.ceil(left / best)
+    end
+    local total = marksGames + honorGames
+    return total, { marksGames = marksGames, honorGames = honorGames, estimated = estimated }
+end
+
+-- When honor and marks at the measured rate and the rank plan allow the purchase.
+-- Returns date (or nil), limitedBy, games.
+local function ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow)
+    local games, detail = self:EstimateGames(honorMissing, marksMissing)
+    local now = ctx.now
+    local gpd = ctx.pace and ctx.pace.gamesPerDay or 0
+
+    local rateDate, rateLimit
+    if games == 0 then
+        rateDate = now
+    elseif gpd > 0 then
+        rateDate = now + math.floor(games / gpd * DAY)
+        rateLimit = detail.marksGames >= detail.honorGames and "marks" or "honor"
+    else
+        rateLimit = "nopace"
+    end
+
+    local rankDate, rankLimit
+    if rankRow and not rankRow.met and rankRow.known then
+        local plan = rankRow.plan
+        rankDate = plan and plan.date or nil
+        rankLimit = plan and plan.limitedBy or nil
+        if rankLimit == "cap" then rankLimit = "cap" elseif rankLimit == "pace" then rankLimit = "rank" end
+    end
+
+    local readyDate, limitedBy
+    local rankUnmet = rankRow and rankRow.known and not rankRow.met
+    if rankUnmet and not rankDate then
+        limitedBy = "season" -- the rank cannot be reached this season
+    elseif rateLimit == "nopace" then
+        limitedBy = "nopace" -- no recent games to measure a rate from
+    elseif rankUnmet and rankDate > rateDate then
+        readyDate, limitedBy = rankDate, rankLimit
+    else
+        readyDate, limitedBy = rateDate, rateLimit or "ready"
+    end
+    return readyDate, limitedBy, games, detail.estimated or (ctx.pace and ctx.pace.estimated) or false
+end
+
+-- pool = nil: progress against everything the player holds. pool = table: waterfall, the goal takes what is
+-- left in the pool and the pool tracks the shortfall of the goals above (for the date).
+function HonorLog:BuildGoalProgress(itemID, ctx, pool)
     local item = self:GetGearItem(itemID)
     if not item then return nil end
 
-    local result = {
-        itemID = itemID,
-        name = item.name,
-        slot = item.slot,
-        honor = {
-            needed = item.honor or 0,
-            current = self:GetCurrentHonor(),
-            remaining = 0,
-            percent = 0,
-            games = 0,
-        },
-        arena = {
-            needed = item.arena or 0,
-            current = self:GetCurrentArenaPoints(),
-            remaining = 0,
-            percent = 0,
-            weeks = 0,
-        },
-        marks = {},
-        isComplete = true,
-        totalGamesNeeded = 0,
-    }
-
-    -- Honor calculation
-    if item.honor > 0 then
-        result.honor.remaining = math.max(0, item.honor - result.honor.current)
-        result.honor.percent = math.min(100, (result.honor.current / item.honor) * 100)
-
-        local avgHonor = self:GetAverageHonorPerGame()
-        if avgHonor > 0 and result.honor.remaining > 0 then
-            result.honor.games = math.ceil(result.honor.remaining / avgHonor)
-            result.totalGamesNeeded = math.max(result.totalGamesNeeded, result.honor.games)
-        end
-
-        if result.honor.remaining > 0 then
-            result.isComplete = false
-        end
-    end
-
-    -- Arena calculation
-    if item.arena > 0 then
-        result.arena.remaining = math.max(0, item.arena - result.arena.current)
-        result.arena.percent = math.min(100, (result.arena.current / item.arena) * 100)
-
-        if result.arena.remaining > 0 then
-            result.isComplete = false
-        end
-    end
-
-    -- Marks calculation
-    if item.marks then
-        for bgType, needed in pairs(item.marks) do
-            if needed > 0 then
-                local current = self:GetCurrentMarks(bgType)
-                local remaining = math.max(0, needed - current)
-                local percent = math.min(100, (current / needed) * 100)
-                local games = 0
-
-                local avgMarks = self:GetAverageMarksPerGame(bgType)
-                if avgMarks > 0 and remaining > 0 then
-                    games = math.ceil(remaining / avgMarks)
-                    result.totalGamesNeeded = math.max(result.totalGamesNeeded, games)
-                end
-
-                result.marks[bgType] = {
-                    needed = needed,
-                    current = current,
-                    remaining = remaining,
-                    percent = percent,
-                    games = games,
+    -- What is still to buy. An epic is two purchases: its blue piece and the Seal; a part in the bags or
+    -- worn is paid for.
+    local need = { honor = item.honor or 0, gold = item.gold or 0, marks = {} }
+    for bgType, count in pairs(item.marks or {}) do need.marks[bgType] = count end
+    local rankNeeded = item.rank
+    local parts
+    if item.source == "UPGRADE" and type(item.parts) == "table" then
+        local list = {}
+        for i, partID in ipairs(item.parts) do
+            local part = self:GetGearItem(partID)
+            if part then
+                list[#list + 1] = {
+                    itemID = partID, name = part.name, role = i == 1 and "blue" or "seal",
+                    owned = self:IsItemInInventory(partID), honor = part.honor or 0, gold = part.gold or 0,
+                    marks = part.marks, rank = part.rank, scanned = part.scanned,
                 }
-
-                if remaining > 0 then
-                    result.isComplete = false
+            end
+        end
+        if #list > 0 then
+            parts = list
+            need = { honor = 0, gold = 0, marks = {} }
+            rankNeeded = nil
+            for _, part in ipairs(list) do
+                if not part.owned then
+                    need.honor = need.honor + part.honor
+                    need.gold = need.gold + part.gold
+                    for bgType, count in pairs(part.marks or {}) do
+                        need.marks[bgType] = (need.marks[bgType] or 0) + count
+                    end
+                    if part.rank then rankNeeded = math.max(rankNeeded or 0, part.rank) end
                 end
             end
         end
     end
 
+    local result = {
+        itemID = itemID, name = item.name, slot = item.slot, item = item, source = item.source,
+        parts = parts, marks = {}, rows = {}, missing = {}, unverified = {},
+        isComplete = true, totalGamesNeeded = 0, scanned = item.scanned,
+    }
+    local function addRow(row)
+        row.remaining = math.max(0, row.needed - (row.current or 0))
+        row.percent = row.needed > 0 and math.min(100, (row.current or 0) / row.needed * 100) or 100
+        if row.met == nil then row.met = row.remaining <= 0 end
+        result.rows[#result.rows + 1] = row
+        if row.known == false then
+            result.unverified[#result.unverified + 1] = row
+        elseif not row.met then
+            result.missing[#result.missing + 1] = row
+            result.isComplete = false
+        end
+        return row
+    end
+    local function take(kind, bgType, needed)
+        local have
+        if kind == "honor" then have = ctx.honor elseif kind == "gold" then have = ctx.money else have = ctx.marks[bgType] or 0 end
+        if not pool then return have end
+        local left = pool[kind == "marks" and ("m" .. bgType) or kind]
+        if left == nil then left = have end
+        local allocated = math.min(left, needed)
+        pool[kind == "marks" and ("m" .. bgType) or kind] = left - allocated
+        return allocated
+    end
+
+    -- Honor
+    result.honor = addRow({ kind = "honor", needed = need.honor, current = take("honor", nil, need.honor),
+        cap = ctx.cap, overCap = ctx.cap and need.honor > ctx.cap or false })
+    -- Marks
+    for _, bgType in ipairs(self.BG_ORDER or {}) do
+        local needed = need.marks[bgType]
+        if needed and needed > 0 then
+            result.marks[bgType] = addRow({ kind = "marks", bg = bgType, needed = needed, current = take("marks", bgType, needed) })
+        end
+    end
+    -- Gold
+    result.gold = addRow({ kind = "gold", needed = need.gold, current = take("gold", nil, need.gold) })
+
+    -- Rank
+    local rankRow
+    if rankNeeded and rankNeeded > 0 then
+        local current = ctx.info and ctx.info.rank or nil
+        rankRow = { kind = "rank", needed = rankNeeded, current = current, known = current ~= nil,
+            met = current ~= nil and current >= rankNeeded }
+        if current == nil then rankRow.met = false end
+        if rankRow.known and not rankRow.met and self.Rank then
+            local plan = ctx.plans[rankNeeded]
+            if not plan then
+                plan = self.Rank:PlanToRank(rankNeeded, ctx.info, ctx.pace)
+                ctx.plans[rankNeeded] = plan or false
+            end
+            if plan then
+                rankRow.plan, rankRow.date, rankRow.limitedBy = plan, plan.date, plan.limitedBy
+                rankRow.week = plan.earliestWeekByCap
+            end
+        end
+        -- rank rows keep their own meaning of remaining: ranks to climb
+        local row = rankRow
+        row.remaining = math.max(0, rankNeeded - (current or 0))
+        row.percent = rankNeeded > 0 and math.min(100, (current or 0) / rankNeeded * 100) or 100
+        result.rows[#result.rows + 1] = row
+        if not row.met then
+            result.missing[#result.missing + 1] = row
+            result.isComplete = false
+        end
+        result.rank = row
+    end
+
+    -- Reputation: the standing needed, with progress only when the item names one faction.
+    local rep = item.rep
+    if rep and rep.standing then
+        local row = { kind = "rep", needed = rep.standing, faction = rep.faction, standingName = HonorLog.STANDING_NAMES[rep.standing] }
+        if rep.faction then
+            row.factionName = self.REP_FACTIONS and self.REP_FACTIONS[rep.faction]
+            row.current = self:GetReputationStanding(rep.faction)
+            row.known = row.current ~= nil
+            row.met = row.known and row.current >= rep.standing
+        else
+            row.known = false -- several factions qualify: shown as a requirement, never as progress
+            row.met = false
+        end
+        row.remaining = row.met and 0 or 1
+        row.percent = row.met and 100 or 0
+        result.rows[#result.rows + 1] = row
+        if row.known == false then
+            result.unverified[#result.unverified + 1] = row
+        elseif not row.met then
+            result.missing[#result.missing + 1] = row
+            result.isComplete = false
+        end
+        result.rep = row
+    end
+
+    -- Per-requirement games, for the old "games" labels
+    local avgHonor = self:GetAverageHonorPerGame()
+    if result.honor.remaining > 0 and avgHonor > 0 then result.honor.games = math.ceil(result.honor.remaining / avgHonor) else result.honor.games = 0 end
+    for bgType, row in pairs(result.marks) do
+        local avg = self:GetAverageMarksPerGame(bgType)
+        row.games = (row.remaining > 0 and avg > 0) and math.ceil(row.remaining / avg) or 0
+    end
+
+    -- The date. A waterfall goal waits for the shortfall of the goals above it too.
+    local honorMissing, marksMissing = result.honor.remaining, {}
+    for bgType, row in pairs(result.marks) do marksMissing[bgType] = row.remaining end
+    if pool then
+        pool.shortHonor = (pool.shortHonor or 0) + honorMissing
+        pool.shortMarks = pool.shortMarks or {}
+        for bgType, missing in pairs(marksMissing) do
+            pool.shortMarks[bgType] = (pool.shortMarks[bgType] or 0) + missing
+        end
+        honorMissing, marksMissing = pool.shortHonor, pool.shortMarks
+    end
+    result.readyDate, result.readyLimitedBy, result.totalGamesNeeded, result.estimated =
+        ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow)
+    if result.isComplete then
+        result.readyDate, result.readyLimitedBy = ctx.now, "ready"
+    elseif #result.missing > 0 then
+        -- Only gold or reputation left: they have no rate, so the date is today, named for what holds it.
+        local rateOnly = true
+        for _, row in ipairs(result.missing) do
+            if row.kind ~= "gold" and row.kind ~= "rep" then rateOnly = false end
+        end
+        if rateOnly and result.readyLimitedBy == "ready" then
+            result.readyLimitedBy = result.missing[1].kind
+        end
+    end
     return result
+end
+
+function HonorLog:GetGoalProgress(itemID)
+    return self:BuildGoalProgress(itemID, NewContext(self), nil)
 end
 
 -- Get all goals with progress
 function HonorLog:GetAllGoalsProgress()
     local progressMode = self.db.settings.goalProgressMode or "shared"
-
     if progressMode == "waterfall" then
         return self:GetAllGoalsProgressWaterfall()
     end
 
-    -- Default "shared" mode - all goals show same percentage based on current currency
+    local ctx = NewContext(self)
     local results = {}
     for _, goal in ipairs(self.db.char.goals.items) do
-        local progress = self:GetGoalProgress(goal.itemID)
+        local progress = self:BuildGoalProgress(goal.itemID, ctx, nil)
         if progress then
             progress.addedAt = goal.addedAt
             progress.priority = goal.priority
@@ -1375,121 +1697,124 @@ function HonorLog:GetAllGoalsProgress()
     return results
 end
 
--- Get all goals with waterfall-style progress (currency fills goals top-to-bottom)
+-- Currency fills goals top to bottom: honor, marks and gold go to the first goal that needs them.
 function HonorLog:GetAllGoalsProgressWaterfall()
+    local ctx = NewContext(self)
+    local pool = {}
     local results = {}
-    local goals = self.db.char.goals.items
-
-    -- Get current currency totals
-    local remainingHonor = self:GetCurrentHonor()
-    local remainingArena = self:GetCurrentArenaPoints()
-    local remainingMarks = {
-        AV = self:GetCurrentMarks("AV"),
-        AB = self:GetCurrentMarks("AB"),
-        WSG = self:GetCurrentMarks("WSG"),
-        EotS = self:GetCurrentMarks("EotS"),
-    }
-
-    -- Process goals in order, allocating currency top-to-bottom
-    for _, goal in ipairs(goals) do
-        local item = self:GetGearItem(goal.itemID)
-        if item then
-            local result = {
-                itemID = goal.itemID,
-                name = item.name,
-                slot = item.slot,
-                addedAt = goal.addedAt,
-                priority = goal.priority,
-                honor = {
-                    needed = item.honor or 0,
-                    current = 0,
-                    remaining = 0,
-                    percent = 0,
-                    games = 0,
-                },
-                arena = {
-                    needed = item.arena or 0,
-                    current = 0,
-                    remaining = 0,
-                    percent = 0,
-                    weeks = 0,
-                },
-                marks = {},
-                isComplete = true,
-                totalGamesNeeded = 0,
-            }
-
-            -- Honor allocation (waterfall style)
-            if item.honor > 0 then
-                local allocated = math.min(remainingHonor, item.honor)
-                remainingHonor = remainingHonor - allocated
-
-                result.honor.current = allocated
-                result.honor.remaining = math.max(0, item.honor - allocated)
-                result.honor.percent = math.min(100, (allocated / item.honor) * 100)
-
-                local avgHonor = self:GetAverageHonorPerGame()
-                if avgHonor > 0 and result.honor.remaining > 0 then
-                    result.honor.games = math.ceil(result.honor.remaining / avgHonor)
-                    result.totalGamesNeeded = math.max(result.totalGamesNeeded, result.honor.games)
-                end
-
-                if result.honor.remaining > 0 then
-                    result.isComplete = false
-                end
-            end
-
-            -- Arena allocation (waterfall style)
-            if item.arena > 0 then
-                local allocated = math.min(remainingArena, item.arena)
-                remainingArena = remainingArena - allocated
-
-                result.arena.current = allocated
-                result.arena.remaining = math.max(0, item.arena - allocated)
-                result.arena.percent = math.min(100, (allocated / item.arena) * 100)
-
-                if result.arena.remaining > 0 then
-                    result.isComplete = false
-                end
-            end
-
-            -- Marks allocation (waterfall style)
-            if item.marks then
-                for bgType, needed in pairs(item.marks) do
-                    if needed > 0 then
-                        local allocated = math.min(remainingMarks[bgType] or 0, needed)
-                        remainingMarks[bgType] = (remainingMarks[bgType] or 0) - allocated
-
-                        local remaining = math.max(0, needed - allocated)
-                        local percent = math.min(100, (allocated / needed) * 100)
-                        local games = 0
-
-                        local avgMarks = self:GetAverageMarksPerGame(bgType)
-                        if avgMarks > 0 and remaining > 0 then
-                            games = math.ceil(remaining / avgMarks)
-                            result.totalGamesNeeded = math.max(result.totalGamesNeeded, games)
-                        end
-
-                        result.marks[bgType] = {
-                            needed = needed,
-                            current = allocated,
-                            remaining = remaining,
-                            percent = percent,
-                            games = games,
-                        }
-
-                        if remaining > 0 then
-                            result.isComplete = false
-                        end
-                    end
-                end
-            end
-
-            table.insert(results, result)
+    for _, goal in ipairs(self.db.char.goals.items) do
+        local progress = self:BuildGoalProgress(goal.itemID, ctx, pool)
+        if progress then
+            progress.addedAt = goal.addedAt
+            progress.priority = goal.priority
+            table.insert(results, progress)
         end
     end
-
     return results
+end
+
+-- One roll-up of every goal, active and completed, for the totals bar and the compact view.
+function HonorLog:GetGoalsTotals(goals)
+    goals = goals or self:GetAllGoalsProgress()
+    local ctx = NewContext(self)
+    local T = { honorNeeded = 0, goldNeeded = 0, marksNeeded = {}, marksCurrent = {}, completed = { honor = 0, gold = 0, marks = {} } }
+    local lastDate, limited
+    for _, goal in ipairs(goals) do
+        T.honorNeeded = T.honorNeeded + goal.honor.needed
+        T.goldNeeded = T.goldNeeded + goal.gold.needed
+        for bgType, row in pairs(goal.marks) do
+            T.marksNeeded[bgType] = (T.marksNeeded[bgType] or 0) + row.needed
+        end
+        if goal.readyDate and (not lastDate or goal.readyDate > lastDate) then lastDate, limited = goal.readyDate, goal.readyLimitedBy end
+    end
+    T.honorCurrent = math.min(ctx.honor, T.honorNeeded)
+    T.goldCurrent = math.min(ctx.money, T.goldNeeded)
+    for bgType, needed in pairs(T.marksNeeded) do
+        T.marksCurrent[bgType] = math.min(ctx.marks[bgType] or 0, needed)
+    end
+    for _, done in ipairs(self:GetCompletedGoals()) do
+        local item = self:GetGearItem(done.itemID)
+        if item then
+            T.completed.honor = T.completed.honor + (item.honor or 0)
+            T.completed.gold = T.completed.gold + (item.gold or 0)
+            for bgType, count in pairs(item.marks or {}) do
+                T.completed.marks[bgType] = (T.completed.marks[bgType] or 0) + count
+            end
+        end
+    end
+    -- Weighted: a mark counts 100 honor, a gold piece 10.
+    local needed = T.honorNeeded + T.goldNeeded / 1000
+    local current = T.honorCurrent + T.goldCurrent / 1000
+    for bgType, n in pairs(T.marksNeeded) do
+        needed = needed + n * 100
+        current = current + (T.marksCurrent[bgType] or 0) * 100
+    end
+    needed = needed + T.completed.honor + T.completed.gold / 1000
+    current = current + T.completed.honor + T.completed.gold / 1000
+    for _, n in pairs(T.completed.marks) do
+        needed = needed + n * 100
+        current = current + n * 100
+    end
+    T.percent = needed > 0 and current / needed * 100 or 100
+    T.allComplete = true
+    for _, goal in ipairs(goals) do if not goal.isComplete then T.allComplete = false end end
+    if not T.allComplete then T.percent = math.min(T.percent, 99) end -- rank or reputation can still be short
+    -- Games for everything together: the shortfall of the whole list, not the sum of each goal's.
+    local marksMissing = {}
+    for bgType, n in pairs(T.marksNeeded) do marksMissing[bgType] = math.max(0, n - (T.marksCurrent[bgType] or 0)) end
+    T.games = self:EstimateGames(math.max(0, T.honorNeeded - T.honorCurrent), marksMissing)
+    T.readyDate, T.readyLimitedBy = lastDate, limited
+    return T
+end
+
+-- "Spend before you cap": honor that the next game would push past the cap (or already sits at the
+-- warning percentage), and the first goal that can be bought now.
+function HonorLog:GetHonorCapAdvice(goals)
+    local settings = self.db and self.db.settings
+    if not settings or settings.honorCapWarning == false or settings.goalCapAdvice == false then return nil end
+    local cap = self:GetHonorCap()
+    if not cap then return nil end
+    local current = self:GetCurrentHonor()
+    local expected = self:GetAverageHonorPerGame()
+    local pct = settings.honorCapWarnPct or 90
+    if current + expected <= cap and current < cap * pct / 100 then return nil end
+
+    goals = goals or self:GetAllGoalsProgress()
+    local advice = { current = current, cap = cap, expected = expected, text = "spend before you cap" }
+    for _, goal in ipairs(goals) do
+        if goal.isComplete then advice.goal = goal break end
+    end
+    if not advice.goal then
+        for _, goal in ipairs(goals) do
+            if goal.honor.needed > 0 and not goal.honor.overCap and goal.honor.remaining <= 0 then advice.goal, advice.partial = goal, true break end
+        end
+    end
+    if advice.goal then
+        advice.text = "spend before you cap: " .. tostring(advice.goal.name)
+    end
+    return advice
+end
+
+-- Saved goals that name an item the Forever database does not know (TBC items) are set aside.
+function HonorLog:ArchiveUnknownGoals()
+    local char = HonorLogCharDB
+    if type(char) ~= "table" or type(char.goals) ~= "table" or not self.GearDB then return 0 end
+    char.goalsLegacy = char.goalsLegacy or {}
+    local moved = 0
+    for _, list in ipairs({ char.goals.items or {}, char.goals.completed or {} }) do
+        for i = #list, 1, -1 do
+            local goal = list[i]
+            if type(goal) ~= "table" or not goal.itemID or not self.GearDB[goal.itemID] then
+                table.insert(char.goalsLegacy, table.remove(list, i))
+                moved = moved + 1
+            end
+        end
+    end
+    for i, goal in ipairs(char.goals.items or {}) do goal.priority = i end
+    if moved > 0 then
+        print(string.format("|cff40d860[HonorLog]|r %d TBC goals archived", moved))
+    end
+    return moved
 end
 
 -- Check and handle completed goals

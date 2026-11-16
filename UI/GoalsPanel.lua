@@ -35,7 +35,8 @@ end
 local Layout = HonorLog.Layout
 local PADDING = Layout.PADDING
 local FRAME_WIDTH = Layout.FRAME_WIDTH
-local GOAL_CARD_HEIGHT = Layout.GOAL_CARD_HEIGHT
+-- Two lines taller than the shared layout: a status line (rank badge, ready date) and an epic's two parts.
+local GOAL_CARD_HEIGHT = Layout.GOAL_CARD_HEIGHT + 14
 local GOAL_CARD_SPACING = Layout.GOAL_CARD_SPACING
 local TAB_WIDTH = Layout.TAB_WIDTH
 local TAB_HEIGHT = Layout.TAB_HEIGHT
@@ -296,6 +297,160 @@ local function GetDropIndicator(parent)
     return dropIndicator
 end
 
+--------------------------------------------------------------------------------
+-- REQUIREMENT TEXT (shared by the cards and the totals bar)
+--------------------------------------------------------------------------------
+local GOLD_HEX, RANK_HEX = "e6cc80", "c8a0ff"
+local TICK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12:0:0|t"
+local CROSS = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12:12:0:0|t"
+
+-- 12,345 copper -> "1g", 150 -> "1s", 3 -> "3c" (whole units; the exact price is in the tooltip)
+local function GoldShort(copper)
+    copper = math.floor(tonumber(copper) or 0)
+    if copper >= 10000 then return BreakUpLargeNumbers(math.floor(copper / 10000)) .. "g" end
+    if copper >= 100 then return math.floor(copper / 100) .. "s" end
+    return copper .. "c"
+end
+
+local function ProgressColor(percent)
+    if percent >= 100 then return unpack(COLORS.progressFull) end
+    local lowR, lowG, lowB, highR, highG, highB, t
+    if percent >= 50 then
+        t = (percent - 50) / 50
+        lowR, lowG, lowB = unpack(COLORS.progressPartial)
+        highR, highG, highB = unpack(COLORS.progressFull)
+    else
+        t = percent / 50
+        lowR, lowG, lowB = unpack(COLORS.progressLow)
+        highR, highG, highB = unpack(COLORS.progressPartial)
+    end
+    return lowR + (highR - lowR) * t, lowG + (highG - lowG) * t, lowB + (highB - lowB) * t
+end
+
+-- One requirement as coloured text. factor (0..1) scales the counted amounts for the fill animation.
+local function RowText(row, factor)
+    factor = factor or 1
+    local done = "40d860"
+    if row.kind == "honor" then
+        local current = math.floor(row.current * factor)
+        return string.format("|cff%s%s/%s Honor|r", current >= row.needed and done or "ffd700",
+            BreakUpLargeNumbers(current), BreakUpLargeNumbers(row.needed))
+    elseif row.kind == "marks" then
+        local current = math.floor(row.current * factor)
+        return string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", current >= row.needed and done or (BG_COLOR_HEX[row.bg] or "55bbff"),
+            current, row.needed, BG_ICONS[row.bg] or "")
+    elseif row.kind == "gold" then
+        local current = math.floor(row.current * factor)
+        return string.format("|cff%s%s/%s|r", current >= row.needed and done or GOLD_HEX, GoldShort(current), GoldShort(row.needed))
+    elseif row.kind == "rank" then
+        return string.format("|cff%sRank %s/%d|r", row.met and done or RANK_HEX, row.current and tostring(row.current) or "?", row.needed)
+    elseif row.kind == "rep" then
+        local need = row.standingName or tostring(row.needed)
+        if row.faction and row.known then
+            local have = HonorLog.STANDING_NAMES[row.current] or "Unknown"
+            return string.format("|cff%s%s/%s|r", row.met and done or "7fc8ff", have, need)
+        end
+        return string.format("|cff9aa5b5%s reputation|r", need)
+    end
+    return ""
+end
+
+local function CurrencyLine(gp, factor)
+    local parts = {}
+    for _, row in ipairs(gp.rows) do
+        if (row.kind == "honor" or row.kind == "gold") then
+            if row.needed > 0 then parts[#parts + 1] = RowText(row, factor) end
+        else
+            parts[#parts + 1] = RowText(row, factor)
+        end
+    end
+    return table.concat(parts, " |cff666666·|r ")
+end
+
+-- Weighted share of honor, marks and gold in hand. Rank and reputation have no amounts, so they only hold
+-- the bar just under full.
+local function OverallPercent(gp)
+    local needed, current = 0, 0
+    for _, row in ipairs(gp.rows) do
+        local weight = row.kind == "honor" and 1 or row.kind == "marks" and 100 or row.kind == "gold" and 0.001 or nil
+        if weight and row.needed > 0 then
+            needed = needed + row.needed * weight
+            current = current + math.min(row.current, row.needed) * weight
+        end
+    end
+    local percent = needed > 0 and current / needed * 100 or 100
+    if not gp.isComplete then percent = math.min(percent, 99) end
+    return percent
+end
+
+local function ReadyText(gp)
+    if gp.isComplete then return "|cff40d860Ready to purchase|r" end
+    local pieces = {}
+    local rank = gp.rank
+    if rank and not rank.met then
+        if rank.known and rank.limitedBy == "cap" and rank.week then
+            pieces[#pieces + 1] = string.format("|cff%sRank %d locked until week %d|r", RANK_HEX, rank.needed, rank.week)
+        elseif rank.known and rank.date then
+            pieces[#pieces + 1] = string.format("|cff%sRank %d · %s|r", RANK_HEX, rank.needed, HonorLog.Rank.FormatDate(rank.date))
+        elseif rank.known then
+            pieces[#pieces + 1] = string.format("|cff%sRank %d not reachable this season|r", RANK_HEX, rank.needed)
+        else
+            pieces[#pieces + 1] = string.format("|cff%sRank %d|r", RANK_HEX, rank.needed)
+        end
+    end
+    if gp.readyDate then
+        pieces[#pieces + 1] = string.format("|cffb4c8e0ready %s%s|r", gp.estimated and "~" or "on ", HonorLog.Rank.FormatDate(gp.readyDate))
+    elseif gp.readyLimitedBy == "nopace" then
+        pieces[#pieces + 1] = "|cff888888play a game for a date|r"
+    end
+    return table.concat(pieces, " |cff666666·|r ")
+end
+
+local PART_LABEL = { blue = "Blue piece", seal = "Seal" }
+
+local function PartText(part)
+    local label = PART_LABEL[part.role] or "Part"
+    if part.owned then
+        return string.format("%s |cff40d860%s owned|r", TICK, label)
+    end
+    local cost = {}
+    if part.honor > 0 then cost[#cost + 1] = BreakUpLargeNumbers(part.honor) .. " honor" end
+    for _, bgType in ipairs(HonorLog.BG_ORDER) do
+        local n = part.marks and part.marks[bgType]
+        if n then cost[#cost + 1] = n .. " " .. bgType end
+    end
+    return string.format("%s |cffe0a050%s|r |cff9aa5b5%s|r", CROSS, label, table.concat(cost, ", "))
+end
+
+-- The totals bar's currency line: honor, marks and gold, completed goals counted as done. start holds the
+-- values to count up from (the fill animation), progress runs 0..1.
+function HonorLog:TotalsText(T, start, progress)
+    start = start or {}
+    local parts = {}
+    local function value(from, to) return math.floor(from + (to - from) * progress) end
+    local honorNeeded = T.honorNeeded + T.completed.honor
+    if honorNeeded > 0 then
+        local shown = value(start.honor or T.honorCurrent, T.honorCurrent) + T.completed.honor
+        parts[#parts + 1] = string.format("|cff%s%s/%s|r |cffffd700Honor|r", shown >= honorNeeded and "40d860" or "ffd700",
+            BreakUpLargeNumbers(shown), BreakUpLargeNumbers(honorNeeded))
+    end
+    for _, bgType in ipairs(HonorLog.BG_ORDER) do
+        local needed = (T.marksNeeded[bgType] or 0) + (T.completed.marks[bgType] or 0)
+        if needed > 0 then
+            local shown = value((start.marks or {})[bgType] or T.marksCurrent[bgType] or 0, T.marksCurrent[bgType] or 0)
+                + (T.completed.marks[bgType] or 0)
+            parts[#parts + 1] = string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", shown >= needed and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff"),
+                shown, needed, BG_ICONS[bgType] or "")
+        end
+    end
+    local goldNeeded = T.goldNeeded + T.completed.gold
+    if goldNeeded > 0 then
+        local shown = value(start.gold or T.goldCurrent, T.goldCurrent) + T.completed.gold
+        parts[#parts + 1] = string.format("|cff%s%s/%s|r", shown >= goldNeeded and "40d860" or GOLD_HEX, GoldShort(shown), GoldShort(goldNeeded))
+    end
+    return table.concat(parts, " |cff666666·|r ")
+end
+
 local function CreateGoalCard(parent, index)
     local card = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     card:SetHeight(GOAL_CARD_HEIGHT)
@@ -307,6 +462,8 @@ local function CreateGoalCard(parent, index)
     })
     card:SetBackdropColor(unpack(COLORS.bgCard))
     card:SetBackdropBorderColor(unpack(COLORS.borderDark))
+    card.progressPercent = 0
+    card.previousItemID = false
 
     -- Ready state indicator (shown at 100% progress)
     -- Subtle green background tint overlay (static)
@@ -336,6 +493,32 @@ local function CreateGoalCard(parent, index)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetItemByID(self.itemID)
             GameTooltip:AddLine(" ")
+            local gp = self.progress
+            if gp and not gp.isComplete then
+                GameTooltip:AddLine("Still missing", 1, 0.82, 0)
+                for _, row in ipairs(gp.missing) do
+                    if row.kind == "honor" then
+                        GameTooltip:AddLine(string.format("  %s honor", BreakUpLargeNumbers(row.remaining)), 1, 1, 1)
+                    elseif row.kind == "marks" then
+                        GameTooltip:AddLine(string.format("  %d %s marks", row.remaining, row.bg), 1, 1, 1)
+                    elseif row.kind == "gold" then
+                        GameTooltip:AddLine("  " .. HonorLog:FormatMoney(row.remaining), 1, 1, 1)
+                    elseif row.kind == "rank" then
+                        GameTooltip:AddLine(string.format("  Rank %d (you are %s)", row.needed, row.current and tostring(row.current) or "unknown"), 1, 1, 1)
+                    elseif row.kind == "rep" then
+                        GameTooltip:AddLine(string.format("  %s with %s", row.standingName or "Standing", row.factionName or "the faction"), 1, 1, 1)
+                    end
+                end
+                if gp.readyDate then
+                    GameTooltip:AddLine(string.format("Ready %s%s", gp.estimated and "around " or "on ", HonorLog.Rank.FormatDate(gp.readyDate)), 0.7, 0.9, 1)
+                end
+                GameTooltip:AddLine(" ")
+            end
+            for _, row in ipairs(gp and gp.unverified or {}) do
+                if row.kind == "rep" then
+                    GameTooltip:AddLine(string.format("Needs %s with one of several factions", row.standingName or "standing"), 0.6, 0.65, 0.7)
+                end
+            end
             GameTooltip:AddLine("|cff888888Ctrl+Click to preview|r", 1, 1, 1)
             GameTooltip:Show()
             if IsShiftKeyDown() then
@@ -819,6 +1002,34 @@ local function CreateGoalCard(parent, index)
     gamesLine:SetMaxLines(1)
     card.gamesLine = gamesLine
 
+    -- Status line (rank badge, ready date) and an epic's two parts
+    local statusLine = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    statusLine:SetPoint("TOPLEFT", currencyLine, "BOTTOMLEFT", 0, -2)
+    statusLine:SetPoint("RIGHT", -6, 0)
+    statusLine:SetJustifyH("LEFT")
+    statusLine:SetWordWrap(false)
+    statusLine:SetMaxLines(1)
+    card.statusLine = statusLine
+
+    gamesLine:ClearAllPoints()
+    gamesLine:SetPoint("TOPLEFT", statusLine, "BOTTOMLEFT", 0, -2)
+    gamesLine:SetPoint("RIGHT", -6, 0)
+
+    card.partRows = {}
+    for i = 1, 2 do
+        local row = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        if i == 1 then
+            row:SetPoint("TOPLEFT", statusLine, "BOTTOMLEFT", 0, -2)
+        else
+            row:SetPoint("TOPLEFT", card.partRows[1], "TOPRIGHT", 10, 0)
+        end
+        row:SetJustifyH("LEFT")
+        row:SetWordWrap(false)
+        row:SetMaxLines(1)
+        row:Hide()
+        card.partRows[i] = row
+    end
+
     -- Update function
     function card:Update(goalProgress, cardIndex)
         if not goalProgress then
@@ -833,6 +1044,7 @@ local function CreateGoalCard(parent, index)
 
         -- Store itemID and index for drag/drop reordering
         self.itemID = goalProgress.itemID
+        self.progress = goalProgress
         self.cardIndex = cardIndex or goalProgress.priority or 1
 
         -- Get item info
@@ -849,57 +1061,7 @@ local function CreateGoalCard(parent, index)
 
         self.itemName:SetText(goalProgress.name or itemName or "Unknown Item")
 
-        -- Calculate overall progress using weighted average (same as totals bar)
-        local totalNeeded = 0
-        local totalCurrent = 0
-        local parts = {}
-
-        if goalProgress.honor.needed > 0 then
-            totalNeeded = totalNeeded + goalProgress.honor.needed
-            totalCurrent = totalCurrent + math.min(goalProgress.honor.current, goalProgress.honor.needed)
-            if goalProgress.honor.remaining > 0 then
-                -- Not enough yet - show in gold
-                table.insert(parts, string.format("|cffffd700%d/%d Honor|r", goalProgress.honor.current, goalProgress.honor.needed))
-            else
-                -- Have enough - show in green
-                table.insert(parts, string.format("|cff40d860%d/%d Honor|r", goalProgress.honor.current, goalProgress.honor.needed))
-            end
-        end
-
-        if goalProgress.arena.needed > 0 then
-            totalNeeded = totalNeeded + goalProgress.arena.needed
-            totalCurrent = totalCurrent + math.min(goalProgress.arena.current, goalProgress.arena.needed)
-            if goalProgress.arena.remaining > 0 then
-                -- Not enough yet - show in purple
-                table.insert(parts, string.format("|cffaa55ff%d/%d Arena|r", goalProgress.arena.current, goalProgress.arena.needed))
-            else
-                -- Have enough - show in green
-                table.insert(parts, string.format("|cff40d860%d/%d Arena|r", goalProgress.arena.current, goalProgress.arena.needed))
-            end
-        end
-
-        -- Process marks in consistent order with BG-specific colors
-        for _, bgType in ipairs(HonorLog.BG_ORDER) do
-            local markData = goalProgress.marks[bgType]
-            if markData then
-                -- Weight marks by 100 to make them comparable to honor values
-                totalNeeded = totalNeeded + (markData.needed * 100)
-                totalCurrent = totalCurrent + (math.min(markData.current, markData.needed) * 100)
-                if markData.remaining > 0 then
-                    -- Not enough yet - show in BG color
-                    local colorHex = BG_COLOR_HEX[bgType] or "55bbff"
-                    local icon = BG_ICONS[bgType]
-                    table.insert(parts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", colorHex, markData.current, markData.needed, icon))
-                else
-                    -- Have enough - show in green
-                    local icon = BG_ICONS[bgType]
-                    table.insert(parts, string.format("|cff40d860%d/%d|r |T%s:14:14:0:0|t", markData.current, markData.needed, icon))
-                end
-            end
-        end
-
-        -- Calculate weighted percentage
-        local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
+        local overallPercent = OverallPercent(goalProgress)
 
         -- Store previous progress for animation
         local previousPercent = self.progressPercent or 0
@@ -962,13 +1124,6 @@ local function CreateGoalCard(parent, index)
                 local startPercent = forceAnimate and 0 or previousPercent
                 local targetPercent = overallPercent
 
-                -- Store currency targets for animation
-                local honorCurrent = goalProgress.honor.current
-                local honorNeeded = goalProgress.honor.needed
-                local arenaCurrent = goalProgress.arena.current
-                local arenaNeeded = goalProgress.arena.needed
-                local marksData = goalProgress.marks
-
                 AnimateValue(animId, 0, 1, ANIM.PROGRESS_FILL, function(progress)
                     if fill and fill:IsShown() then
                         -- Animate width
@@ -984,50 +1139,11 @@ local function CreateGoalCard(parent, index)
                             progressText:SetText(string.format("%.0f%%", currentPercent))
                         end
 
-                        -- Animate currency line values
-                        local animParts = {}
-                        if honorNeeded > 0 then
-                            local animHonor = math.floor(honorCurrent * progress)
-                            local color = animHonor >= honorNeeded and "40d860" or "ffd700"
-                            table.insert(animParts, string.format("|cff%s%d/%d Honor|r", color, animHonor, honorNeeded))
-                        end
-                        if arenaNeeded > 0 then
-                            local animArena = math.floor(arenaCurrent * progress)
-                            local color = animArena >= arenaNeeded and "40d860" or "aa55ff"
-                            table.insert(animParts, string.format("|cff%s%d/%d Arena|r", color, animArena, arenaNeeded))
-                        end
-                        for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                            local markData = marksData[bgType]
-                            if markData and markData.needed > 0 then
-                                local animMarks = math.floor(markData.current * progress)
-                                local color = animMarks >= markData.needed and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
-                                local icon = BG_ICONS[bgType]
-                                table.insert(animParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, animMarks, markData.needed, icon))
-                            end
-                        end
-                        if #animParts > 0 then
-                            currencyLine:SetText(table.concat(animParts, " |cff666666·|r "))
-                        end
+                        -- Count the currency lines up with the fill
+                        local line = CurrencyLine(goalProgress, progress)
+                        if line ~= "" then currencyLine:SetText(line) end
 
-                        -- Animate color based on current percentage
-                        local r, g, b
-                        if currentPercent >= 100 then
-                            r, g, b = unpack(COLORS.progressFull)
-                        elseif currentPercent >= 50 then
-                            local t = (currentPercent - 50) / 50
-                            local lowR, lowG, lowB = unpack(COLORS.progressPartial)
-                            local highR, highG, highB = unpack(COLORS.progressFull)
-                            r = lowR + (highR - lowR) * t
-                            g = lowG + (highG - lowG) * t
-                            b = lowB + (highB - lowB) * t
-                        else
-                            local t = currentPercent / 50
-                            local lowR, lowG, lowB = unpack(COLORS.progressLow)
-                            local highR, highG, highB = unpack(COLORS.progressPartial)
-                            r = lowR + (highR - lowR) * t
-                            g = lowG + (highG - lowG) * t
-                            b = lowB + (highB - lowB) * t
-                        end
+                        local r, g, b = ProgressColor(currentPercent)
                         fill:SetVertexColor(r, g, b)
                         progressText:SetTextColor(r, g, b)
 
@@ -1045,27 +1161,8 @@ local function CreateGoalCard(parent, index)
                 self.progressShine:SetWidth(targetWidth)
 
                 -- Set percentage and color directly (no animation)
-                local r, g, b
-                if overallPercent >= 100 then
-                    r, g, b = unpack(COLORS.progressFull)
-                    self.progressText:SetText("100%")
-                elseif overallPercent >= 50 then
-                    local t = (overallPercent - 50) / 50
-                    local lowR, lowG, lowB = unpack(COLORS.progressPartial)
-                    local highR, highG, highB = unpack(COLORS.progressFull)
-                    r = lowR + (highR - lowR) * t
-                    g = lowG + (highG - lowG) * t
-                    b = lowB + (highB - lowB) * t
-                    self.progressText:SetText(string.format("%.0f%%", overallPercent))
-                else
-                    local t = overallPercent / 50
-                    local lowR, lowG, lowB = unpack(COLORS.progressLow)
-                    local highR, highG, highB = unpack(COLORS.progressPartial)
-                    r = lowR + (highR - lowR) * t
-                    g = lowG + (highG - lowG) * t
-                    b = lowB + (highB - lowB) * t
-                    self.progressText:SetText(string.format("%.0f%%", overallPercent))
-                end
+                local r, g, b = ProgressColor(overallPercent)
+                self.progressText:SetText(overallPercent >= 100 and "100%" or string.format("%.0f%%", overallPercent))
                 self.progressFill:SetVertexColor(r, g, b)
                 self.progressText:SetTextColor(r, g, b)
 
@@ -1079,8 +1176,8 @@ local function CreateGoalCard(parent, index)
             end
         end
 
-        -- Ready glow at 100%
-        if overallPercent >= 100 then
+        -- Ready glow once everything is in hand
+        if goalProgress.isComplete then
             self.readyGlow:Show()
             if self.sparkle then self.sparkle:Show() end
             if self.barShimmer then self.barShimmer:Show() end
@@ -1090,20 +1187,39 @@ local function CreateGoalCard(parent, index)
             if self.barShimmer then self.barShimmer:Hide() end
         end
 
-        -- Currency line (formatted nicely)
-        if #parts > 0 then
-            self.currencyLine:SetText(table.concat(parts, " |cff666666·|r "))
-        else
-            self.currencyLine:SetText("|cff40d860Ready to purchase!|r")
-        end
+        -- Currency line: honor, marks, gold, rank, reputation
+        local line = CurrencyLine(goalProgress, 1)
+        self.currencyLine:SetText(line ~= "" and line or "|cff40d860Ready to purchase!|r")
 
-        -- Games remaining estimate (separate line)
-        if goalProgress.totalGamesNeeded > 0 then
-            self.gamesLine:SetText(string.format("Est. %d games remaining", goalProgress.totalGamesNeeded))
-            self.gamesLine:Show()
-        else
+        -- Status line: rank badge and ready date
+        self.statusLine:SetText(ReadyText(goalProgress))
+
+        -- An epic shows its two parts; anything else shows the games estimate
+        if goalProgress.parts then
+            for i = 1, 2 do
+                local part = goalProgress.parts[i]
+                if part then
+                    self.partRows[i]:SetText(PartText(part))
+                    self.partRows[i]:Show()
+                else
+                    self.partRows[i]:SetText("")
+                    self.partRows[i]:Hide()
+                end
+            end
             self.gamesLine:SetText("")
             self.gamesLine:Hide()
+        else
+            for i = 1, 2 do
+                self.partRows[i]:SetText("")
+                self.partRows[i]:Hide()
+            end
+            if goalProgress.totalGamesNeeded > 0 then
+                self.gamesLine:SetText(string.format("Est. %d games remaining", goalProgress.totalGamesNeeded))
+                self.gamesLine:Show()
+            else
+                self.gamesLine:SetText("")
+                self.gamesLine:Hide()
+            end
         end
 
         -- Store itemID for remove button
@@ -1149,6 +1265,21 @@ local function CreateGoalsPanel(parent)
     scrollFrame:SetPoint("BOTTOMRIGHT", -22, 46)  -- Match Stats panel
     panel.scrollFrame = scrollFrame
 
+    -- Honor-cap advice (shown only while honor is about to be wasted)
+    local adviceBar = CreateFrame("Frame", nil, panel)
+    adviceBar:SetHeight(16)
+    adviceBar:SetPoint("TOPLEFT", PADDING, -3)
+    adviceBar:SetPoint("TOPRIGHT", -PADDING - 22, -3)
+    local adviceText = adviceBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    adviceText:SetPoint("LEFT", 0, 0)
+    adviceText:SetPoint("RIGHT", 0, 0)
+    adviceText:SetJustifyH("LEFT")
+    adviceText:SetWordWrap(false)
+    adviceText:SetMaxLines(1)
+    adviceBar.text = adviceText
+    adviceBar:Hide()
+    panel.adviceBar = adviceBar
+
     -- Style scroll bar to match dark theme
     local scrollBar = scrollFrame.ScrollBar or _G[scrollFrame:GetName() .. "ScrollBar"]
     if scrollBar then
@@ -1168,6 +1299,8 @@ local function CreateGoalsPanel(parent)
 
     -- Card pool for goal cards (reused to avoid frame creation overhead)
     panel.goalCards = {}
+    panel.totalsProgressPercent = 0 -- explicit, so the headless mock (which answers any unset field) reads numbers
+    panel.totalsPrev = {}
     panel.cardPoolHighWater = 0  -- Track max cards ever created (for debugging)
 
     -- Function to get or create a goal card from pool
@@ -1263,12 +1396,17 @@ local function CreateGoalsPanel(parent)
     totalsBar:EnableMouse(true)
     totalsBar:SetScript("OnEnter", function(self)
         local games = panel.totalGamesNeeded or 0
-        if games > 0 then
+        if games > 0 or panel.totalReadyDate then
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText("Estimated Games Remaining", 1, 0.82, 0)
-            GameTooltip:AddLine(string.format("%d games to complete all active goals", games), 1, 1, 1)
+            if games > 0 then
+                GameTooltip:AddLine(string.format("%d games to complete all active goals", games), 1, 1, 1)
+            end
+            if panel.totalReadyDate then
+                GameTooltip:AddLine(string.format("Everything ready around %s", HonorLog.Rank.FormatDate(panel.totalReadyDate)), 0.7, 0.9, 1)
+            end
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Based on your average honor and marks per game.", 0.7, 0.7, 0.7)
+            GameTooltip:AddLine("Based on your measured honor and marks per game and the rank planner.", 0.7, 0.7, 0.7)
             GameTooltip:Show()
         end
     end)
@@ -1595,6 +1733,19 @@ local function CreateGoalsPanel(parent)
         local goals = HonorLog:GetAllGoalsProgress()
         local completedGoals = HonorLog:GetCompletedGoals()
 
+        -- "Spend before you cap" header
+        local advice = #goals > 0 and HonorLog:GetHonorCapAdvice(goals) or nil
+        self.advice = advice
+        if advice then
+            self.adviceBar.text:SetText(string.format("|cffff8040%s|r  |cffb0b0b0%s/%s honor|r",
+                advice.text, BreakUpLargeNumbers(advice.current), BreakUpLargeNumbers(advice.cap)))
+            self.adviceBar:Show()
+            self.scrollFrame:SetPoint("TOPLEFT", 0, -22)
+        else
+            self.adviceBar:Hide()
+            self.scrollFrame:SetPoint("TOPLEFT", 0, -4)
+        end
+
         -- Only show empty state if BOTH active and completed are empty
         if #goals == 0 and #completedGoals == 0 then
             self.emptyState:Show()
@@ -1864,145 +2015,28 @@ local function CreateGoalsPanel(parent)
             -- Update scroll content height
             self.goalsContainer:SetHeight(contentHeight)
 
-            -- Calculate totals from ACTIVE goals
-            local totalHonorNeeded = 0
-            local totalArenaNeeded = 0
-            local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+            -- Totals for the whole list (active goals plus what is already bought)
+            local T = HonorLog:GetGoalsTotals(goals)
+            self.totalGamesNeeded = T.games
+            self.totalReadyDate, self.totalReadyLimit = T.readyDate, T.readyLimitedBy
+            local overallPercent = T.percent
 
-            local totalGamesNeeded = 0
-            for _, goal in ipairs(goals) do
-                if goal.honor.needed > 0 then
-                    totalHonorNeeded = totalHonorNeeded + goal.honor.needed
-                end
-                if goal.arena.needed > 0 then
-                    totalArenaNeeded = totalArenaNeeded + goal.arena.needed
-                end
-                for bgType, markData in pairs(goal.marks) do
-                    if markData.needed > 0 then
-                        totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
-                    end
-                end
-                -- Sum games needed for all active goals
-                if goal.totalGamesNeeded and goal.totalGamesNeeded > 0 then
-                    totalGamesNeeded = totalGamesNeeded + goal.totalGamesNeeded
-                end
-            end
-            -- Store for tooltip
-            self.totalGamesNeeded = totalGamesNeeded
-
-            -- Get actual player currency for active goals (capped at what's needed)
-            local totalHonorCurrent = math.min(HonorLog:GetCurrentHonor(), totalHonorNeeded)
-            local totalArenaCurrent = math.min(HonorLog:GetCurrentArenaPoints(), totalArenaNeeded)
-            local totalMarksCurrent = {}
-            for bgType, needed in pairs(totalMarksNeeded) do
-                totalMarksCurrent[bgType] = math.min(HonorLog:GetCurrentMarks(bgType), needed)
-            end
-
-            -- Include COMPLETED goals at 100% progress (cumulative tracking)
-            local completedHonorTotal = 0
-            local completedArenaTotal = 0
-            local completedMarksTotal = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
-
-            for _, completedGoal in ipairs(completedGoals) do
-                local itemData = HonorLog.GearDB and HonorLog.GearDB[completedGoal.itemID]
-                if itemData then
-                    if itemData.honor and itemData.honor > 0 then
-                        completedHonorTotal = completedHonorTotal + itemData.honor
-                    end
-                    if itemData.arena and itemData.arena > 0 then
-                        completedArenaTotal = completedArenaTotal + itemData.arena
-                    end
-                    if itemData.marks then
-                        for bgType, markCount in pairs(itemData.marks) do
-                            if markCount > 0 then
-                                completedMarksTotal[bgType] = completedMarksTotal[bgType] + markCount
-                            end
-                        end
-                    end
-                end
-            end
-
-            -- Calculate overall progress (active + completed goals)
-            local totalNeeded = 0
-            local totalCurrent = 0
-
-            -- Active goals: current progress toward needed
-            if totalHonorNeeded > 0 then
-                totalNeeded = totalNeeded + totalHonorNeeded
-                totalCurrent = totalCurrent + totalHonorCurrent
-            end
-            if totalArenaNeeded > 0 then
-                totalNeeded = totalNeeded + totalArenaNeeded
-                totalCurrent = totalCurrent + totalArenaCurrent
-            end
-            for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                if totalMarksNeeded[bgType] > 0 then
-                    totalNeeded = totalNeeded + (totalMarksNeeded[bgType] * 100)
-                    totalCurrent = totalCurrent + (totalMarksCurrent[bgType] * 100)
-                end
-            end
-
-            -- Completed goals: 100% progress (add to both needed AND current)
-            if completedHonorTotal > 0 then
-                totalNeeded = totalNeeded + completedHonorTotal
-                totalCurrent = totalCurrent + completedHonorTotal
-            end
-            if completedArenaTotal > 0 then
-                totalNeeded = totalNeeded + completedArenaTotal
-                totalCurrent = totalCurrent + completedArenaTotal
-            end
-            for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                if completedMarksTotal[bgType] > 0 then
-                    totalNeeded = totalNeeded + (completedMarksTotal[bgType] * 100)
-                    totalCurrent = totalCurrent + (completedMarksTotal[bgType] * 100)
-                end
-            end
-
-            -- Cumulative display values (active progress + completed = 100% done)
-            local displayHonorNeeded = totalHonorNeeded + completedHonorTotal
-            local displayHonorCurrent = totalHonorCurrent + completedHonorTotal
-            local displayArenaNeeded = totalArenaNeeded + completedArenaTotal
-            local displayArenaCurrent = totalArenaCurrent + completedArenaTotal
-            local displayMarksNeeded = {}
-            local displayMarksCurrent = {}
-            for bgType, _ in pairs(totalMarksNeeded) do
-                displayMarksNeeded[bgType] = totalMarksNeeded[bgType] + completedMarksTotal[bgType]
-                displayMarksCurrent[bgType] = totalMarksCurrent[bgType] + completedMarksTotal[bgType]
-            end
-
-            local overallPercent = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
-
-            -- Store previous progress and currency values for animation
             local previousPercent = self.totalsProgressPercent or 0
-            local prevHonor = self.totalsPrevHonor or 0
-            local prevArena = self.totalsPrevArena or 0
-            local prevMarks = self.totalsPrevMarks or {}
-
+            local prev = self.totalsPrev or {}
             self.totalsProgressPercent = overallPercent
-            self.totalsPrevHonor = totalHonorCurrent
-            self.totalsPrevArena = totalArenaCurrent
-            self.totalsPrevMarks = {}
-            for bgType, val in pairs(totalMarksCurrent) do
-                self.totalsPrevMarks[bgType] = val
-            end
+            self.totalsPrev = { honor = T.honorCurrent, gold = T.goldCurrent, marks = {} }
+            for bgType, val in pairs(T.marksCurrent) do self.totalsPrev.marks[bgType] = val end
 
             -- Update progress bar with animation
             local containerWidth = self.totalsBarContainer:GetWidth()
             local targetWidth = math.max(1, (containerWidth - 2) * (overallPercent / 100))
             local currentWidth = self.totalsFill:GetWidth() or 1
 
-            -- Animate width change with counting effect
             local widthDiff = math.abs(targetWidth - currentWidth)
-            local honorChanged = math.abs(totalHonorCurrent - prevHonor) > 0
-            local arenaChanged = math.abs(totalArenaCurrent - prevArena) > 0
-            local marksChanged = false
-            for bgType, val in pairs(totalMarksCurrent) do
-                if math.abs(val - (prevMarks[bgType] or 0)) > 0 then
-                    marksChanged = true
-                    break
-                end
+            local currencyChanged = math.abs(T.honorCurrent - (prev.honor or 0)) > 0 or math.abs(T.goldCurrent - (prev.gold or 0)) > 0
+            for bgType, val in pairs(T.marksCurrent) do
+                if math.abs(val - ((prev.marks or {})[bgType] or 0)) > 0 then currencyChanged = true end
             end
-            local currencyChanged = honorChanged or arenaChanged or marksChanged
             local forceAnimateTabSwitch = animState.onTabSwitch
 
             if forceAnimateTabSwitch or ((widthDiff > 2 or currencyChanged) and previousPercent > 0) then
@@ -2020,82 +2054,28 @@ local function CreateGoalsPanel(parent)
                 local startWidth = forceAnimateTabSwitch and 1 or currentWidth
                 local startPercent = forceAnimateTabSwitch and 0 or previousPercent
                 local targetPercent = overallPercent
-
-                -- Store start values for currency animation (0 on tab switch)
-                local startHonor = forceAnimateTabSwitch and 0 or prevHonor
-                local startArena = forceAnimateTabSwitch and 0 or prevArena
-                local startMarks = forceAnimateTabSwitch and {} or prevMarks
+                local start = forceAnimateTabSwitch and { honor = 0, gold = 0, marks = {} } or prev
 
                 AnimateValue(animId, 0, 1, ANIM.TOTALS_FILL, function(progress)
                     if fill and fill:IsShown() then
-                        -- Animate width
                         local currentWidthVal = startWidth + (targetWidth - startWidth) * progress
                         fill:SetWidth(currentWidthVal)
                         shine:SetWidth(currentWidthVal)
                         if glow then glow:SetWidth(currentWidthVal + 4) end
 
-                        -- Animate percentage text
                         local currentPercent = startPercent + (targetPercent - startPercent) * progress
-                        if currentPercent >= 100 then
-                            percentText:SetText("100%")
-                        else
-                            percentText:SetText(string.format("%.0f%%", currentPercent))
-                        end
+                        percentText:SetText(currentPercent >= 100 and "100%" or string.format("%.0f%%", currentPercent))
 
-                        -- Animate color based on current percentage
-                        local r, g, b
-                        if currentPercent >= 100 then
-                            r, g, b = unpack(COLORS.progressFull)
-                        elseif currentPercent >= 50 then
-                            local t = (currentPercent - 50) / 50
-                            local lowR, lowG, lowB = unpack(COLORS.progressPartial)
-                            local highR, highG, highB = unpack(COLORS.progressFull)
-                            r = lowR + (highR - lowR) * t
-                            g = lowG + (highG - lowG) * t
-                            b = lowB + (highB - lowB) * t
-                        else
-                            local t = currentPercent / 50
-                            local lowR, lowG, lowB = unpack(COLORS.progressLow)
-                            local highR, highG, highB = unpack(COLORS.progressPartial)
-                            r = lowR + (highR - lowR) * t
-                            g = lowG + (highG - lowG) * t
-                            b = lowB + (highB - lowB) * t
-                        end
+                        local r, g, b = ProgressColor(currentPercent)
                         fill:SetVertexColor(r, g, b)
                         percentText:SetTextColor(r, g, b)
                         if glow then
                             glow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
                         end
 
-                        -- Animate currency values from previous to current (cumulative including completed)
-                        local animParts = {}
-                        if displayHonorNeeded > 0 then
-                            -- Add completed total to start value for smooth animation
-                            local animStartHonor = startHonor + completedHonorTotal
-                            local animHonor = math.floor(animStartHonor + (displayHonorCurrent - animStartHonor) * progress)
-                            local color = animHonor >= displayHonorNeeded and "40d860" or "ffd700"
-                            table.insert(animParts, string.format("|cff%s%s/%s|r |cffffd700Honor|r", color, BreakUpLargeNumbers(animHonor), BreakUpLargeNumbers(displayHonorNeeded)))
-                        end
-                        if displayArenaNeeded > 0 then
-                            local animStartArena = startArena + completedArenaTotal
-                            local animArena = math.floor(animStartArena + (displayArenaCurrent - animStartArena) * progress)
-                            local color = animArena >= displayArenaNeeded and "40d860" or "aa55ff"
-                            table.insert(animParts, string.format("|cff%s%d/%d|r |cffaa55ffArena|r", color, animArena, displayArenaNeeded))
-                        end
-                        for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                            if displayMarksNeeded[bgType] and displayMarksNeeded[bgType] > 0 then
-                                local prevMark = (startMarks[bgType] or 0) + completedMarksTotal[bgType]
-                                local animMarks = math.floor(prevMark + (displayMarksCurrent[bgType] - prevMark) * progress)
-                                local color = animMarks >= displayMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
-                                local icon = BG_ICONS[bgType]
-                                table.insert(animParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, animMarks, displayMarksNeeded[bgType], icon))
-                            end
-                        end
-                        if #animParts > 0 then
-                            currencyText:SetText(table.concat(animParts, " |cff666666·|r "))
-                        end
+                        local text = HonorLog:TotalsText(T, start, progress)
+                        if text ~= "" then currencyText:SetText(text) end
 
-                        -- Update spark position during animation
                         if spark and currentPercent > 0 and currentPercent < 100 then
                             spark:SetPoint("CENTER", fill, "RIGHT", 0, 0)
                             spark:Show()
@@ -2119,58 +2099,15 @@ local function CreateGoalsPanel(parent)
                     end
                 end
 
-                -- Update progress bar color directly (no animation)
-                local r, g, b
-                if overallPercent >= 100 then
-                    r, g, b = unpack(COLORS.progressFull)
-                    self.totalsPercent:SetText("100%")
-                elseif overallPercent >= 50 then
-                    local t = (overallPercent - 50) / 50
-                    local lowR, lowG, lowB = unpack(COLORS.progressPartial)
-                    local highR, highG, highB = unpack(COLORS.progressFull)
-                    r = lowR + (highR - lowR) * t
-                    g = lowG + (highG - lowG) * t
-                    b = lowB + (highB - lowB) * t
-                    self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
-                else
-                    local t = overallPercent / 50
-                    local lowR, lowG, lowB = unpack(COLORS.progressLow)
-                    local highR, highG, highB = unpack(COLORS.progressPartial)
-                    r = lowR + (highR - lowR) * t
-                    g = lowG + (highG - lowG) * t
-                    b = lowB + (highB - lowB) * t
-                    self.totalsPercent:SetText(string.format("%.0f%%", overallPercent))
-                end
-
+                local r, g, b = ProgressColor(overallPercent)
+                self.totalsPercent:SetText(overallPercent >= 100 and "100%" or string.format("%.0f%%", overallPercent))
                 self.totalsFill:SetVertexColor(r, g, b)
                 self.totalsPercent:SetTextColor(r, g, b)
                 if self.totalsGlow then
                     self.totalsGlow:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.4), CreateColor(r, g, b, 0))
                 end
 
-                -- Build currency totals text directly (no animation) - cumulative including completed
-                local totalParts = {}
-                if displayHonorNeeded > 0 then
-                    local color = displayHonorCurrent >= displayHonorNeeded and "40d860" or "ffd700"
-                    table.insert(totalParts, string.format("|cff%s%s/%s|r |cffffd700Honor|r", color, BreakUpLargeNumbers(displayHonorCurrent), BreakUpLargeNumbers(displayHonorNeeded)))
-                end
-                if displayArenaNeeded > 0 then
-                    local color = displayArenaCurrent >= displayArenaNeeded and "40d860" or "aa55ff"
-                    table.insert(totalParts, string.format("|cff%s%d/%d|r |cffaa55ffArena|r", color, displayArenaCurrent, displayArenaNeeded))
-                end
-                for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                    if displayMarksNeeded[bgType] and displayMarksNeeded[bgType] > 0 then
-                        local color = displayMarksCurrent[bgType] >= displayMarksNeeded[bgType] and "40d860" or (BG_COLOR_HEX[bgType] or "55bbff")
-                        local icon = BG_ICONS[bgType]
-                        table.insert(totalParts, string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", color, displayMarksCurrent[bgType], displayMarksNeeded[bgType], icon))
-                    end
-                end
-
-                if #totalParts > 0 then
-                    self.totalsText:SetText(table.concat(totalParts, " |cff666666·|r "))
-                else
-                    self.totalsText:SetText("")
-                end
+                self.totalsText:SetText(HonorLog:TotalsText(T, nil, 1))
             end
         end
 
@@ -2310,15 +2247,31 @@ local function CreateGoalPicker()
     UIDropDownMenu_SetWidth(slotDropdown, 90)
     frame.slotDropdown = slotDropdown
 
-    -- Filter: Season dropdown
-    local seasonDropdown = CreateFrame("Frame", "HonorLogSeasonDropdown", frame, "UIDropDownMenuTemplate")
-    seasonDropdown:SetPoint("LEFT", slotDropdown, "RIGHT", -10, 0)
-    UIDropDownMenu_SetWidth(seasonDropdown, 90)
-    frame.seasonDropdown = seasonDropdown
+    -- Filter: Source dropdown (Honor, Rank, Reputation, Upgrade)
+    local sourceDropdown = CreateFrame("Frame", "HonorLogSourceDropdown", frame, "UIDropDownMenuTemplate")
+    sourceDropdown:SetPoint("LEFT", slotDropdown, "RIGHT", -10, 0)
+    UIDropDownMenu_SetWidth(sourceDropdown, 90)
+    frame.sourceDropdown = sourceDropdown
+
+    -- Filter row 2: class and armour type
+    local classLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    classLabel:SetPoint("TOPLEFT", 16, -66)
+    classLabel:SetText("Class:")
+    classLabel:SetTextColor(unpack(COLORS.textSecondary))
+
+    local classDropdown = CreateFrame("Frame", "HonorLogClassDropdown", frame, "UIDropDownMenuTemplate")
+    classDropdown:SetPoint("LEFT", classLabel, "RIGHT", -8, -2)
+    UIDropDownMenu_SetWidth(classDropdown, 90)
+    frame.classDropdown = classDropdown
+
+    local armorDropdown = CreateFrame("Frame", "HonorLogArmorDropdown", frame, "UIDropDownMenuTemplate")
+    armorDropdown:SetPoint("LEFT", classDropdown, "RIGHT", -10, 0)
+    UIDropDownMenu_SetWidth(armorDropdown, 90)
+    frame.armorDropdown = armorDropdown
 
     -- Filter row 2: Search box
     local searchLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("TOPLEFT", 16, -68)
+    searchLabel:SetPoint("TOPLEFT", 16, -96)
     searchLabel:SetText("Search:")
     searchLabel:SetTextColor(unpack(COLORS.textSecondary))
 
@@ -2327,30 +2280,30 @@ local function CreateGoalPicker()
     searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 8, 0)
 
     -- Filter row 3: Checkboxes (below search)
-    local useableCheck = CreateFrame("CheckButton", "HonorLogUseableCheck", frame, "UICheckButtonTemplate")
-    useableCheck:SetSize(24, 24)
-    useableCheck:SetPoint("TOPLEFT", 16, -92)
-    useableCheck:SetChecked(true)
-    useableCheck.text = useableCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    useableCheck.text:SetPoint("LEFT", useableCheck, "RIGHT", 0, 0)
-    useableCheck.text:SetText("Useable")
-    useableCheck.text:SetTextColor(unpack(COLORS.textSecondary))
-    useableCheck:SetScript("OnClick", function(self)
-        frame.filterUseable = self:GetChecked()
+    local unverifiedCheck = CreateFrame("CheckButton", "HonorLogUnverifiedCheck", frame, "UICheckButtonTemplate")
+    unverifiedCheck:SetSize(24, 24)
+    unverifiedCheck:SetPoint("TOPLEFT", 16, -120)
+    unverifiedCheck:SetChecked(HonorLog.db.settings.goalShowUnverified == true)
+    unverifiedCheck.text = unverifiedCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    unverifiedCheck.text:SetPoint("LEFT", unverifiedCheck, "RIGHT", 0, 0)
+    unverifiedCheck.text:SetText("Show unverified")
+    unverifiedCheck.text:SetTextColor(unpack(COLORS.textSecondary))
+    unverifiedCheck:SetScript("OnClick", function(self)
+        frame.filters.unverified = self:GetChecked() and true or false
         frame:RefreshItems()
     end)
-    frame.useableCheck = useableCheck
+    frame.unverifiedCheck = unverifiedCheck
 
     local hideOwnedCheck = CreateFrame("CheckButton", "HonorLogHideOwnedCheck", frame, "UICheckButtonTemplate")
     hideOwnedCheck:SetSize(24, 24)
-    hideOwnedCheck:SetPoint("LEFT", useableCheck, "RIGHT", 70, 0)
+    hideOwnedCheck:SetPoint("LEFT", unverifiedCheck, "RIGHT", 100, 0)
     hideOwnedCheck:SetChecked(false)
     hideOwnedCheck.text = hideOwnedCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     hideOwnedCheck.text:SetPoint("LEFT", hideOwnedCheck, "RIGHT", 0, 0)
     hideOwnedCheck.text:SetText("Hide Owned")
     hideOwnedCheck.text:SetTextColor(unpack(COLORS.textSecondary))
     hideOwnedCheck:SetScript("OnClick", function(self)
-        frame.filterHideOwned = self:GetChecked()
+        frame.filters.hideOwned = self:GetChecked()
         frame:RefreshItems()
     end)
     frame.hideOwnedCheck = hideOwnedCheck
@@ -2379,7 +2332,7 @@ local function CreateGoalPicker()
 
     -- Scroll frame for items (adjusted to start below checkbox row)
     local scrollFrame = CreateFrame("ScrollFrame", "HonorLogGoalPickerScroll", frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 12, -118)
+    scrollFrame:SetPoint("TOPLEFT", 12, -148)
     scrollFrame:SetPoint("BOTTOMRIGHT", -28, 12)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -2410,101 +2363,71 @@ local function CreateGoalPicker()
     -- Item rows (created dynamically)
     frame.itemRows = {}
 
-    -- Filter state
-    frame.filterSlot = nil
-    frame.filterSeason = nil
-    frame.filterUseable = true -- Default to useable only
-    frame.filterHideOwned = false -- Default to showing all items
-    frame.searchText = ""
+    -- Filter state. Faction is not a filter: the picker always shows the player's own faction plus neutral items.
+    local _, playerClassToken = UnitClass("player")
+    frame.filters = {} -- a plain table: unset entries read nil (frames answer any unset field with a function in the test mock)
+    frame.filters.slot = nil
+    frame.filters.source = nil
+    frame.filters.class = playerClassToken -- the player's class by default; nil means any class
+    frame.filters.armor = nil
+    frame.filters.unverified = HonorLog.db.settings.goalShowUnverified == true
+    frame.filters.hideOwned = false -- Default to showing all items
+    frame.filters.search = ""
 
-    -- Initialize dropdowns
-    local function InitSlotDropdown(self, level)
-        local info = UIDropDownMenu_CreateInfo()
+    local SLOT_NAMES = {
+        HEAD = "Head", SHOULDER = "Shoulder", CHEST = "Chest", HANDS = "Hands", LEGS = "Legs", WAIST = "Waist",
+        FEET = "Feet", WRIST = "Wrist", MAIN_HAND = "Main Hand", TWO_HAND = "Two-Hand", OFF_HAND = "Off-Hand",
+        RANGED = "Ranged", NECK = "Neck", FINGER = "Ring", TRINKET = "Trinket", BACK = "Back", RELIC = "Relic",
+        TABARD = "Tabard", MOUNT = "Mount", TOKEN = "Seal", CONSUMABLE = "Consumable", OTHER = "Other",
+    }
+    local SOURCE_NAMES = { HONOR = "Honor", RANK = "Rank", REP = "Reputation", UPGRADE = "Upgrade" }
+    local SOURCE_ORDER = { "HONOR", "RANK", "REP", "UPGRADE" }
+    local ARMOR_NAMES = { CLOTH = "Cloth", LEATHER = "Leather", MAIL = "Mail", PLATE = "Plate" }
+    local ARMOR_ORDER = { "CLOTH", "LEATHER", "MAIL", "PLATE" }
+    local function ClassName(token) return token and (token:sub(1, 1) .. token:sub(2):lower()) or "Any class" end
+    frame.SLOT_NAMES = SLOT_NAMES
 
-        info.text = "All Slots"
-        info.value = nil
-        info.checked = (frame.filterSlot == nil)
-        info.func = function()
-            frame.filterSlot = nil
-            UIDropDownMenu_SetText(slotDropdown, "All Slots")
-            frame:RefreshItems()
-        end
-        UIDropDownMenu_AddButton(info, level)
-
-        local slots = { "HEAD", "SHOULDER", "CHEST", "HANDS", "LEGS", "WAIST", "FEET", "WRIST", "MAIN_HAND", "TWO_HAND", "RANGED", "OFF_HAND", "NECK", "FINGER", "TRINKET", "BACK", "RELIC" }
-        local slotNames = {
-            HEAD = "Head", SHOULDER = "Shoulder", CHEST = "Chest",
-            HANDS = "Hands", LEGS = "Legs", WAIST = "Waist",
-            FEET = "Feet", WRIST = "Wrist", MAIN_HAND = "Main Hand",
-            TWO_HAND = "Two-Hand", OFF_HAND = "Off-Hand", RANGED = "Ranged",
-            NECK = "Neck", FINGER = "Ring", TRINKET = "Trinket",
-            BACK = "Back", RELIC = "Relic"
-        }
-        for _, slot in ipairs(slots) do
-            local displayName = slotNames[slot] or slot
-            info.text = displayName
-            info.value = slot
-            info.checked = (frame.filterSlot == slot)
+    -- One dropdown: an "any" entry plus a list of values.
+    local function InitChoiceDropdown(dropdown, anyText, values, nameOf, field)
+        return function(_, level)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = anyText
+            info.checked = (frame.filters[field] == nil)
             info.func = function()
-                frame.filterSlot = slot
-                UIDropDownMenu_SetText(slotDropdown, displayName)
+                frame.filters[field] = nil
+                UIDropDownMenu_SetText(dropdown, anyText)
                 frame:RefreshItems()
             end
             UIDropDownMenu_AddButton(info, level)
-        end
-    end
-
-    local function InitSeasonDropdown(self, level)
-        local info = UIDropDownMenu_CreateInfo()
-
-        info.text = "All Types"
-        info.value = nil
-        info.checked = (frame.filterSeason == nil)
-        info.func = function()
-            frame.filterSeason = nil
-            UIDropDownMenu_SetText(seasonDropdown, "All Types")
-            frame:RefreshItems()
-        end
-        UIDropDownMenu_AddButton(info, level)
-
-        info.text = "Honor Only"
-        info.value = "HONOR"
-        info.checked = (frame.filterSeason == "HONOR")
-        info.func = function()
-            frame.filterSeason = "HONOR"
-            UIDropDownMenu_SetText(seasonDropdown, "Honor Only")
-            frame:RefreshItems()
-        end
-        UIDropDownMenu_AddButton(info, level)
-
-        -- Only show non-archived seasons
-        local seasons = { "PREPATCH", "HONOR70", "S1", "S2", "S3", "S4" }
-        local seasonNames = { "Prepatch", "Level 70 Honor", "Season 1", "Season 2", "Season 3", "Season 4" }
-        for i, season in ipairs(seasons) do
-            -- Skip archived seasons
-            if HonorLog:IsSeasonAvailable(season) then
-                info.text = seasonNames[i]
-                info.value = season
-                info.checked = (frame.filterSeason == season)
+            for _, value in ipairs(values) do
+                info = UIDropDownMenu_CreateInfo()
+                info.text = nameOf(value)
+                info.value = value
+                info.checked = (frame.filters[field] == value)
                 info.func = function()
-                    frame.filterSeason = season
-                    UIDropDownMenu_SetText(seasonDropdown, seasonNames[i])
+                    frame.filters[field] = value
+                    UIDropDownMenu_SetText(dropdown, nameOf(value))
                     frame:RefreshItems()
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
         end
     end
+    local slotChoices = { "HEAD", "SHOULDER", "CHEST", "HANDS", "LEGS", "WAIST", "FEET", "WRIST", "MAIN_HAND", "TWO_HAND",
+        "OFF_HAND", "RANGED", "NECK", "FINGER", "TRINKET", "BACK", "RELIC", "TOKEN", "MOUNT", "TABARD", "OTHER" }
 
-    UIDropDownMenu_Initialize(slotDropdown, InitSlotDropdown)
+    UIDropDownMenu_Initialize(slotDropdown, InitChoiceDropdown(slotDropdown, "All Slots", slotChoices, function(v) return SLOT_NAMES[v] or v end, "filterSlot"))
     UIDropDownMenu_SetText(slotDropdown, "All Slots")
-
-    UIDropDownMenu_Initialize(seasonDropdown, InitSeasonDropdown)
-    UIDropDownMenu_SetText(seasonDropdown, "All Types")
+    UIDropDownMenu_Initialize(sourceDropdown, InitChoiceDropdown(sourceDropdown, "All Sources", SOURCE_ORDER, function(v) return SOURCE_NAMES[v] end, "filterSource"))
+    UIDropDownMenu_SetText(sourceDropdown, "All Sources")
+    UIDropDownMenu_Initialize(classDropdown, InitChoiceDropdown(classDropdown, "Any class", HonorLog.CLASSES or {}, ClassName, "filterClass"))
+    UIDropDownMenu_SetText(classDropdown, ClassName(frame.filters.class))
+    UIDropDownMenu_Initialize(armorDropdown, InitChoiceDropdown(armorDropdown, "Any armor", ARMOR_ORDER, function(v) return ARMOR_NAMES[v] end, "filterArmor"))
+    UIDropDownMenu_SetText(armorDropdown, "Any armor")
 
     -- Search handler
     searchBox:SetScript("OnTextChanged", function(self)
-        frame.searchText = self:GetText():lower()
+        frame.filters.search = self:GetText():lower()
         frame:RefreshItems()
     end)
     searchBox:SetScript("OnEscapePressed", function(self)
@@ -2694,249 +2617,11 @@ local function CreateGoalPicker()
 
     -- Refresh items list
     function frame:RefreshItems()
-        -- Get player class and faction
-        local _, playerClass = UnitClass("player")
-        local playerFaction = UnitFactionGroup("player")
-
-        -- Determine if player is Horde based on race if faction not loaded yet
-        if not playerFaction then
-            local _, playerRace = UnitRace("player")
-            local hordeRaces = { Orc = true, Tauren = true, Troll = true, Undead = true, Scourge = true, BloodElf = true }
-            playerFaction = hordeRaces[playerRace] and "Horde" or "Alliance"
-        end
-
-        -- Armor type usability by class
-        local armorTypes = {
-            WARRIOR = { Plate = true, Mail = true, Leather = true, Cloth = true },
-            PALADIN = { Plate = true, Mail = true, Leather = true, Cloth = true },
-            HUNTER = { Mail = true, Leather = true, Cloth = true },
-            SHAMAN = { Mail = true, Leather = true, Cloth = true },
-            ROGUE = { Leather = true, Cloth = true },
-            DRUID = { Leather = true, Cloth = true },
-            MAGE = { Cloth = true },
-            WARLOCK = { Cloth = true },
-            PRIEST = { Cloth = true },
-        }
-
-        -- Detect armor type from item name
-        local function GetArmorType(name)
-            if not name then return nil end
-            -- Plate keywords
-            if name:find("Plate") or name:find("Lamellar") or name:find("Berserker") then return "Plate" end
-            -- Mail keywords
-            if name:find("Chain") or name:find("Mail") or name:find("Ringmail") or name:find("Windtalker") then return "Mail" end
-            -- Leather keywords
-            if name:find("Leather") or name:find("Lizardhide") or name:find("Dragonhide") or name:find("Forest Stalker") then return "Leather" end
-            -- Cloth keywords
-            if name:find("Cloth") or name:find("Silk") or name:find("Satin") or name:find("Mooncloth") or name:find("Dryad") or name:find("Epaulets") then return "Cloth" end
-            return nil -- Unknown or universal (weapons, trinkets, etc.)
-        end
-
-        -- Weapon subtype usability by class (matches GetItemInfo() itemSubType values)
-        local weaponSubtypes = {
-            WARRIOR = {
-                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
-                ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true,
-                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
-                ["Daggers"] = true, ["Fist Weapons"] = true, ["Polearms"] = true,
-                ["Staves"] = true, ["Bows"] = true, ["Crossbows"] = true, ["Guns"] = true,
-                ["Thrown"] = true,
-            },
-            PALADIN = {
-                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
-                ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true,
-                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
-                ["Polearms"] = true,
-            },
-            HUNTER = {
-                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
-                ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true,
-                ["Daggers"] = true, ["Fist Weapons"] = true, ["Polearms"] = true,
-                ["Staves"] = true, ["Bows"] = true, ["Crossbows"] = true, ["Guns"] = true,
-                ["Thrown"] = true,
-            },
-            SHAMAN = {
-                ["One-Handed Axes"] = true, ["Two-Handed Axes"] = true,
-                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
-                ["Daggers"] = true, ["Fist Weapons"] = true, ["Staves"] = true,
-            },
-            ROGUE = {
-                ["One-Handed Swords"] = true, ["One-Handed Maces"] = true,
-                ["Daggers"] = true, ["Fist Weapons"] = true,
-                ["Bows"] = true, ["Crossbows"] = true, ["Guns"] = true, ["Thrown"] = true,
-            },
-            DRUID = {
-                ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
-                ["Daggers"] = true, ["Fist Weapons"] = true, ["Polearms"] = true,
-                ["Staves"] = true,
-            },
-            MAGE = {
-                ["One-Handed Swords"] = true, ["Daggers"] = true, ["Staves"] = true,
-                ["Wands"] = true,
-            },
-            WARLOCK = {
-                ["One-Handed Swords"] = true, ["Daggers"] = true, ["Staves"] = true,
-                ["Wands"] = true,
-            },
-            PRIEST = {
-                ["One-Handed Maces"] = true, ["Daggers"] = true, ["Staves"] = true,
-                ["Wands"] = true,
-            },
-        }
-
-        -- Get weapon subtype from item using WoW API
-        local function GetWeaponSubtype(itemID, slot)
-            if not itemID or not slot then return nil end
-            -- Only check weapon slots
-            if slot ~= "MAIN_HAND" and slot ~= "OFF_HAND" and slot ~= "TWO_HAND" and slot ~= "RANGED" then
-                return nil
-            end
-            -- GetItemInfo returns: name, link, quality, ilvl, minLevel, type, subType, ...
-            local _, _, _, _, _, itemType, itemSubType = GetItemInfo(itemID)
-            if itemType == "Weapon" then
-                return itemSubType
-            end
-            return nil
-        end
-
-        -- Filter items
-        local filteredItems = {}
-        for itemID, data in pairs(HonorLog.GearDB or {}) do
-            local passFilter = true
-
-            -- Class filter (only show usable items if filter is enabled)
-            if self.filterUseable and data.class and data.class ~= playerClass then
-                passFilter = false
-            end
-
-            -- Armor type filter (only if useable filter is enabled)
-            if passFilter and self.filterUseable then
-                local armorType = GetArmorType(data.name)
-                if armorType then
-                    local canWear = armorTypes[playerClass]
-                    if canWear and not canWear[armorType] then
-                        passFilter = false
-                    end
-                end
-            end
-
-            -- Weapon type filter (only if useable filter is enabled)
-            if passFilter and self.filterUseable then
-                local weaponSubtype = GetWeaponSubtype(itemID, data.slot)
-                if weaponSubtype then
-                    local canUse = weaponSubtypes[playerClass]
-                    if canUse and not canUse[weaponSubtype] then
-                        passFilter = false
-                    end
-                end
-            end
-
-            -- Faction filter for faction-specific PvP gear (ALWAYS applied regardless of Useable filter)
-            -- Exception: Paladin/Shaman class gear is NOT faction-filtered because TBC prepatch
-            -- added Blood Elf Paladins (Horde) and Draenei Shamans (Alliance)
-            if passFilter and data.name then
-                local itemName = data.name
-
-                -- Skip faction filter for Paladin/Shaman class-specific gear (cross-faction classes in TBC)
-                -- Exception: Insignias are still faction-locked at vendors
-                local isCrossFactionClassGear = (data.class == "PALADIN" or data.class == "SHAMAN")
-                    and not itemName:find("Insignia")
-
-                if not isCrossFactionClassGear then
-                    -- Horde-only items:
-                    -- - High Warlord (R14 weapons), Warlord's (head/shoulder/chest)
-                    -- - General's (hands/legs/feet)
-                    -- - Defiler's (AB reputation), Deathguard
-                    -- - Outrider's, Legionnaire's, Advisor's, Scout's, Battle Healer's (WSG reputation)
-                    -- - Frostwolf, Warsong Battle (AV/WSG reputation)
-                    -- - Blood Guard, Champion's
-                    local isHordeItem = itemName:find("High Warlord") or itemName:find("Warlord's") or
-                        itemName:find("General's") or
-                        itemName:find("Defiler") or itemName:find("Outrider") or itemName:find("Legionnaire") or
-                        itemName:find("Advisor") or itemName:find("Scout's") or itemName:find("Battle Healer") or
-                        itemName:find("Frostwolf") or itemName:find("Warsong Battle") or
-                        itemName:find("Deathguard") or itemName:find("Blood Guard") or itemName:find("Champion's") or
-                        itemName:find("Insignia of the Horde")
-
-                    -- Alliance-only items:
-                    -- - Grand Marshal (R14 weapons), Field Marshal's (head/shoulder/chest)
-                    -- - Marshal's (hands/legs/feet)
-                    -- - Highlander's, Arathor, Sageclaw (AB reputation)
-                    -- - Sentinel's, Silverwing, Protector's, Lorekeeper, Caretaker, Outrunner (WSG reputation)
-                    -- - Stormpike (AV reputation)
-                    -- - Knight-, Lieutenant
-                    -- - Insignia of the Alliance
-                    local isAllianceItem = itemName:find("Grand Marshal") or itemName:find("Marshal's") or
-                        itemName:find("Highlander") or itemName:find("Arathor") or itemName:find("Sageclaw") or
-                        itemName:find("Sentinel") or itemName:find("Silverwing") or
-                        itemName:find("Protector's") or itemName:find("Lorekeeper") or
-                        itemName:find("Caretaker") or itemName:find("Outrunner") or
-                        itemName:find("Stormpike") or itemName:find("Knight%-") or itemName:find("Lieutenant") or
-                        itemName:find("Honor Guard") or itemName:find("Insignia of the Alliance")
-
-                    if isHordeItem and playerFaction ~= "Horde" then
-                        passFilter = false
-                    elseif isAllianceItem and playerFaction ~= "Alliance" then
-                        passFilter = false
-                    end
-                end
-                -- Gladiator's gear is faction-neutral, no filter needed
-            end
-
-            -- Filter out archived seasons (TBC gear not yet available)
-            if passFilter and not HonorLog:IsSeasonAvailable(data.season) then
-                passFilter = false
-            end
-
-            -- Slot filter
-            if passFilter and self.filterSlot and data.slot ~= self.filterSlot then
-                passFilter = false
-            end
-
-            -- Season filter
-            if passFilter and self.filterSeason then
-                if self.filterSeason == "HONOR" then
-                    if data.season or data.arena > 0 then
-                        passFilter = false
-                    end
-                elseif data.season ~= self.filterSeason then
-                    passFilter = false
-                end
-            end
-
-            -- Search filter
-            if passFilter and self.searchText and self.searchText ~= "" then
-                local name = data.name or ""
-                if not name:lower():find(self.searchText, 1, true) then
-                    passFilter = false
-                end
-            end
-
-            -- Hide owned filter
-            if passFilter and self.filterHideOwned then
-                local ownedCount = GetItemCount(itemID, true) -- true = include bank
-                if ownedCount > 0 then
-                    passFilter = false
-                end
-            end
-
-            -- Already a goal?
-            if passFilter and HonorLog:IsGoal(itemID) then
-                passFilter = false
-            end
-
-            if passFilter then
-                table.insert(filteredItems, { itemID = itemID, data = data })
-            end
-        end
-
-        -- Sort by slot, then name
-        table.sort(filteredItems, function(a, b)
-            if a.data.slot ~= b.data.slot then
-                return a.data.slot < b.data.slot
-            end
-            return (a.data.name or "") < (b.data.name or "")
-        end)
+        local filteredItems = HonorLog:GetPickerItems({
+            slot = self.filters.slot, class = self.filters.class, armor = self.filters.armor, source = self.filters.source,
+            search = self.filters.search, showUnverified = self.filters.unverified, hideOwned = self.filters.hideOwned,
+        })
+        self.shownItems = filteredItems
 
         -- Clear existing rows
         for _, row in ipairs(self.itemRows) do
@@ -2968,38 +2653,40 @@ local function CreateGoalPicker()
                 C_Item.RequestLoadItemDataByID(itemID)
             end
 
-            row.name:SetText(data.name or itemName or "Item " .. itemID)
+            row.name:SetText(item.name or data.name or itemName or "Item " .. itemID)
 
-            -- Build compact cost line: Honor + Arena + Marks (abbreviated)
+            -- Compact cost line: honor, marks, gold, rank, reputation (scanned costs replace generated ones)
+            local entry = HonorLog:GetGearItem(itemID) or data
             local costParts = {}
-            if data.honor > 0 then
-                table.insert(costParts, string.format("|cffffd700%s|r |cffbbaa55H|r", BreakUpLargeNumbers(data.honor)))
+            if (entry.honor or 0) > 0 then
+                table.insert(costParts, string.format("|cffffd700%s|r |cffbbaa55H|r", BreakUpLargeNumbers(entry.honor)))
             end
-            if data.arena > 0 then
-                table.insert(costParts, string.format("|cffaa55ff%d|r |cff8844ccA|r", data.arena))
-            end
-            if data.marks then
-                for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                    local count = data.marks[bgType]
-                    if count and count > 0 then
-                        local colorHex = BG_COLOR_HEX[bgType] or "55bbff"
-                        local icon = BG_ICONS[bgType]
-                        table.insert(costParts, string.format("|cff%s%d|r |T%s:14:14:0:0|t", colorHex, count, icon))
-                    end
+            for _, bgType in ipairs(HonorLog.BG_ORDER) do
+                local count = entry.marks and entry.marks[bgType]
+                if count and count > 0 then
+                    table.insert(costParts, string.format("|cff%s%d|r |T%s:14:14:0:0|t", BG_COLOR_HEX[bgType] or "55bbff", count, BG_ICONS[bgType] or ""))
                 end
+            end
+            if (entry.gold or 0) > 0 then
+                table.insert(costParts, string.format("|cff%s%s|r", GOLD_HEX, GoldShort(entry.gold)))
+            end
+            if entry.rank then
+                table.insert(costParts, string.format("|cff%sR%d|r", RANK_HEX, entry.rank))
+            end
+            if entry.rep and entry.rep.standing then
+                table.insert(costParts, string.format("|cff7fc8ff%s|r", HonorLog.STANDING_NAMES[entry.rep.standing] or "Rep"))
             end
             row.costLine:SetText(table.concat(costParts, " "))
 
-            -- Slot indicator (formatted nicely)
-            local slotNames = {
-                HEAD = "Head", SHOULDER = "Shoulder", CHEST = "Chest",
-                HANDS = "Hands", LEGS = "Legs", WAIST = "Waist",
-                FEET = "Feet", WRIST = "Wrist", MAIN_HAND = "Main Hand",
-                TWO_HAND = "Two-Hand", OFF_HAND = "Off-Hand", RANGED = "Ranged",
-                NECK = "Neck", FINGER = "Ring", TRINKET = "Trinket",
-                BACK = "Back", RELIC = "Relic"
-            }
-            row.slotText:SetText(slotNames[data.slot] or data.slot or "")
+            -- Slot (and source) indicator
+            local slotLabel = (self.SLOT_NAMES and self.SLOT_NAMES[data.slot]) or data.slot or ""
+            if data.source == "UPGRADE" then slotLabel = slotLabel .. " · Epic" end
+            if entry.scanned then
+                slotLabel = slotLabel .. " · scanned"
+            elseif data.legacy then
+                slotLabel = slotLabel .. " · unverified"
+            end
+            row.slotText:SetText(slotLabel)
 
             -- Check if player owns this item
             local ownedCount = GetItemCount(itemID, true) -- true = include bank

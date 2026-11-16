@@ -222,15 +222,21 @@ local function ReadRank()
     return { level = level, earned = earned, threshold = num(info.renownLevelThreshold) }
 end
 
--- Rank points earned between two reads. A level-up adds the rest of the old
--- level, every level skipped, and the progress into the new one.
+-- Rank points earned between two reads. Reaching rank n costs the first n curve entries, so the
+-- level a player is on (level L) is worth curve[L + 1] points. A level-up adds the rest of the old
+-- level, every level skipped, and the progress into the new one; the rank module's totals say it in one line.
 local function RankDelta(from, to)
     if not from or not to then return 0 end
     if to.level == from.level then return math.max(0, to.earned - from.earned) end
     if to.level < from.level then return 0 end
-    local total = math.max(0, (from.threshold or RANK_CURVE[from.level] or 0) - from.earned)
+    local rank = HonorLog.Rank
+    if rank and rank.TotalForRank then
+        return math.max(0, rank:TotalForRank(to.level) + to.earned - rank:TotalForRank(from.level) - from.earned)
+    end
+    local function threshold(level) return RANK_CURVE[level + 1] or 0 end
+    local total = math.max(0, (from.threshold or threshold(from.level)) - from.earned)
     for level = from.level + 1, to.level - 1 do
-        total = total + (RANK_CURVE[level] or 0)
+        total = total + threshold(level)
     end
     return total + to.earned
 end
@@ -1292,7 +1298,21 @@ function HonorLog:HandleSlashCommand(msg)
                 print("|cff00ff00[HonorLog Goals]|r (" .. #goals .. " goals)")
                 for i, goal in ipairs(goals) do
                     local statusColor = goal.isComplete and "|cff00ff00" or "|cffffff00"
-                    local status = goal.isComplete and "READY" or string.format("%.0f%%", math.min(goal.honor.percent, goal.arena.percent > 0 and goal.arena.percent or 100))
+                    local status
+                    if goal.isComplete then
+                        status = "READY"
+                    else
+                        local pieces = {}
+                        for _, row in ipairs(goal.missing) do
+                            if row.kind == "honor" then pieces[#pieces + 1] = string.format("%d honor", row.remaining)
+                            elseif row.kind == "marks" then pieces[#pieces + 1] = string.format("%d %s marks", row.remaining, row.bg)
+                            elseif row.kind == "gold" then pieces[#pieces + 1] = "gold"
+                            elseif row.kind == "rank" then pieces[#pieces + 1] = "rank " .. row.needed
+                            elseif row.kind == "rep" then pieces[#pieces + 1] = (row.standingName or "standing") .. " rep" end
+                        end
+                        status = "needs " .. table.concat(pieces, ", ")
+                        if goal.readyDate then status = status .. ", ready " .. date("%b %d", goal.readyDate) end
+                    end
                     print(string.format("  %d. %s%s|r - %s", i, statusColor, goal.name, status))
                 end
             end
@@ -1303,6 +1323,13 @@ function HonorLog:HandleSlashCommand(msg)
             self:UpdateGoalsPanel()
         elseif subCmd == "picker" then
             self:ShowGoalPicker()
+        elseif subCmd == "advice" then
+            local advice = self:GetHonorCapAdvice()
+            if advice then
+                print(string.format("|cffffd700[HonorLog]|r Honor %d of %d: %s", advice.current, advice.cap, advice.text))
+            else
+                print("|cff00ff00[HonorLog]|r No honor-cap advice right now.")
+            end
         else
             print("|cff00ff00HonorLog|r Goal commands:")
             print("  |cffffffff/honorlog goal|r - Show goals panel")
@@ -1310,6 +1337,7 @@ function HonorLog:HandleSlashCommand(msg)
             print("  |cffffffff/honorlog goal list|r - List current goals")
             print("  |cffffffff/honorlog goal clear|r - Clear all goals")
             print("  |cffffffff/honorlog goal picker|r - Open goal picker")
+            print("  |cffffffff/honorlog goal advice|r - What to spend before honor caps")
         end
     elseif cmd == "currency" or cmd == "cur" then
         -- Diagnostic: show current honor and marks detection
@@ -1341,17 +1369,9 @@ function HonorLog:HandleSlashCommand(msg)
             end
         end
 
-        -- Arena API
-        print("|cffaa55ffArena APIs:|r")
-        print("  GetArenaCurrency exists: " .. tostring(GetArenaCurrency ~= nil))
-        if GetArenaCurrency then
-            print("  GetArenaCurrency() = " .. tostring(GetArenaCurrency()))
-        end
-
         -- Our wrapper functions
         print("|cff00ff00HonorLog Values:|r")
         print("  GetCurrentHonor() = " .. tostring(self:GetCurrentHonor()))
-        print("  GetCurrentArenaPoints() = " .. tostring(self:GetCurrentArenaPoints()))
 
         -- Marks
         print("|cff55bbffMarks:|r")

@@ -44,7 +44,11 @@ return {
         worldPvP = { kills = 14, deaths = 6, honor = 900 },
         history = makeHistory(),
         historyLimit = 200,
-        goals = { items = {}, completed = {}, settings = { autoRemoveCompleted = false, showInLDB = true, celebrateCompletion = true } },
+        goals = {
+            -- 28003 and 28004 are TBC items, 272738 is a Forever item that must stay
+            items = { { itemID = 28003, addedAt = 1, priority = 1 }, { itemID = 272738, addedAt = 2, priority = 2 }, { itemID = 28004, addedAt = 3, priority = 3 } },
+            completed = { { itemID = 28005, addedAt = 1, completedAt = 2 } },
+            settings = { autoRemoveCompleted = false, showInLDB = true, celebrateCompletion = true } },
         session = {
             AV = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
             AB = { played = 1, wins = 1, losses = 0, honor = 400, marks = 3 },

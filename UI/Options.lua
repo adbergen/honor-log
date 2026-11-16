@@ -125,7 +125,7 @@ function HonorLog:InitializeOptions()
 
     local subtitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-    subtitle:SetText("Battleground statistics tracker for BCC Anniversary")
+    subtitle:SetText("Battleground statistics, PvP rank and gear goals for WoW Forever")
 
     -- Scroll frame for content
     local scrollFrame = CreateFrame("ScrollFrame", "HonorLogOptionsScroll", panel, "UIPanelScrollFrameTemplate")
@@ -303,6 +303,23 @@ function HonorLog:InitializeOptions()
     end)
     waterfallCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
     waterfallCheck:SetChecked(self.db.settings.goalProgressMode == "waterfall")
+    rightY = rightY - 26
+
+    -- Spend-before-cap advice in the goals header
+    local capAdviceCheck = CreateCheckbox(scrollChild, "HonorLogGoalCapAdviceCheck", "Goal Cap Advice", "Name the goal to buy when honor is about to cap", function(checked)
+        HonorLog.db.settings.goalCapAdvice = checked
+        if HonorLog.UpdateGoalsPanel then HonorLog:UpdateGoalsPanel() end
+    end)
+    capAdviceCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+    capAdviceCheck:SetChecked(self.db.settings.goalCapAdvice ~= false)
+    rightY = rightY - 26
+
+    -- Items no vendor scan has seen stocked
+    local unverifiedCheck = CreateCheckbox(scrollChild, "HonorLogGoalUnverifiedCheck", "Show Unverified Gear", "List items the client data marks as retired until a vendor scan sees them in stock", function(checked)
+        HonorLog.db.settings.goalShowUnverified = checked
+    end)
+    unverifiedCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+    unverifiedCheck:SetChecked(self.db.settings.goalShowUnverified == true)
     rightY = rightY - 26
 
     -- Enable LDB checkbox

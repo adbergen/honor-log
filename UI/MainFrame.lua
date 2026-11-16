@@ -1326,7 +1326,7 @@ function HonorLog:UpdateGoalsCompact()
         -- All goals complete!
         frame.goalsCompactSummary:SetText(string.format("%d/%d goals · 100%%", numCompleted, numCompleted))
         frame.goalsCompactSummary:SetTextColor(0.30, 0.90, 0.40, 1) -- Green
-        frame.goalsCompactIcon:SetTexture("Interface\\Icons\\Spell_Holy_Crusade") -- TBC-safe checkmark/victory icon
+        frame.goalsCompactIcon:SetTexture("Interface\\Icons\\Spell_Holy_Crusade") -- checkmark/victory icon
         frame.goalsCompactIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         frame.goalsCompactIcon:SetVertexColor(0.3, 0.9, 0.4, 1)
         frame.goalsCompactCurrency:SetText("|cff40d860All complete!|r")
@@ -1352,98 +1352,10 @@ function HonorLog:UpdateGoalsCompact()
             frame.goalsCompactIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             frame.goalsCompactIcon:SetVertexColor(1, 1, 1, 0.9)
 
-            -- Calculate overall progress (same weighted calculation as totals bar)
-            local totalHonorNeeded = 0
-            local totalArenaNeeded = 0
-            local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, DI = 0, EotS = 0 }
-
-            local totalGamesNeeded = 0
-            for _, goal in ipairs(goals) do
-                if goal.honor.needed > 0 then
-                    totalHonorNeeded = totalHonorNeeded + goal.honor.needed
-                end
-                if goal.arena.needed > 0 then
-                    totalArenaNeeded = totalArenaNeeded + goal.arena.needed
-                end
-                for bgType, markData in pairs(goal.marks) do
-                    if markData.needed > 0 then
-                        totalMarksNeeded[bgType] = totalMarksNeeded[bgType] + markData.needed
-                    end
-                end
-                -- Sum up games needed for each goal
-                if goal.totalGamesNeeded and goal.totalGamesNeeded > 0 then
-                    totalGamesNeeded = totalGamesNeeded + goal.totalGamesNeeded
-                end
-            end
-
-            -- Get actual player currency for active goals
-            local totalHonorCurrent = math.min(self:GetCurrentHonor(), totalHonorNeeded)
-            local totalArenaCurrent = math.min(self:GetCurrentArenaPoints(), totalArenaNeeded)
-
-            -- Include completed goals at 100% progress (cumulative tracking)
-            local completedHonorTotal = 0
-            local completedArenaTotal = 0
-            local completedMarksTotal = { AV = 0, AB = 0, WSG = 0, DI = 0, EotS = 0 }
-
-            if completedGoals then
-                for _, completedGoal in ipairs(completedGoals) do
-                    local itemData = self.GearDB and self.GearDB[completedGoal.itemID]
-                    if itemData then
-                        if itemData.honor and itemData.honor > 0 then
-                            completedHonorTotal = completedHonorTotal + itemData.honor
-                        end
-                        if itemData.arena and itemData.arena > 0 then
-                            completedArenaTotal = completedArenaTotal + itemData.arena
-                        end
-                        if itemData.marks then
-                            for bgType, markCount in pairs(itemData.marks) do
-                                if markCount > 0 then
-                                    completedMarksTotal[bgType] = completedMarksTotal[bgType] + markCount
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            -- Calculate weighted total (active + completed goals)
-            local totalNeeded = 0
-            local totalCurrent = 0
-
-            -- Active goals: current progress toward needed
-            if totalHonorNeeded > 0 then
-                totalNeeded = totalNeeded + totalHonorNeeded
-                totalCurrent = totalCurrent + totalHonorCurrent
-            end
-            if totalArenaNeeded > 0 then
-                totalNeeded = totalNeeded + totalArenaNeeded
-                totalCurrent = totalCurrent + totalArenaCurrent
-            end
-            for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                if totalMarksNeeded[bgType] > 0 then
-                    local marksCurrent = math.min(self:GetCurrentMarks(bgType), totalMarksNeeded[bgType])
-                    totalNeeded = totalNeeded + (totalMarksNeeded[bgType] * 100)
-                    totalCurrent = totalCurrent + (marksCurrent * 100)
-                end
-            end
-
-            -- Completed goals: 100% progress (add to both needed AND current)
-            if completedHonorTotal > 0 then
-                totalNeeded = totalNeeded + completedHonorTotal
-                totalCurrent = totalCurrent + completedHonorTotal
-            end
-            if completedArenaTotal > 0 then
-                totalNeeded = totalNeeded + completedArenaTotal
-                totalCurrent = totalCurrent + completedArenaTotal
-            end
-            for _, bgType in ipairs(HonorLog.BG_ORDER) do
-                if completedMarksTotal[bgType] > 0 then
-                    totalNeeded = totalNeeded + (completedMarksTotal[bgType] * 100)
-                    totalCurrent = totalCurrent + (completedMarksTotal[bgType] * 100)
-                end
-            end
-
-            local avgProgress = totalNeeded > 0 and (totalCurrent / totalNeeded * 100) or 100
+            -- Overall progress and games for the whole list: the same roll-up as the totals bar
+            local totals = self:GetGoalsTotals(goals)
+            local avgProgress = totals.percent
+            local totalGamesNeeded = totals.games
 
             -- Summary text - completion ratio format (14/16 goals · 88% · ~Xg)
             local summaryText
@@ -1470,9 +1382,14 @@ function HonorLog:UpdateGoalsCompact()
                 frame.goalsCompactSummary:SetTextColor(unpack(COLORS.textPrimary))
             end
 
-            -- Currency display (current honor)
+            -- Currency display: current honor, or the cap advice when honor is about to be wasted
             local currentHonor = self:GetCurrentHonor()
-            frame.goalsCompactCurrency:SetText(string.format("|cffffd700%s|r Honor", BreakUpLargeNumbers(currentHonor)))
+            local advice = self:GetHonorCapAdvice(goals)
+            if advice then
+                frame.goalsCompactCurrency:SetText(string.format("|cffffd700%s|r Honor · |cffff8040%s|r", BreakUpLargeNumbers(currentHonor), advice.text))
+            else
+                frame.goalsCompactCurrency:SetText(string.format("|cffffd700%s|r Honor", BreakUpLargeNumbers(currentHonor)))
+            end
         end
     end
 end
