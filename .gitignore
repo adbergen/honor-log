@@ -12,3 +12,5 @@
 
 # AI generated files
 CLAUDE.md
+# Claude Code worktrees and local state
+.claude/

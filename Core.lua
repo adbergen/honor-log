@@ -3,7 +3,15 @@
 
 local ADDON_NAME, HonorLog = ...
 
--- BG Map IDs for TBC Classic
+-- Forever-safe wrappers (defined in Data.lua)
+local Compat = HonorLog.Compat
+local GetItemInfo = Compat.GetItemInfo
+local GetItemCount = Compat.GetItemCount
+local GetBattlefieldWinner = Compat.GetBattlefieldWinner
+local GetNumBattlefieldScores = Compat.GetNumBattlefieldScores
+local GetBattlefieldScore = Compat.GetBattlefieldScore
+
+-- BG Map IDs (TBC list; Round 1 swaps in the Forever ones)
 local BG_MAP_IDS = {
     [30] = "AV",   -- Alterac Valley
     [529] = "AB",  -- Arathi Basin
@@ -82,11 +90,15 @@ local events = {
     "BATTLEGROUND_POINTS_UPDATE",
     "CURRENCY_DISPLAY_UPDATE", -- For honor/mark changes outside BG
     "BAG_UPDATE", -- For detecting acquired goal items
-    "COMBAT_LOG_EVENT_UNFILTERED", -- For world kill tracking
+    -- COMBAT_LOG_EVENT_UNFILTERED is deliberately not registered: the Forever
+    -- docs flag it HasRestrictions and registering it raises the "blocked"
+    -- popup. World kills and deaths come back in Round 1 from other signals.
 }
 
+-- Registering an event the client does not know raises an error, so a miss
+-- must never abort the load.
 for _, event in ipairs(events) do
-    eventFrame:RegisterEvent(event)
+    pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
 
 -- Save BG state to persist across /reload
@@ -136,6 +148,7 @@ function HonorLog:ADDON_LOADED(addon)
     end
     SafeInit("Options", function() self:InitializeOptions() end)
     SafeInit("LDB", function() self:InitializeLDB() end)
+    SafeInit("Probe", function() if self.Probe then self.Probe:Init() end end)
 
     -- Register slash commands (always works even if UI fails)
     self:RegisterSlashCommands()
@@ -169,7 +182,8 @@ function HonorLog:DetectBattleground()
     end
 
     -- Method 3: Check battlefield status
-    for i = 1, GetMaxBattlefieldID() do
+    local maxBattlefieldID = (GetMaxBattlefieldID and GetBattlefieldStatus) and GetMaxBattlefieldID() or 0
+    for i = 1, maxBattlefieldID do
         local status, mapName = GetBattlefieldStatus(i)
         if debugMode then
             print("|cffff00ff[HonorLog Debug]|r BF " .. i .. " Status: " .. tostring(status) .. ", Map: " .. tostring(mapName))
@@ -246,20 +260,20 @@ local function GetCurrentHonor()
     local honor = nil
     local source = "none"
 
-    -- Try GetHonorCurrency first (TBC/Wrath)
-    if GetHonorCurrency then
-        honor = GetHonorCurrency()
-        if honor and honor > 0 then
-            source = "GetHonorCurrency"
+    -- Honor is currency 1792 on WoW Forever
+    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+        local info = C_CurrencyInfo.GetCurrencyInfo(1792)
+        if info and info.quantity and info.quantity > 0 then
+            honor = info.quantity
+            source = "C_CurrencyInfo"
         end
     end
 
-    -- Fallback to UnitHonor (some clients)
-    if (not honor or honor == 0) and UnitHonor then
-        local unitHonor = UnitHonor("player")
-        if unitHonor and unitHonor > 0 then
-            honor = unitHonor
-            source = "UnitHonor"
+    -- Legacy globals, absent on Forever
+    if (not honor or honor == 0) and GetHonorCurrency then
+        honor = GetHonorCurrency()
+        if honor and honor > 0 then
+            source = "GetHonorCurrency"
         end
     end
 
@@ -269,15 +283,6 @@ local function GetCurrentHonor()
         if pvpHonor and pvpHonor > 0 then
             honor = pvpHonor
             source = "GetPVPCurrency"
-        end
-    end
-
-    -- Try C_CurrencyInfo if available (retail-like API)
-    if (not honor or honor == 0) and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
-        local info = C_CurrencyInfo.GetCurrencyInfo(1901) -- Honor currency ID
-        if info and info.quantity and info.quantity > 0 then
-            honor = info.quantity
-            source = "C_CurrencyInfo"
         end
     end
 
@@ -331,12 +336,10 @@ function HonorLog:OnBattlegroundEnter(bgType)
         print("|cffff00ff[HonorLog Debug]|r BG Entry - Type: " .. bgType .. ", StartHonor: " .. tostring(bgStartHonor))
         -- Show which APIs are available
         print("|cffff00ff[HonorLog Debug]|r   APIs: GetHonorCurrency=" .. tostring(GetHonorCurrency ~= nil) ..
-            ", UnitHonor=" .. tostring(UnitHonor ~= nil) ..
             ", GetPVPCurrency=" .. tostring(GetPVPCurrency ~= nil) ..
             ", C_CurrencyInfo=" .. tostring(C_CurrencyInfo ~= nil))
         -- Show raw API values
         if GetHonorCurrency then print("|cffff00ff[HonorLog Debug]|r   GetHonorCurrency()=" .. tostring(GetHonorCurrency())) end
-        if UnitHonor then print("|cffff00ff[HonorLog Debug]|r   UnitHonor('player')=" .. tostring(UnitHonor("player"))) end
     end
 
     -- Save state for /reload persistence
@@ -977,6 +980,9 @@ local lastEnemyPlayerAttacker = nil
 local lastEnemyPlayerAttackerTime = 0
 
 function HonorLog:COMBAT_LOG_EVENT_UNFILTERED()
+    -- Never fires on Forever (restricted event, see the events list); the
+    -- guard keeps a manual call from erroring on a missing combat-log API.
+    if not CombatLogGetCurrentEventInfo then return end
     -- Skip if we're in a battleground (BG tracking is separate)
     -- Use instance check to handle /reload scenarios where isInBG might be stale
     if IsActuallyInBG() then return end
@@ -1263,7 +1269,7 @@ function HonorLog:HandleSlashCommand(msg)
             if #goals == 0 then
                 print("|cff00ff00[HonorLog]|r No goals set. Use /honorlog goal add to add one.")
             else
-                print("|cff00ff00[HonorLog Goals]|r (" .. #goals .. "/" .. self:GetMaxGoals() .. ")")
+                print("|cff00ff00[HonorLog Goals]|r (" .. #goals .. " goals)")
                 for i, goal in ipairs(goals) do
                     local statusColor = goal.isComplete and "|cff00ff00" or "|cffffff00"
                     local status = goal.isComplete and "READY" or string.format("%.0f%%", math.min(goal.honor.percent, goal.arena.percent > 0 and goal.arena.percent or 100))
@@ -1400,6 +1406,10 @@ function HonorLog:HandleSlashCommand(msg)
             print("  |cffffffff/honorlog resize|r - Reset frame size to default")
             print("  |cffffffff/honorlog resize toggle|r - Toggle resizing on/off")
         end
+    elseif cmd == "probe" then
+        if self.Probe then
+            self.Probe:HandleCommand(arg)
+        end
     elseif cmd == "scan" then
         local subCmd = arg:lower()
         if subCmd == "" then
@@ -1495,6 +1505,7 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog debug|r - Toggle debug mode")
     print("  |cffffffff/honorlog currency|r - Show currency diagnostic")
     print("  |cffffffff/honorlog test [bg]|r - Test record a game")
+    print("  |cffffffff/honorlog probe [on|off|status|clear]|r - Record what PvP data the client exposes (dev)")
     print("  |cffffffff/honorlog scan|r - Scan current PvP vendor (dev)")
     print("  |cffffffff/honorlog scan export|r - Export scanned data as Lua")
     print("  |cffffffff/honorlog help|r - Show this help")

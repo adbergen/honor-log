@@ -6,6 +6,10 @@
 
 local ADDON_NAME, HonorLog = ...
 
+-- Forever-safe wrappers (defined in Data.lua)
+local GetItemInfo = HonorLog.Compat.GetItemInfo
+local GetMerchantItemInfo = HonorLog.Compat.GetMerchantItemInfo
+
 -- Mark item IDs for identifying mark costs
 local MARK_IDS = {
     [20560] = "AV",   -- Alterac Valley Mark of Honor
