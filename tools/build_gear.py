@@ -184,6 +184,44 @@ def check_iec(iec_rows):
     return problems, len(rules), len(ok)
 
 
+SLOT_INV = {"Head": 1, "Shoulder": 3, "Chest": 5, "Waist": 6, "Legs": 7, "Feet": 8, "Wrist": 9, "Hands": 10}
+
+
+def add_missing_set_members(sparse, item, sets_rows, classes):
+    """Premier ItemSet members absent from ItemSparse: build a row from the Wowhead tooltip."""
+    class_mask = {name: mask for mask, name in classes.items()}
+    premier_sets = {int(r["ItemSet"]) for r in sparse.values()
+                    if "Premier" in r["Display_lang"] and int(r["ItemSet"]) != 0}
+    added = []
+    for row in sets_rows:
+        if int(row["ID"]) not in premier_sets:
+            continue
+        for k in range(17):
+            item_id = int(row["ItemID_%d" % k])
+            if not item_id or item_id in sparse:
+                continue
+            data = json.loads(cached("tooltip", item_id, TOOLTIP_URL, "json"))
+            html = data["tooltip"]
+            slot = re.search(r"<table width=\"100%\"><tr><td>([A-Za-z ]+)</td>", html)
+            sub = re.search(r"scstart4:(\d)", html)
+            cls = re.search(r"Classes: <a [^>]*>([A-Za-z]+)</a>", html)
+            ilvl = re.search(r"<!--ilvl-->(\d+)", html)
+            rlvl = re.search(r"<!--rlvl-->(\d+)", html)
+            if not (slot and slot.group(1) in SLOT_INV and sub and ilvl and rlvl):
+                raise SystemExit("cannot read set member %d from its tooltip" % item_id)
+            sparse[item_id] = {
+                "ID": str(item_id), "Display_lang": data["name"], "OverallQualityID": str(data["quality"]),
+                "ItemLevel": ilvl.group(1), "RequiredLevel": rlvl.group(1),
+                "InventoryType": str(SLOT_INV[slot.group(1)]),
+                "AllowableClass": str(class_mask[cls.group(1).upper()]) if cls else "-1",
+                "AllowableRace_0": "-1", "BuyPrice": "0", "MinFactionID": "0", "MinReputation": "0",
+                "RequiredPVPRank": "0", "ItemSet": row["ID"],
+            }
+            item[item_id] = {"ID": str(item_id), "ClassID": "4", "SubclassID": sub.group(1), "IconFileDataID": ""}
+            added.append(item_id)
+    return added
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh", action="store_true", help="redownload the build list and tables")
@@ -199,6 +237,9 @@ def main():
     faction_names = {int(r["ID"]): r["Name_lang"] for r in tables["Faction"]}
     faction_ids = {name: fid for fid, name in faction_names.items()}
     classes = {1 << (int(r["ID"]) - 1): r["Filename"].upper() for r in tables["ChrClasses"]}
+
+    # ---- set members the client's ItemSparse lacks (server-side items) ----------------
+    added = add_missing_set_members(sparse, item, sets_rows=tables["ItemSet"], classes=classes)
 
     # ---- drift checks (fatal) --------------------------------------------------
     problems, rule_count, rule_ok = check_iec(iec_rows)
@@ -423,7 +464,8 @@ def main():
         gold = int(sparse[item_id]["BuyPrice"])
         entry = base(item_id)
         entry.update(source="REP", faction=R.REP_SIDE.get(fid), gold=gold or None,
-                     rep={"faction": fid, "standing": standing})
+                     rep={"faction": fid, "standing": standing},
+                     legacy=item_id < R.LEGACY_BELOW_ID)
         entries[item_id] = entry
 
     # ---- old rank items (excluded) -------------------------------------------------------
@@ -472,6 +514,8 @@ def main():
             parts.append("parts = { %s }" % ", ".join(str(p) for p in e["parts"]))
         if e.get("iec"):
             parts.append("iec = %d" % e["iec"])
+        if e.get("legacy"):
+            parts.append("legacy = true")
         return "    [%d] = { %s },\n" % (item_id, ", ".join(parts))
 
     ordered = sorted(entries.items(), key=lambda kv: (SLOT_INDEX[kv[1]["slot"]], kv[1]["source"], kv[0]))
@@ -490,11 +534,11 @@ def main():
 
     if args.report:
         report(entries, ordered, build, build_date, notes, unpaired, unclassified, rule_count, rule_ok,
-               icon_match, icon_total, rep_mismatch, rep_excluded, old_rank, sparse, tt_rank, epic_armour)
+               icon_match, icon_total, rep_mismatch, rep_excluded, old_rank, sparse, tt_rank, epic_armour, added)
 
 
 def report(entries, ordered, build, build_date, notes, unpaired, unclassified, rule_count, rule_ok,
-           icon_match, icon_total, rep_mismatch, rep_excluded, old_rank, sparse, tt_rank, epic_armour):
+           icon_match, icon_total, rep_mismatch, rep_excluded, old_rank, sparse, tt_rank, epic_armour, added):
     print("Build %s (%s), %d items written" % (build, build_date, len(entries)))
     print("\n== Counts per slot x source x faction")
     counts = Counter((e["slot"], e["source"], e.get("faction") or "-") for e in entries.values())
@@ -531,6 +575,14 @@ def report(entries, ordered, build, build_date, notes, unpaired, unclassified, r
         print("      %d %s %s" % (i, name, found))
     reps = Counter(e["rep"]["faction"] or 0 for e in entries.values() if e.get("rep"))
     print("  reputation items per faction id: %s" % dict(sorted(reps.items())))
+    print("  items built from the Wowhead tooltip because ItemSparse lacks them: %d %s" % (len(added), added))
+    named = sorted(set(notes["faction inferred from the item name (no data source)"]))
+    print("  faction from rank-title tokens or name (%d ids): %s" % (len(named), named))
+    leg = Counter()
+    for e in entries.values():
+        if e["source"] == "REP":
+            leg[(e["rep"]["faction"] or 0, "legacy" if e.get("legacy") else "new")] += 1
+    print("  REP legacy (id < %d) vs Forever-new per rep faction id: %s" % (R.LEGACY_BELOW_ID, dict(sorted(leg.items()))))
     print("  excluded old vanilla/SoD rank items (RequiredPVPRank 5-18 in client data): %d" % len(old_rank))
 
 

@@ -123,3 +123,9 @@ REP_EXTRA_IDS = [19029, 19030, 19031, 19032, 19045, 19046, 19505, 19506] + list(
 # Standing names in tooltips -> Blizzard standing ids.
 STANDINGS = {"Hated": 1, "Hostile": 2, "Unfriendly": 3, "Neutral": 4,
              "Friendly": 5, "Honored": 6, "Revered": 7, "Exalted": 8}
+
+# Vanilla-era reputation stock. Every REP id is either <= 22753 (vanilla AB, WSG, AV
+# multi-tier stock), 215450 (a Season of Discovery id) or >= 271903 (Forever-new).
+# Ids below this line are marked legacy = true; the in-game vendor scan decides
+# whether they are really stocked. Forever-new items start at 24xxxx.
+LEGACY_BELOW_ID = 240000
