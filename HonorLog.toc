@@ -26,7 +26,7 @@ Modules\BattlegroundBase.lua
 Modules\AV.lua
 Modules\AB.lua
 Modules\WSG.lua
-Modules\EotS.lua
+Modules\DI.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 

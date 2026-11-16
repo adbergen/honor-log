@@ -13,14 +13,6 @@ local COLORS = HonorLog.Theme
 local BG_COLORS = HonorLog.BG_COLORS
 local BG_GLOW_COLORS = HonorLog.BG_GLOW_COLORS
 
--- Full BG names
-local BG_NAMES = {
-    AV = "Alterac Valley",
-    AB = "Arathi Basin",
-    WSG = "Warsong Gulch",
-    EotS = "Eye of the Storm",
-}
-
 -- Cache addon metadata at load time
 -- TBC Classic Anniversary uses C_AddOns.GetAddOnMetadata, not the global GetAddOnMetadata
 local function GetMeta(field)
@@ -390,11 +382,13 @@ local function CreateMainFrame()
             self:SetBackdropColor(unpack(COLORS.bgCardHover))
             self:SetBackdropBorderColor(unpack(BG_GLOW_COLORS[bgType]))
             if self.bgIcon then self.bgIcon:SetAlpha(1) end
+            HonorLog:ShowBGTooltip(self, bgType)
         end)
         card:SetScript("OnLeave", function(self)
             self:SetBackdropColor(unpack(COLORS.bgCard))
             self:SetBackdropBorderColor(unpack(COLORS.borderDark))
             if self.bgIcon then self.bgIcon:SetAlpha(0.9) end
+            GameTooltip:Hide()
         end)
         -- Right-click handler set at end of CreateMainFrame
 
@@ -418,14 +412,14 @@ local function CreateMainFrame()
         -- BG Name (abbreviated)
         local bgName = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         bgName:SetPoint("LEFT", bgIcon, "RIGHT", 5, 4)
-        bgName:SetText(bgType)
+        bgName:SetText(HonorLog:GetBGShortName(bgType))
         bgName:SetTextColor(unpack(BG_COLORS[bgType]))
         card.bgName = bgName
 
         -- Full BG name (smaller, below abbreviation)
         local bgFullName = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         bgFullName:SetPoint("TOPLEFT", bgName, "BOTTOMLEFT", 0, 0)
-        bgFullName:SetText(BG_NAMES[bgType])
+        bgFullName:SetText(HonorLog:GetBGDisplayName(bgType))
         bgFullName:SetTextColor(unpack(COLORS.textTertiary))
         card.bgFullName = bgFullName
 
@@ -479,11 +473,13 @@ local function CreateMainFrame()
         self:SetBackdropColor(unpack(COLORS.bgCardHover))
         self:SetBackdropBorderColor(unpack(WORLD_GLOW))
         if self.worldIcon then self.worldIcon:SetAlpha(1) end
+        HonorLog:ShowWorldTooltip(self)
     end)
     worldCard:SetScript("OnLeave", function(self)
         self:SetBackdropColor(unpack(COLORS.bgCard))
         self:SetBackdropBorderColor(unpack(COLORS.borderDark))
         if self.worldIcon then self.worldIcon:SetAlpha(0.9) end
+        GameTooltip:Hide()
     end)
 
     -- Left accent bar (orange)
@@ -562,6 +558,14 @@ local function CreateMainFrame()
         GameTooltip:AddDoubleLine("XX%", "Win rate percentage", 0.4, 0.8, 1, 0.7, 0.7, 0.7)
         GameTooltip:AddDoubleLine("XXX/hr", "Honor earned per hour", 1, 0.84, 0, 0.7, 0.7, 0.7)
         GameTooltip:AddDoubleLine("X-X |TInterface\\Icons\\Ability_DualWield:12|t", "World PvP kills-deaths", 0.9, 0.55, 0.2, 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(" ")
+        local honor = HonorLog:GetHonorSummary()
+        GameTooltip:AddDoubleLine("Honor today", tostring(honor.today), 1, 0.84, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Honor this week", tostring(honor.week), 1, 0.84, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Honor this session", tostring(honor.session), 1, 0.84, 0, 1, 1, 1)
+        if honor.cap > 0 then
+            GameTooltip:AddDoubleLine("Honor now / cap", string.format("%d / %d", honor.current, honor.cap), 1, 0.84, 0, 0.7, 0.7, 0.7)
+        end
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Hourly rate calculated from first BG entry", 0.5, 0.5, 0.5)
         GameTooltip:Show()
@@ -768,6 +772,59 @@ end
 --------------------------------------------------------------------------------
 -- INITIALIZATION
 --------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- TOOLTIPS: recent games per battleground, world PvP detail
+--------------------------------------------------------------------------------
+local RECENT_GAMES = 5
+
+function HonorLog:ShowBGTooltip(anchor, bgType)
+    local scope = self.db.settings.viewMode
+    local stats = self:GetBGStats(bgType, scope)
+    GameTooltip:SetOwner(anchor, "ANCHOR_RIGHT")
+    GameTooltip:SetText(self:GetBGDisplayName(bgType), unpack(self:GetBGColor(bgType)))
+    GameTooltip:AddDoubleLine("Won / lost", string.format("%d / %d", stats.wins, stats.losses), 0.7, 0.7, 0.7, 1, 1, 1)
+    if (stats.draws or 0) > 0 or (stats.left or 0) > 0 then
+        GameTooltip:AddDoubleLine("Draws / left early", string.format("%d / %d", stats.draws or 0, stats.left or 0), 0.7, 0.7, 0.7, 1, 1, 1)
+    end
+    local shown = 0
+    for _, entry in ipairs(self:GetHistory(scope, 500)) do
+        if entry.bgType == bgType then
+            if shown == 0 then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("Recent games (K/HK/D)", 1, 0.82, 0)
+            end
+            GameTooltip:AddLine(self:FormatHistoryRow(entry), 1, 1, 1)
+            shown = shown + 1
+            if shown >= RECENT_GAMES then break end
+        end
+    end
+    GameTooltip:Show()
+end
+
+function HonorLog:ShowWorldTooltip(anchor)
+    local scope = self.db.settings.viewMode
+    local world = self:GetWorldPvPStats(scope)
+    GameTooltip:SetOwner(anchor, "ANCHOR_RIGHT")
+    GameTooltip:SetText("World PvP", 0.9, 0.55, 0.2)
+    GameTooltip:AddDoubleLine("Kills / deaths", string.format("%d / %d", world.kills, world.deaths), 0.7, 0.7, 0.7, 1, 1, 1)
+    if (world.killingBlows or 0) > 0 or (world.unknownKills or 0) > 0 then
+        GameTooltip:AddDoubleLine("Killing blows / unattributed", string.format("%d / %d", world.killingBlows or 0, world.unknownKills or 0), 0.7, 0.7, 0.7, 1, 1, 1)
+    end
+    local split = self:GetWorldHonorSplit(scope)
+    GameTooltip:AddDoubleLine("Honor (kills / awards / other)",
+        string.format("%d / %d / %d", split.kill, split.award, split.other), 0.7, 0.7, 0.7, 1, 0.82, 0)
+    local top = self:GetTopOpponents(5)
+    if #top > 0 then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Top opponents (kills / deaths)", 1, 0.82, 0)
+        for _, o in ipairs(top) do
+            GameTooltip:AddDoubleLine(o.name .. (o.class and (" |cff888888" .. o.class .. "|r") or ""),
+                string.format("%d / %d", o.kills, o.deaths), 1, 1, 1, 0.7, 0.7, 0.7)
+        end
+    end
+    GameTooltip:Show()
+end
+
 function HonorLog:InitializeMainFrame()
     self.mainFrame = CreateMainFrame()
 
@@ -982,7 +1039,7 @@ function HonorLog:UpdateMainFrame()
             duration = math.floor(GetTime() - startTime)
         end
         local honorAccum = self:GetBGHonorAccumulated()
-        local statusText = string.format("%s  -  %s", currentBG, self:FormatDuration(duration))
+        local statusText = string.format("%s  -  %s", self:GetBGShortName(currentBG), self:FormatDuration(duration))
         if honorAccum > 0 then
             statusText = statusText .. string.format("  |cffffd700+%d|r", honorAccum)
         end
@@ -1022,7 +1079,7 @@ function HonorLog:UpdateMainFrame()
     end
 
     -- Card visibility settings
-    local visibleCards = self.db.settings.visibleCards or { AV = true, AB = true, WSG = true, EotS = true, World = true }
+    local visibleCards = self.db.settings.visibleCards or { AV = true, WSG = true, AB = true, DI = true, World = true }
 
     -- Reposition visible BG cards
     local yOffset = 0
@@ -1277,7 +1334,7 @@ function HonorLog:UpdateGoalsCompact()
             -- Calculate overall progress (same weighted calculation as totals bar)
             local totalHonorNeeded = 0
             local totalArenaNeeded = 0
-            local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+            local totalMarksNeeded = { AV = 0, AB = 0, WSG = 0, DI = 0, EotS = 0 }
 
             local totalGamesNeeded = 0
             for _, goal in ipairs(goals) do
@@ -1305,7 +1362,7 @@ function HonorLog:UpdateGoalsCompact()
             -- Include completed goals at 100% progress (cumulative tracking)
             local completedHonorTotal = 0
             local completedArenaTotal = 0
-            local completedMarksTotal = { AV = 0, AB = 0, WSG = 0, EotS = 0 }
+            local completedMarksTotal = { AV = 0, AB = 0, WSG = 0, DI = 0, EotS = 0 }
 
             if completedGoals then
                 for _, completedGoal in ipairs(completedGoals) do
@@ -1534,13 +1591,11 @@ local function InitializeMenu(frame, level, menuList)
         info.notCheckable = true
         info.func = function()
             for bgType, _ in pairs(HonorLog.db.char.battlegrounds) do
-                HonorLog.db.char.battlegrounds[bgType] = {
-                    played = 0, wins = 0, losses = 0,
-                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
-                }
+                HonorLog.db.char.battlegrounds[bgType] = HonorLog.NewBGStats()
             end
-            -- Also reset World PvP stats
-            HonorLog.db.char.worldPvP = { kills = 0, deaths = 0, honor = 0 }
+            -- Also reset World PvP stats and the opponents list
+            HonorLog.db.char.worldPvP = HonorLog.NewWorldStats()
+            HonorLog.db.char.opponents = {}
             HonorLog.db.char.history = {}
             HonorLog:ResetSession()
             HonorLog:UpdateMainFrame()
@@ -1554,13 +1609,10 @@ local function InitializeMenu(frame, level, menuList)
         info.notCheckable = true
         info.func = function()
             for bgType, _ in pairs(HonorLog.db.global.battlegrounds) do
-                HonorLog.db.global.battlegrounds[bgType] = {
-                    played = 0, wins = 0, losses = 0,
-                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
-                }
+                HonorLog.db.global.battlegrounds[bgType] = HonorLog.NewBGStats()
             end
             -- Also reset World PvP stats
-            HonorLog.db.global.worldPvP = { kills = 0, deaths = 0, honor = 0 }
+            HonorLog.db.global.worldPvP = HonorLog.NewWorldStats()
             HonorLog.db.global.history = {}
             HonorLog:UpdateMainFrame()
             print("|cff40d860HonorLog|r Account stats reset.")

@@ -1,55 +1,24 @@
 -- HonorLog Alterac Valley Module
--- AV-specific tracking and detection
+-- AV: the winner is the side whose general survives.
 
 local ADDON_NAME, HonorLog = ...
 
 local AV = HonorLog.BattlegroundBase:New("AV", {
     displayName = "Alterac Valley",
-    icon = "Interface\\Icons\\INV_Jewelry_Necklace_21",
+    shortName = "AV",
     mapID = 30,
+    markItem = 20560,
+    objectives = { "Graveyards Assaulted", "Graveyards Defended", "Towers Assaulted", "Towers Defended" },
 })
 
--- AV-specific win patterns
-local WIN_PATTERNS = {
-    ["The Alliance wins!"] = "Alliance",
-    ["The Horde wins!"] = "Horde",
-    ["Alterac Valley"] = nil, -- Generic, needs more context
-}
-
--- AV has reinforcement-based victory
--- Alliance starts at 600 reinforcements, Horde at 600
--- First to 0 or kill General loses
+local base = HonorLog.BattlegroundBase
 
 function AV:DetectWin(msg)
-    for pattern, faction in pairs(WIN_PATTERNS) do
-        if msg:find(pattern) and faction then
-            return faction
-        end
-    end
-
-    -- Check for general kill messages
-    if msg:find("Drek'Thar") and msg:find("slain") then
-        return "Alliance"
-    elseif msg:find("Vanndar Stormpike") and msg:find("slain") then
-        return "Horde"
-    end
-
+    local faction = base.DetectWin(self, msg)
+    if faction then return faction end
+    local lower = msg:lower()
+    local general = lower:find("slain", 1, true) or lower:find("dead", 1, true) or lower:find("killed", 1, true)
+    if general and lower:find("drek'thar", 1, true) then return "Alliance" end
+    if general and lower:find("vanndar", 1, true) then return "Horde" end
     return nil
 end
-
-function AV:GetCurrentScore()
-    -- AV tracks reinforcements, not a simple score
-    -- This would require parsing the BG scoreboard
-    return nil
-end
-
-function AV:CalculateBonusMarks(won, score)
-    -- AV gives 3 marks for win, 1 for loss (standard)
-    return won and 3 or 1
-end
-
--- AV-specific stats we might want to track in the future
--- - Towers captured/defended
--- - Graveyards captured
--- - Captain/Lieutenant kills
--- - Mine captures

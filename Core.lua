@@ -1,5 +1,17 @@
 -- HonorLog Core
--- Event handling, BG detection, and main addon logic
+-- Event handling, match lifecycle, world PvP and honor tracking.
+--
+-- Everything here reads Forever's own signals and measures instead of assuming:
+--   * a battleground game is snapshotted on entry (honor, marks, rank progress)
+--     and diffed at the end; honor is also summed from CURRENCY_DISPLAY_UPDATE;
+--   * the result comes from PVP_MATCH_COMPLETE, with the winner APIs and the BG
+--     chat text as fallbacks;
+--   * the scoreboard is secret during a match, so it is re-read after the match
+--     until every number is readable (or 12 s pass);
+--   * world kills come from the honorable-kill counter plus the honor message,
+--     deaths from the death recap. The combat log is restricted and never used.
+-- Rule for every value that may be secret: check issecretvalue() before it is
+-- compared, added, concatenated, indexed or stored (see Modules/Probe.lua).
 
 local ADDON_NAME, HonorLog = ...
 
@@ -7,45 +19,30 @@ local ADDON_NAME, HonorLog = ...
 local Compat = HonorLog.Compat
 local GetItemInfo = Compat.GetItemInfo
 local GetItemCount = Compat.GetItemCount
-local GetBattlefieldWinner = Compat.GetBattlefieldWinner
 local GetNumBattlefieldScores = Compat.GetNumBattlefieldScores
-local GetBattlefieldScore = Compat.GetBattlefieldScore
 
--- BG Map IDs (TBC list; Round 1 swaps in the Forever ones)
-local BG_MAP_IDS = {
-    [30] = "AV",   -- Alterac Valley
-    [529] = "AB",  -- Arathi Basin
-    [489] = "WSG", -- Warsong Gulch
-    [566] = "EotS", -- Eye of the Storm
-}
+local HONOR_CURRENCY = 1792
+local RANK_FACTION = 2800
+-- Points to finish each rank (curve 103650), used when a game crosses a rank.
+local RANK_CURVE = { 750, 900, 1050, 1200, 1350, 1500, 1650, 1800, 1950, 2100, 2350, 2500, 2650, 3000 }
 
--- BG Instance Names (backup detection)
-local BG_INSTANCE_NAMES = {
-    ["Alterac Valley"] = "AV",
-    ["Arathi Basin"] = "AB",
-    ["Warsong Gulch"] = "WSG",
-    ["Eye of the Storm"] = "EotS",
-}
+local RECORD_DELAY = 20    -- seconds after PVP_MATCH_COMPLETE the game is recorded (bonus honor lands first)
+local SB_GIVEUP = 12       -- seconds the scoreboard is chased before the game is recorded without it
+local SB_REREAD = 2        -- seconds after an accepted read the board is read again for a fuller roster
+local SB_POLL = 1          -- seconds between scoreboard requests while it is unreadable
+local JOINED_LATE = 60     -- a match already running this long on entry counts as joined in progress
+local KILL_WINDOW = 2      -- seconds within which a kill counter step and its honor message belong together
+local CREDIT_WINDOW = 60   -- a dead enemy is credited for at most one kill in this time
 
--- State tracking
-local currentBG = nil
-local bgStartTime = nil
-local bgStartHonor = nil
-local bgHonorAccumulated = 0  -- Track honor gained during BG via events
-local lastHonorValue = nil    -- For tracking honor changes
-local isInBG = false
-local bgEnded = false
+-- State
+local match = nil          -- the battleground game in progress (also saved as bgState.match)
 local debugMode = false
-local lastRecordedTime = 0  -- Timestamp of last recorded game (prevents double counting)
-local gameRecordedThisSession = false  -- Absolute guard: only one recording per BG session
-local bgEndPending = false  -- True when win detected but waiting for bonus honor
-local bgEndWinner = nil     -- Stored winner during pending delay
-
--- Backup state for when we leave before score update arrives
-local lastBG = nil
-local lastBGStartTime = nil
-local lastBGStartHonor = nil
-local lastBGLeaveTime = nil
+local lastHK = nil         -- honorable kills the client reported at the last check
+local pendingHK = {}       -- kill counter steps not yet matched: { t = GetTime() }
+local pendingMsgs = {}     -- kill honor messages not yet matched: { name, rank, honor, t }
+local pendingParty = {}    -- PARTY_KILL records with readable GUIDs: { t, name, class }
+local credited = {}        -- enemy name -> GetTime() of the kill it was credited for
+local deathToken = 0
 
 -- Create main frame for events
 local eventFrame = CreateFrame("Frame", "HonorLogEventFrame")
@@ -61,6 +58,41 @@ local function SafeInit(name, func)
     return true
 end
 
+local function dbg(...)
+    if debugMode then print("|cffff00ff[HonorLog Debug]|r", ...) end
+end
+
+--------------------------------------------------------------------------------
+-- Secret-safe readers
+--------------------------------------------------------------------------------
+
+local function isSecret(v)
+    return issecretvalue ~= nil and issecretvalue(v) == true
+end
+
+local function num(v)
+    if isSecret(v) or type(v) ~= "number" then return nil end
+    return v
+end
+
+local function str(v)
+    if isSecret(v) or type(v) ~= "string" then return nil end
+    return v
+end
+
+-- pcall(fn, ...) returning the results, or nothing when the call errors.
+local function call(fn, ...)
+    if type(fn) ~= "function" then return end
+    local res = { pcall(fn, ...) }
+    if not res[1] then return end
+    return unpack(res, 2)
+end
+
+local function pvp(name, ...)
+    if not C_PvP then return end
+    return call(C_PvP[name], ...)
+end
+
 -- Event handler
 local function OnEvent(self, event, ...)
     if HonorLog[event] then
@@ -74,25 +106,28 @@ eventFrame:SetScript("OnEvent", OnEvent)
 local events = {
     "ADDON_LOADED",
     "PLAYER_ENTERING_WORLD",
+    "PLAYER_LEAVING_WORLD",
     "ZONE_CHANGED_NEW_AREA",
     "UPDATE_BATTLEFIELD_STATUS",
     "UPDATE_BATTLEFIELD_SCORE",
+    "PVP_MATCH_ACTIVE",
+    "PVP_MATCH_COMPLETE",
     "CHAT_MSG_BG_SYSTEM_ALLIANCE",
     "CHAT_MSG_BG_SYSTEM_HORDE",
     "CHAT_MSG_BG_SYSTEM_NEUTRAL",
     "CHAT_MSG_RAID_BOSS_EMOTE",
     "CHAT_MSG_MONSTER_YELL",
-    "HONOR_XP_UPDATE",
-    "CHAT_MSG_COMBAT_HONOR_GAIN", -- TBC Classic honor kills
-    "CHAT_MSG_SYSTEM", -- For "You receive currency: [Honor Points] xN" messages
+    "CHAT_MSG_COMBAT_HONOR_GAIN",
     "PLAYER_LOGOUT",
     "PLAYER_DEAD",
-    "BATTLEGROUND_POINTS_UPDATE",
-    "CURRENCY_DISPLAY_UPDATE", -- For honor/mark changes outside BG
+    "PLAYER_PVP_KILLS_CHANGED",
+    "PARTY_KILL",
+    "CURRENCY_DISPLAY_UPDATE",
+    "BAG_UPDATE_DELAYED",
     "BAG_UPDATE", -- For detecting acquired goal items
     -- COMBAT_LOG_EVENT_UNFILTERED is deliberately not registered: the Forever
     -- docs flag it HasRestrictions and registering it raises the "blocked"
-    -- popup. World kills and deaths come back in Round 1 from other signals.
+    -- popup. Kills and deaths come from the signals above instead.
 }
 
 -- Registering an event the client does not know raises an error, so a miss
@@ -101,32 +136,34 @@ for _, event in ipairs(events) do
     pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
 
--- Save BG state to persist across /reload
+--------------------------------------------------------------------------------
+-- Match state persistence (survives /reload)
+--------------------------------------------------------------------------------
+
 local function SaveBGState()
-    if HonorLog.db and HonorLog.db.char then
-        HonorLog.db.char.bgState = {
-            currentBG = currentBG,
-            bgStartTime = bgStartTime,
-            bgStartHonor = bgStartHonor,
-            bgHonorAccumulated = bgHonorAccumulated,
-            isInBG = isInBG,
-        }
+    if not (HonorLog.db and HonorLog.db.char) then return end
+    if match then
+        HonorLog.db.char.bgState = { isInBG = true, currentBG = match.bgType, match = match }
+    else
+        HonorLog.db.char.bgState = { isInBG = false }
     end
 end
 
--- Restore BG state after /reload (called from InitializeDB when reload detected)
+local ArmFinish, PollScoreboard, FinalizeMatch -- defined below
+
+-- Restore after /reload (called from ADDON_LOADED when a reload is detected).
 function HonorLog:RestoreBGState()
     local state = self.db.char.bgState
-    if state and state.isInBG then
-        currentBG = state.currentBG
-        bgStartTime = state.bgStartTime
-        bgStartHonor = state.bgStartHonor
-        bgHonorAccumulated = state.bgHonorAccumulated or 0
-        isInBG = state.isInBG
-        if debugMode then
-            print("|cff00ff00[HonorLog]|r Restored BG state: " .. tostring(currentBG) .. ", honor: " .. tostring(bgHonorAccumulated))
-        end
+    if not (state and state.isInBG and type(state.match) == "table" and state.match.bgType) then return end
+    match = state.match
+    if match.recorded then return end
+    -- The timers died with the old UI; re-arm what the game still needs.
+    if match.completed then
+        local elapsed = GetTime() - (match.completedAt or GetTime())
+        ArmFinish(match, math.max(0.1, RECORD_DELAY - elapsed))
+        if match.sbState == "pending" then PollScoreboard(match) end
     end
+    dbg("Restored BG state:", match.bgType, "honor", match.honorGained)
 end
 
 -- Addon loaded
@@ -136,7 +173,7 @@ function HonorLog:ADDON_LOADED(addon)
     -- Initialize database (this also detects reload vs fresh login)
     self:InitializeDB()
 
-    -- Restore BG state if this is a reload and we were in a BG
+    -- Restore the game in progress if this is a reload inside a battleground
     if self.isReload and self.db.char.bgState and self.db.char.bgState.isInBG then
         self:RestoreBGState()
     end
@@ -159,63 +196,89 @@ function HonorLog:ADDON_LOADED(addon)
     print("|cff00ff00HonorLog|r loaded. Type |cffffffff/honorlog|r or |cffffffff/hl|r for options.")
 end
 
--- Detect current battleground
+--------------------------------------------------------------------------------
+-- Snapshot readers
+--------------------------------------------------------------------------------
+
+-- Honor from the currency itself (nil when the API cannot say).
+local function ReadHonor()
+    if not (C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo) then return nil end
+    local info = call(C_CurrencyInfo.GetCurrencyInfo, HONOR_CURRENCY)
+    if type(info) ~= "table" then return nil end
+    return num(info.quantity)
+end
+
+-- { level, earned, threshold } of the PvP rank faction, or nil.
+local function ReadRank()
+    if not (C_MajorFactions and C_MajorFactions.GetMajorFactionProgressionInfo) then return nil end
+    local info = call(C_MajorFactions.GetMajorFactionProgressionInfo, RANK_FACTION)
+    if type(info) ~= "table" then return nil end
+    local level, earned = num(info.renownLevel), num(info.renownReputationEarned)
+    if not level or not earned then return nil end
+    return { level = level, earned = earned, threshold = num(info.renownLevelThreshold) }
+end
+
+-- Rank points earned between two reads. A level-up adds the rest of the old
+-- level, every level skipped, and the progress into the new one.
+local function RankDelta(from, to)
+    if not from or not to then return 0 end
+    if to.level == from.level then return math.max(0, to.earned - from.earned) end
+    if to.level < from.level then return 0 end
+    local total = math.max(0, (from.threshold or RANK_CURVE[from.level] or 0) - from.earned)
+    for level = from.level + 1, to.level - 1 do
+        total = total + (RANK_CURVE[level] or 0)
+    end
+    return total + to.earned
+end
+HonorLog.RankDelta = RankDelta
+
+-- Mark counts for every battleground that has a mark item.
+local function ReadMarks()
+    local marks = {}
+    for bgType, itemID in pairs(HonorLog.BG_MARK_ITEMS or {}) do
+        marks[bgType] = Compat.GetItemCount(itemID) or 0
+    end
+    return marks
+end
+
+local function TakeSnapshot()
+    return { honor = ReadHonor(), marks = ReadMarks(), rank = ReadRank(), t = time() }
+end
+
+-- Mark counts gained since the snapshot (can be negative when marks are spent).
+local function UpdateMarks(m)
+    if not m.snapshot then return end
+    m.marks = m.marks or {}
+    for bgType, count in pairs(ReadMarks()) do
+        m.marks[bgType] = count - ((m.snapshot.marks and m.snapshot.marks[bgType]) or 0)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Battleground detection and entry / exit
+--------------------------------------------------------------------------------
+
+-- Returns bgType, mapID, name for the current instance when it is a battleground.
 function HonorLog:DetectBattleground()
-    -- Method 1: Check instance map ID
-    local instanceName, instanceType, difficultyID, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, mapID = GetInstanceInfo()
+    local name, instanceType, _, _, _, _, _, mapID = GetInstanceInfo()
+    if instanceType ~= "pvp" then return nil end
+    local bgType = self:GetBGTypeForMap(mapID, name, instanceType)
+    if debugMode then dbg("Instance:", tostring(name), "map", tostring(mapID), "->", tostring(bgType)) end
+    return bgType, mapID, name
+end
 
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r Instance: " .. tostring(instanceName) .. ", Type: " .. tostring(instanceType) .. ", MapID: " .. tostring(mapID))
-    end
-
-    if instanceType == "pvp" and mapID and BG_MAP_IDS[mapID] then
-        return BG_MAP_IDS[mapID]
-    end
-
-    -- Method 2: Check zone name
-    local zoneName = GetRealZoneText()
-    if debugMode and zoneName then
-        print("|cffff00ff[HonorLog Debug]|r Zone: " .. zoneName)
-    end
-    if zoneName and BG_INSTANCE_NAMES[zoneName] then
-        return BG_INSTANCE_NAMES[zoneName]
-    end
-
-    -- Method 3: Check battlefield status
-    local maxBattlefieldID = (GetMaxBattlefieldID and GetBattlefieldStatus) and GetMaxBattlefieldID() or 0
-    for i = 1, maxBattlefieldID do
-        local status, mapName = GetBattlefieldStatus(i)
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r BF " .. i .. " Status: " .. tostring(status) .. ", Map: " .. tostring(mapName))
-        end
-        if status == "active" and mapName then
-            for name, bgType in pairs(BG_INSTANCE_NAMES) do
-                if mapName:find(name) then
-                    return bgType
-                end
-            end
-            -- Also check if mapName itself is a direct match
-            if BG_INSTANCE_NAMES[mapName] then
-                return BG_INSTANCE_NAMES[mapName]
-            end
-        end
-    end
-
-    -- Method 4: Check by instance name directly (fallback)
-    if instanceType == "pvp" and instanceName then
-        for name, bgType in pairs(BG_INSTANCE_NAMES) do
-            if instanceName:find(name) then
-                return bgType
-            end
-        end
-    end
-
-    return nil
+local function InPvPInstance()
+    if match then return true end
+    local _, instanceType = GetInstanceInfo()
+    return instanceType == "pvp"
 end
 
 -- Player entering world (includes BG zone-ins)
 function HonorLog:PLAYER_ENTERING_WORLD()
     self:CheckBattlegroundStatus()
+    lastHK = lastHK or call(GetPVPSessionStats)
+    if not num(lastHK) then lastHK = nil end
+    self:CheckHonorCap()
 
     -- Delayed scan for acquired goal items (bags may not be ready immediately)
     C_Timer.After(2, function()
@@ -228,724 +291,491 @@ function HonorLog:PLAYER_ENTERING_WORLD()
     end)
 end
 
--- Zone changed
 function HonorLog:ZONE_CHANGED_NEW_AREA()
     self:CheckBattlegroundStatus()
 end
 
--- Battlefield status update
 function HonorLog:UPDATE_BATTLEFIELD_STATUS()
     self:CheckBattlegroundStatus()
 end
 
 -- Check and update BG status
 function HonorLog:CheckBattlegroundStatus()
-    local bg = self:DetectBattleground()
+    local bg, mapID, name = self:DetectBattleground()
 
-    if bg and not isInBG then
-        -- Entering a battleground
-        self:OnBattlegroundEnter(bg)
-    elseif not bg and isInBG then
-        -- Leaving a battleground
+    if bg and not match then
+        self:OnBattlegroundEnter(bg, mapID, name)
+    elseif not bg and match then
         self:OnBattlegroundLeave()
-    elseif bg and isInBG and bg ~= currentBG then
-        -- Changed battlegrounds (shouldn't happen normally)
+    elseif bg and match and bg ~= match.bgType then
         self:OnBattlegroundLeave()
-        self:OnBattlegroundEnter(bg)
+        self:OnBattlegroundEnter(bg, mapID, name)
     end
 end
 
--- Helper function to get current honor (handles API differences)
-local function GetCurrentHonor()
-    local honor = nil
-    local source = "none"
-
-    -- Honor is currency 1792 on WoW Forever
-    if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
-        local info = C_CurrencyInfo.GetCurrencyInfo(1792)
-        if info and info.quantity and info.quantity > 0 then
-            honor = info.quantity
-            source = "C_CurrencyInfo"
-        end
-    end
-
-    -- Legacy globals, absent on Forever
-    if (not honor or honor == 0) and GetHonorCurrency then
-        honor = GetHonorCurrency()
-        if honor and honor > 0 then
-            source = "GetHonorCurrency"
-        end
-    end
-
-    -- Fallback to GetPVPCurrency for honor (some TBC clients)
-    if (not honor or honor == 0) and GetPVPCurrency then
-        local pvpHonor = GetPVPCurrency(HONOR_CURRENCY or 1)
-        if pvpHonor and pvpHonor > 0 then
-            honor = pvpHonor
-            source = "GetPVPCurrency"
-        end
-    end
-
-    if debugMode and source ~= "none" then
-        print("|cffff00ff[HonorLog Debug]|r GetCurrentHonor using: " .. source .. " = " .. tostring(honor))
-    end
-
-    return honor or 0
+-- Joined in progress: the match was already active and had run more than a minute.
+local function EvaluateJoin(m)
+    if m.joinChecked then return end
+    if pvp("IsMatchActive") ~= true then return end
+    local elapsed = num(pvp("GetActiveMatchDuration"))
+    if not elapsed then return end
+    m.joinChecked = true
+    m.joinedInProgress = elapsed > JOINED_LATE or nil
+    dbg("Join check: match running", elapsed, "s, joined in progress:", tostring(m.joinedInProgress))
 end
 
 -- Entering battleground
-function HonorLog:OnBattlegroundEnter(bgType)
-    isInBG = true
-    currentBG = bgType
-    bgStartTime = GetTime()
-    bgEnded = false
-    gameRecordedThisSession = false  -- Reset for new BG
+function HonorLog:OnBattlegroundEnter(bgType, mapID, name)
+    match = {
+        bgType = bgType, mapID = mapID, name = name,
+        startTime = GetTime(), startStamp = time(),
+        snapshot = TakeSnapshot(),
+        honorGained = 0,
+        marks = {},
+    }
+    EvaluateJoin(match)
 
     -- Start session timer on first BG entry (so hourly rate only counts BG time)
     if self.db and self.db.char and (not self.db.char.sessionStartTime or self.db.char.sessionStartTime == 0) then
         self.db.char.sessionStartTime = time()
     end
 
-    -- Reset honor tracking for this BG
-    bgHonorAccumulated = 0
-    bgStartHonor = GetCurrentHonor()
-    lastHonorValue = bgStartHonor
+    lastHK = call(GetPVPSessionStats) -- kills inside the battleground are not world kills
+    if not num(lastHK) then lastHK = nil end
 
-    -- If honor is 0 or nil, try again after a short delay (API might not be ready)
-    if not bgStartHonor or bgStartHonor == 0 then
-        C_Timer.After(1, function()
-            if isInBG and currentBG == bgType and (not bgStartHonor or bgStartHonor == 0) then
-                bgStartHonor = GetCurrentHonor()
-                lastHonorValue = bgStartHonor
-                if debugMode then
-                    print("|cffff00ff[HonorLog Debug]|r Delayed honor capture: " .. tostring(bgStartHonor))
+    if self.UpdateMainFrame then self:UpdateMainFrame() end
+    print("|cff00ff00[HonorLog]|r Entered " .. self:GetBGDisplayName(bgType) .. " - tracking started")
+    dbg("BG entry:", bgType, "snapshot honor", tostring(match.snapshot.honor))
+    SaveBGState()
+end
+
+-- Leaving battleground: a game still unrecorded is recorded now.
+function HonorLog:OnBattlegroundLeave()
+    dbg("OnBattlegroundLeave, match:", tostring(match and match.bgType))
+    if match and not match.recorded then
+        FinalizeMatch("left")
+    end
+    match = nil
+    lastHK = call(GetPVPSessionStats)
+    if not num(lastHK) then lastHK = nil end
+    SaveBGState()
+    if self.UpdateMainFrame then self:UpdateMainFrame() end
+end
+
+function HonorLog:PVP_MATCH_ACTIVE()
+    if match then EvaluateJoin(match) end
+end
+
+--------------------------------------------------------------------------------
+-- Result
+--------------------------------------------------------------------------------
+
+-- The player's team: 0 Horde, 1 Alliance. Blizzard's own call first (it is right
+-- for cross-faction groups), then the scoreboard line, then the character's faction.
+local function MyTeam()
+    local team = num(call(GetBattlefieldArenaFaction))
+    if team == 0 or team == 1 then return team, "arena" end
+    if match and match.sb and match.sb.me and (match.sb.me.faction == 0 or match.sb.me.faction == 1) then
+        return match.sb.me.faction, "board"
+    end
+    local faction = call(UnitFactionGroup, "player")
+    if faction == "Horde" then return 0, "faction" end
+    if faction == "Alliance" then return 1, "faction" end
+    return nil
+end
+
+-- The winner is 0 Horde, 1 Alliance or 255 for a draw.
+local function ResolveResult(winner)
+    if winner == 255 then return "draw", "arena" end
+    if winner ~= 0 and winner ~= 1 then return nil end
+    local team, source = MyTeam()
+    if team == nil then return nil end
+    return (winner == team) and "win" or "loss", source
+end
+
+-- Winner when PVP_MATCH_COMPLETE gave nothing usable. The match winner API is
+-- only believed once the match is complete (it reports 0 at all other times).
+local function FallbackWinner()
+    local complete = pvp("IsMatchComplete") == true or num(pvp("GetActiveMatchState")) == 5
+    if complete then
+        local winner = num(pvp("GetActiveMatchWinner"))
+        if winner ~= nil then return winner, "api" end
+    end
+    local winner = num(call(GetBattlefieldWinner))
+    if winner ~= nil then return winner, "api" end
+    return nil
+end
+
+local SOURCE_RANK = { chat = 1, api = 2, event = 3 }
+
+-- The match is over. Idempotent; a better source (event > api > chat) may still
+-- correct the result until the game is recorded.
+local function CompleteMatch(winner, source, duration)
+    local m = match
+    if not m or m.recorded then return end
+    local first = not m.completed
+    if first then
+        m.completed = true
+        m.completedAt = GetTime()
+    end
+    if duration and duration > 0 and source == "event" then m.duration = duration end
+    if winner ~= nil and (SOURCE_RANK[source] or 0) > (m.sourceRank or 0) then
+        local result, teamSource = ResolveResult(winner)
+        if result then
+            m.winner, m.result, m.teamSource = winner, result, teamSource
+            m.sourceRank = SOURCE_RANK[source]
+        end
+    end
+    SaveBGState()
+    if first then
+        ArmFinish(m, RECORD_DELAY)
+        m.sbState = "pending"
+        m.sbStart = GetTime()
+        PollScoreboard(m)
+    end
+end
+
+function HonorLog:PVP_MATCH_COMPLETE(winner, duration)
+    if not match then self:CheckBattlegroundStatus() end
+    if not match or match.recorded then return end
+    local w, d = num(winner), num(duration)
+    if w == nil or (w ~= 0 and w ~= 1 and w ~= 255) then
+        local fallback, source = FallbackWinner()
+        CompleteMatch(fallback, source, d)
+    else
+        CompleteMatch(w, "event", d)
+    end
+end
+
+-- BG system text, the last resort: only when nothing else named a winner.
+local function HandleBGMessage(self, msg)
+    if not match or match.recorded or match.result then return end
+    if isSecret(msg) or type(msg) ~= "string" then return end
+    local module = HonorLog.Battlegrounds[match.bgType]
+    local faction = module and module:DetectWin(msg)
+    if faction then
+        dbg("BG text names the winner:", faction)
+        CompleteMatch(faction == "Horde" and 0 or 1, "chat")
+    end
+end
+
+function HonorLog:CHAT_MSG_BG_SYSTEM_ALLIANCE(msg) HandleBGMessage(self, msg) end
+function HonorLog:CHAT_MSG_BG_SYSTEM_HORDE(msg) HandleBGMessage(self, msg) end
+function HonorLog:CHAT_MSG_BG_SYSTEM_NEUTRAL(msg) HandleBGMessage(self, msg) end
+function HonorLog:CHAT_MSG_RAID_BOSS_EMOTE(msg) HandleBGMessage(self, msg) end
+function HonorLog:CHAT_MSG_MONSTER_YELL(msg) HandleBGMessage(self, msg) end
+
+--------------------------------------------------------------------------------
+-- Scoreboard capture
+--------------------------------------------------------------------------------
+
+-- pvpStatID -> column name (names are never secret).
+local function StatColumnNames()
+    local names = {}
+    local cols = pvp("GetMatchPVPStatColumns")
+    if type(cols) == "table" and not isSecret(cols) then
+        for _, col in ipairs(cols) do
+            if type(col) == "table" then
+                local id, name = num(col.pvpStatID), str(col.name)
+                if id and name then names[id] = name end
+            end
+        end
+    end
+    return names
+end
+
+-- One row, or nil when any number we need is still secret.
+local function ReadRow(info, withStats, columns)
+    if type(info) ~= "table" or isSecret(info) then return nil end
+    local name, faction = str(info.name), num(info.faction)
+    local kb, hk, deaths = num(info.killingBlows), num(info.honorableKills), num(info.deaths)
+    local damage, healing = num(info.damageDone), num(info.healingDone)
+    if not name or (faction ~= 0 and faction ~= 1) then return nil end
+    if not (kb and hk and deaths and damage and healing) then return nil end
+    local row = { name = name, faction = faction, kb = kb, hk = hk, deaths = deaths, damage = damage, healing = healing,
+        class = str(info.classToken) }
+    local honor = num(info.honorGained)
+    if honor then row.honor = honor end
+    if withStats then
+        local objectives = {}
+        if type(info.stats) == "table" and not isSecret(info.stats) then
+            for _, stat in ipairs(info.stats) do
+                if type(stat) == "table" then
+                    local id, value = num(stat.pvpStatID), num(stat.pvpStatValue)
+                    local label = (id and columns[id]) or str(stat.name) or (id and ("stat " .. id))
+                    -- A secret objective value means the board is not final yet.
+                    if label and value == nil then return nil end
+                    if label then objectives[label] = value end
                 end
             end
+        end
+        row.objectives = objectives
+    end
+    return row
+end
+
+local function SamePlayer(rowName, myName)
+    if not rowName or not myName then return false end
+    return rowName == myName or rowName:match("^([^-]+)-") == myName
+end
+
+-- Read the whole board. Returns { n, me, teams } only when every row is readable.
+local function ReadScoreboard()
+    local n = num(GetNumBattlefieldScores())
+    if not n or n < 1 then return nil end
+    local columns = StatColumnNames()
+    local myGUID = call(UnitGUID, "player")
+    local myName = call(UnitName, "player")
+    if isSecret(myName) then myName = nil end
+
+    local rows, teams = {}, { [0] = { players = 0, kb = 0, hk = 0, deaths = 0 }, [1] = { players = 0, kb = 0, hk = 0, deaths = 0 } }
+    for i = 1, n do
+        local row = ReadRow(pvp("GetScoreInfo", i), false, columns)
+        if not row then return nil end
+        rows[#rows + 1] = row
+        local team = teams[row.faction]
+        team.players = team.players + 1
+        team.kb, team.hk, team.deaths = team.kb + row.kb, team.hk + row.hk, team.deaths + row.deaths
+    end
+
+    local me
+    if myGUID and not isSecret(myGUID) then
+        me = ReadRow(pvp("GetScoreInfoByPlayerGuid", myGUID), true, columns)
+    end
+    if not me and myName then
+        for i = 1, n do
+            if SamePlayer(rows[i].name, myName) then
+                me = ReadRow(pvp("GetScoreInfo", i), true, columns)
+                break
+            end
+        end
+    end
+    if not me then return nil end
+    return { n = n, me = me, teams = teams }
+end
+
+local function RequestScores()
+    if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
+end
+
+local function AcceptBoard(m, board)
+    local fuller = not m.sb or board.n >= m.sb.n
+    if fuller then m.sb = board end
+    return fuller
+end
+
+-- Read now; accept the first fully readable board and schedule one re-read.
+local function TryScoreboard(m, request)
+    if request then RequestScores() end
+    local board = ReadScoreboard()
+    if not board then return false end
+    if m.sbState == "accepted" then
+        AcceptBoard(m, board)
+    else
+        m.sbState = "accepted"
+        AcceptBoard(m, board)
+        C_Timer.After(SB_REREAD, function()
+            if match ~= m or m.recorded then return end
+            RequestScores()
+            local again = ReadScoreboard()
+            if again then AcceptBoard(m, again) end
+            -- A board read through a guessed team may reveal the real one.
+            if m.winner and m.teamSource ~= "arena" then
+                m.result, m.teamSource = ResolveResult(m.winner)
+            end
+            SaveBGState()
         end)
     end
-
-    -- Update UI
-    if self.UpdateMainFrame then
-        self:UpdateMainFrame()
+    -- The player's own line may be the first reliable word on which team they were on.
+    if m.winner and m.teamSource ~= "arena" then
+        m.result, m.teamSource = ResolveResult(m.winner)
     end
-
-    -- Always print BG entry so user knows tracking is working
-    print("|cff00ff00[HonorLog]|r Entered " .. bgType .. " - tracking started")
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r BG Entry - Type: " .. bgType .. ", StartHonor: " .. tostring(bgStartHonor))
-        -- Show which APIs are available
-        print("|cffff00ff[HonorLog Debug]|r   APIs: GetHonorCurrency=" .. tostring(GetHonorCurrency ~= nil) ..
-            ", GetPVPCurrency=" .. tostring(GetPVPCurrency ~= nil) ..
-            ", C_CurrencyInfo=" .. tostring(C_CurrencyInfo ~= nil))
-        -- Show raw API values
-        if GetHonorCurrency then print("|cffff00ff[HonorLog Debug]|r   GetHonorCurrency()=" .. tostring(GetHonorCurrency())) end
-    end
-
-    -- Save state for /reload persistence
     SaveBGState()
+    return true
 end
 
--- Leaving battleground
-function HonorLog:OnBattlegroundLeave()
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r OnBattlegroundLeave called")
-        print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG))
-        print("|cffff00ff[HonorLog Debug]|r   bgEnded: " .. tostring(bgEnded))
-        print("|cffff00ff[HonorLog Debug]|r   currentBG: " .. tostring(currentBG))
-    end
-
-    -- If game already ended and recorded, just clean up
-    if bgEnded then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   Game already recorded, cleaning up")
-        end
-        isInBG = false
-        currentBG = nil
-        bgStartTime = nil
-        bgStartHonor = nil
-        bgHonorAccumulated = 0  -- Reset honor counter for next BG
-        bgEnded = false  -- Reset flag for next BG
-        bgEndPending = false  -- Reset pending flag
-        bgEndWinner = nil  -- Reset pending winner
-        lastHonorValue = nil  -- Reset honor tracking
+-- Poll once a second until the board is readable or SB_GIVEUP passes.
+PollScoreboard = function(m)
+    if match ~= m or m.recorded or m.sbState ~= "pending" then return end
+    m.sbPolls = (m.sbPolls or 0) + 1
+    if GetTime() - (m.sbStart or GetTime()) >= SB_GIVEUP or m.sbPolls > SB_GIVEUP + 3 then
+        m.sbState = "gaveup"
+        dbg("Scoreboard never became readable; recording without it")
         SaveBGState()
-        if self.UpdateMainFrame then
-            self:UpdateMainFrame()
-        end
         return
     end
-
-    -- If game end is pending (waiting for bonus honor timer), finalize immediately
-    if bgEndPending then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   Game end was pending, finalizing now before leaving")
-        end
-        bgEndPending = false
-        bgEnded = true
-        self:OnBattlegroundEnd(bgEndWinner)
-        return
-    end
-
-    -- IMPORTANT: Check for winner BEFORE clearing state!
-    -- This handles the case where we're teleported out before UPDATE_BATTLEFIELD_SCORE fires
-    if currentBG and bgStartTime and not bgEnded then
-        local winner = GetBattlefieldWinner()
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   Checking for winner before leaving: " .. tostring(winner))
-        end
-
-        if winner ~= nil then
-            local factions = { [0] = "Horde", [1] = "Alliance" }
-            local winningFaction = factions[winner]
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r   Found winner on leave: " .. tostring(winningFaction))
-            end
-            if winningFaction then
-                bgEnded = true
-                self:OnBattlegroundEnd(winningFaction)
-            end
-        else
-            -- No winner detected yet - save state in case UPDATE_BATTLEFIELD_SCORE fires after we leave
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r   No winner yet, saving backup state for delayed detection")
-            end
-            lastBG = currentBG
-            lastBGStartTime = bgStartTime
-            lastBGStartHonor = bgStartHonor
-            lastBGLeaveTime = GetTime()
-        end
-    end
-
-    isInBG = false
-    currentBG = nil
-    bgStartTime = nil
-    bgStartHonor = nil
-    bgHonorAccumulated = 0  -- Reset honor counter
-    bgEnded = false  -- Reset flag for next BG
-    bgEndPending = false  -- Reset pending flag
-    bgEndWinner = nil  -- Reset pending winner
-    lastHonorValue = nil  -- Reset honor tracking
-
-    -- Save cleared state
-    SaveBGState()
-
-    -- Update UI
-    if self.UpdateMainFrame then
-        self:UpdateMainFrame()
-    end
+    if TryScoreboard(m, true) then return end
+    C_Timer.After(SB_POLL, function() PollScoreboard(m) end)
 end
 
--- BG end message patterns (case-insensitive matching used below)
-local WIN_PATTERNS = {
-    -- Generic win messages
-    ["the alliance wins"] = "Alliance",
-    ["the horde wins"] = "Horde",
-    ["alliance wins"] = "Alliance",
-    ["horde wins"] = "Horde",
-    ["alliance victory"] = "Alliance",
-    ["horde victory"] = "Horde",
-    -- WSG specific
-    ["the alliance has won the battle for warsong gulch"] = "Alliance",
-    ["the horde has won the battle for warsong gulch"] = "Horde",
-    ["alliance has won the battle"] = "Alliance",
-    ["horde has won the battle"] = "Horde",
-    -- AB specific
-    ["the alliance has won the battle for arathi basin"] = "Alliance",
-    ["the horde has won the battle for arathi basin"] = "Horde",
-    -- EotS specific
-    ["the alliance has won the battle for eye of the storm"] = "Alliance",
-    ["the horde has won the battle for eye of the storm"] = "Horde",
-    -- AV specific
-    ["the alliance has won the battle for alterac valley"] = "Alliance",
-    ["the horde has won the battle for alterac valley"] = "Horde",
-    -- AV general kills (backup detection)
-    ["drek'thar is dead"] = "Alliance",
-    ["vanndar stormpike is dead"] = "Horde",
-    ["drek'thar has been slain"] = "Alliance",
-    ["vanndar stormpike has been slain"] = "Horde",
-}
-
--- Schedule delayed game end to capture bonus honor
--- The WoW server awards bonus honor ~100-500ms after the win message
--- We wait 3 seconds to ensure all bonus honor events are captured
-local function ScheduleGameEnd(self, winner)
-    if bgEndPending or bgEnded then return end
-    bgEndPending = true
-    bgEndWinner = winner
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r Scheduling game end in 3s (waiting for bonus honor)")
-        print("|cffff00ff[HonorLog Debug]|r   bgHonorAccumulated so far: " .. tostring(bgHonorAccumulated))
-    end
-
-    C_Timer.After(3, function()
-        if not bgEndPending then return end -- Already finalized (e.g., left BG early)
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r Delayed game end firing now")
-            print("|cffff00ff[HonorLog Debug]|r   bgHonorAccumulated after delay: " .. tostring(bgHonorAccumulated))
-        end
-        bgEndPending = false
-        bgEnded = true
-        self:OnBattlegroundEnd(bgEndWinner)
-    end)
-end
-
--- Handle BG system messages
-local function HandleBGMessage(self, msg)
-    -- ALWAYS print BG messages in debug mode, even if we're not tracking
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r HandleBGMessage received:")
-        print("|cffff00ff[HonorLog Debug]|r   msg: " .. tostring(msg))
-        print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG) .. ", currentBG: " .. tostring(currentBG) .. ", bgEnded: " .. tostring(bgEnded))
-    end
-
-    if not isInBG or not currentBG or bgEnded or bgEndPending then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   SKIPPING - not tracking this BG")
-        end
-        return
-    end
-
-    -- Convert to lowercase for case-insensitive matching
-    local msgLower = msg:lower()
-
-    -- Check for win messages (case-insensitive)
-    local winner = nil
-    for pattern, faction in pairs(WIN_PATTERNS) do
-        if msgLower:find(pattern, 1, true) then
-            winner = faction
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r Matched pattern: " .. pattern .. " -> " .. faction)
-            end
-            break
-        end
-    end
-
-    -- AV: Check for general kill messages
-    if not winner and currentBG == "AV" then
-        if msgLower:find("drek'thar") and (msgLower:find("slain") or msgLower:find("dead") or msgLower:find("killed")) then
-            winner = "Alliance"
-        elseif msgLower:find("vanndar") and (msgLower:find("slain") or msgLower:find("dead") or msgLower:find("killed")) then
-            winner = "Horde"
-        end
-    end
-
-    -- Fallback: check for actual win messages (not "Icewing" which contains "win")
-    if not winner then
-        -- More specific patterns to avoid false positives like "Icewing"
-        if msgLower:find("alliance wins") or msgLower:find("alliance victory") or msgLower:find("the alliance wins") then
-            winner = "Alliance"
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r Fallback match: Alliance wins")
-            end
-        elseif msgLower:find("horde wins") or msgLower:find("horde victory") or msgLower:find("the horde wins") then
-            winner = "Horde"
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r Fallback match: Horde wins")
-            end
-        end
-    end
-
-    if winner then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r Winner detected from BG message: " .. winner)
-            print("|cffff00ff[HonorLog Debug]|r   Scheduling delayed game end (waiting for bonus honor)")
-        end
-        ScheduleGameEnd(self, winner)
-    end
-end
-
-function HonorLog:CHAT_MSG_BG_SYSTEM_ALLIANCE(msg)
-    HandleBGMessage(self, msg)
-end
-
-function HonorLog:CHAT_MSG_BG_SYSTEM_HORDE(msg)
-    HandleBGMessage(self, msg)
-end
-
-function HonorLog:CHAT_MSG_BG_SYSTEM_NEUTRAL(msg)
-    HandleBGMessage(self, msg)
-end
-
--- Additional message events that might contain BG win info
-function HonorLog:CHAT_MSG_RAID_BOSS_EMOTE(msg)
-    HandleBGMessage(self, msg)
-end
-
-function HonorLog:CHAT_MSG_MONSTER_YELL(msg)
-    HandleBGMessage(self, msg)
-end
-
--- Battleground points update (AB, EotS resource-based BGs)
-function HonorLog:BATTLEGROUND_POINTS_UPDATE()
-    if not isInBG or not currentBG or bgEnded or bgEndPending then return end
-
-    -- Check if we've hit 2000 resources (win condition for AB/EotS)
-    if currentBG == "AB" or currentBG == "EotS" then
-        local allianceScore, hordScore = GetBattlefieldScore()
-
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r Points update - Alliance: " .. tostring(allianceScore) .. ", Horde: " .. tostring(hordScore))
-        end
-
-        local winScore = (currentBG == "AB") and 2000 or 2000
-
-        if allianceScore and allianceScore >= winScore then
-            ScheduleGameEnd(self, "Alliance")
-        elseif hordScore and hordScore >= winScore then
-            ScheduleGameEnd(self, "Horde")
-        end
-    end
-end
-
--- Battleground ended
-function HonorLog:OnBattlegroundEnd(winner)
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r OnBattlegroundEnd called")
-        print("|cffff00ff[HonorLog Debug]|r   winner param: " .. tostring(winner))
-        print("|cffff00ff[HonorLog Debug]|r   currentBG: " .. tostring(currentBG))
-        print("|cffff00ff[HonorLog Debug]|r   bgStartTime: " .. tostring(bgStartTime))
-        print("|cffff00ff[HonorLog Debug]|r   gameRecordedThisSession: " .. tostring(gameRecordedThisSession))
-    end
-
-    -- Absolute guard: only one recording per BG session
-    if gameRecordedThisSession then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - game already recorded this session!")
-        end
-        return
-    end
-
-    if not currentBG or not bgStartTime then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - missing currentBG or bgStartTime!")
-        end
-        return
-    end
-
-    -- Time-based guard as backup (30 second window)
-    local now = GetTime()
-    if (now - lastRecordedTime) < 30 then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   EARLY RETURN - game already recorded " .. string.format("%.1f", now - lastRecordedTime) .. "s ago")
-        end
-        return
-    end
-
-    local playerFaction = UnitFactionGroup("player")
-    local won = (winner == playerFaction)
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   playerFaction: " .. tostring(playerFaction))
-        print("|cffff00ff[HonorLog Debug]|r   won: " .. tostring(won))
-        print("|cffff00ff[HonorLog Debug]|r   Calculating duration...")
-    end
-
-    local duration = math.floor(GetTime() - bgStartTime)
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   duration: " .. tostring(duration))
-        print("|cffff00ff[HonorLog Debug]|r   Calculating honor...")
-    end
-
-    -- Calculate honor gained
-    local honorGained = 0
-    local currentHonor = GetCurrentHonor()
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   currentHonor: " .. tostring(currentHonor) .. ", bgStartHonor: " .. tostring(bgStartHonor))
-        print("|cffff00ff[HonorLog Debug]|r   bgHonorAccumulated: " .. tostring(bgHonorAccumulated))
-    end
-
-    -- Primary method: use accumulated honor from HONOR_XP_UPDATE events
-    if bgHonorAccumulated and bgHonorAccumulated > 0 then
-        honorGained = bgHonorAccumulated
-    -- Fallback: calculate from start/end difference
-    elseif bgStartHonor and bgStartHonor > 0 then
-        honorGained = math.max(0, currentHonor - bgStartHonor)
-    end
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   honorGained: " .. tostring(honorGained))
-    end
-
-    -- Marks gained (3 for win, 1 for loss in most BGs)
-    local marksGained = won and 3 or 1
-
-    -- AV gives bonus marks
-    if currentBG == "AV" then
-        marksGained = won and 3 or 1
-    end
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   marksGained: " .. tostring(marksGained))
-    end
-
-    -- Record the game
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r *** RECORDING GAME ***")
-        print("|cffff00ff[HonorLog Debug]|r   BG: " .. tostring(currentBG) .. ", Won: " .. tostring(won))
-        print("|cffff00ff[HonorLog Debug]|r   Duration: " .. tostring(duration) .. ", Honor: " .. tostring(honorGained) .. ", Marks: " .. tostring(marksGained))
-    end
-
-    -- CRITICAL: Set guard BEFORE calling RecordGame to prevent double recording
-    -- Even if RecordGame errors, we don't want to try again and double-count
-    lastRecordedTime = GetTime()
-    gameRecordedThisSession = true
-
-    -- Use pcall to catch any errors in RecordGame
-    local success, err = pcall(function()
-        self:RecordGame(currentBG, won, duration, honorGained, marksGained)
-    end)
-
-    if not success then
-        print("|cffff0000[HonorLog ERROR]|r RecordGame failed: " .. tostring(err))
-    elseif debugMode then
-        print("|cffff00ff[HonorLog Debug]|r   RecordGame completed successfully")
-    end
-
-    -- Print result
-    local resultColor = won and "|cff00ff00" or "|cffff0000"
-    local result = won and "Victory" or "Defeat"
-    print(string.format("%s[HonorLog]|r %s%s|r in %s - %s, +%d honor, +%d marks",
-        "|cff00ff00", resultColor, result, currentBG,
-        self:FormatDuration(duration), honorGained, marksGained))
-
-    -- Reset BG tracking state immediately after recording
-    -- This prevents stale data if player does /reload before leaving the BG zone
-    isInBG = false
-    currentBG = nil
-    bgStartTime = nil
-    bgStartHonor = nil
-    bgHonorAccumulated = 0
-    lastHonorValue = nil
-    bgEndPending = false
-    bgEndWinner = nil
-    -- Clear backup state to prevent double recording via UPDATE_BATTLEFIELD_SCORE
-    lastBG = nil
-    lastBGStartTime = nil
-    lastBGStartHonor = nil
-    lastBGLeaveTime = nil
-    -- bgEnded stays true so OnBattlegroundLeave knows game was recorded
-    SaveBGState()
-
-    -- Update UI
-    if self.UpdateMainFrame then
-        self:UpdateMainFrame()
-    end
-end
-
--- Battlefield score update (alternative detection method)
 function HonorLog:UPDATE_BATTLEFIELD_SCORE()
-    -- Check if the BG has ended by looking at the scoreboard
-    local winner = GetBattlefieldWinner()
-    local factions = { [0] = "Horde", [1] = "Alliance" }
-    local winningFaction = winner ~= nil and factions[winner] or nil
-
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r UPDATE_BATTLEFIELD_SCORE")
-        print("|cffff00ff[HonorLog Debug]|r   raw winner: " .. tostring(winner) .. " -> " .. tostring(winningFaction))
-        print("|cffff00ff[HonorLog Debug]|r   bgEnded: " .. tostring(bgEnded))
-        print("|cffff00ff[HonorLog Debug]|r   isInBG: " .. tostring(isInBG) .. ", currentBG: " .. tostring(currentBG))
-        print("|cffff00ff[HonorLog Debug]|r   lastBG: " .. tostring(lastBG))
-    end
-
-    -- If we already recorded or are pending, skip
-    if bgEnded or bgEndPending then
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   SKIPPED - bgEnded or bgEndPending already true")
-        end
+    local m = match
+    if not m or m.recorded then return end
+    if not m.completed then
+        -- A winner the PVP_MATCH_COMPLETE event did not give us.
+        local winner, source = FallbackWinner()
+        if winner ~= nil then CompleteMatch(winner, source) end
         return
     end
-
-    -- GetBattlefieldWinner returns: 0 = Horde, 1 = Alliance, nil = no winner yet
-    if winner ~= nil then
-        -- Check if we're still in BG with valid state
-        if isInBG and currentBG then
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r   Scheduling winner (in BG): " .. tostring(winningFaction))
-            end
-            if winningFaction then
-                ScheduleGameEnd(self, winningFaction)
-            end
-        -- Check if we just left but have backup state (within 10 seconds)
-        elseif lastBG and lastBGStartTime and lastBGLeaveTime and (GetTime() - lastBGLeaveTime) < 10 then
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r   Recording winner (using backup state): " .. tostring(winningFaction))
-            end
-            -- Temporarily restore state to record the game (no delay needed - already left)
-            currentBG = lastBG
-            bgStartTime = lastBGStartTime
-            bgStartHonor = lastBGStartHonor
-            bgEnded = true
-
-            if winningFaction then
-                self:OnBattlegroundEnd(winningFaction)
-            end
-
-            -- Clear backup state
-            lastBG = nil
-            lastBGStartTime = nil
-            lastBGStartHonor = nil
-            lastBGLeaveTime = nil
-
-            -- Clear main state again
-            currentBG = nil
-            bgStartTime = nil
-            bgStartHonor = nil
-        else
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r   Cannot record - no valid state")
-            end
-        end
-    end
+    if m.sbState == "pending" then TryScoreboard(m, false) end
 end
 
--- Honor update event - track honor gained during BG
-function HonorLog:HONOR_XP_UPDATE()
-    if not isInBG or bgEnded then return end
+-- Last look at the board before a loading screen takes it away.
+function HonorLog:PLAYER_LEAVING_WORLD()
+    local m = match
+    if m and m.completed and not m.recorded and m.sbState == "pending" then
+        TryScoreboard(m, true)
+    end
+    if m then SaveBGState() end
+end
 
-    local currentHonor = GetCurrentHonor()
+--------------------------------------------------------------------------------
+-- Recording the game
+--------------------------------------------------------------------------------
 
-    if debugMode then
-        print("|cffff00ff[HonorLog Debug]|r HONOR_XP_UPDATE - current: " .. tostring(currentHonor) .. ", last: " .. tostring(lastHonorValue))
+ArmFinish = function(m, delay)
+    C_Timer.After(delay, function()
+        if match == m and not m.recorded then FinalizeMatch("timer") end
+    end)
+end
+
+local function ResultLabel(result)
+    if result == "win" then return "|cff00ff00Victory|r" end
+    if result == "loss" then return "|cffff0000Defeat|r" end
+    if result == "draw" then return "|cffffd700Draw|r" end
+    return "|cff999999Left early|r"
+end
+
+FinalizeMatch = function(reason)
+    local m = match
+    if not m or m.recorded then return end
+    m.recorded = true -- first, so an error below can never record the game twice
+
+    -- A game that ended without us hearing it: ask the winner APIs one last time.
+    if not m.result then
+        local winner = FallbackWinner()
+        if winner ~= nil then m.result = ResolveResult(winner) end
+    end
+    local result = m.result or "left"
+
+    UpdateMarks(m)
+    local bgType = m.bgType
+    local module = HonorLog.Battlegrounds[bgType]
+
+    -- Honor: the sum of the currency gains, or the balance difference when events were missed.
+    local honor = m.honorGained or 0
+    local honorNow = ReadHonor()
+    if honorNow and m.snapshot.honor then honor = math.max(honor, honorNow - m.snapshot.honor) end
+
+    -- Marks: this battleground's mark item; a generic battleground counts every mark gained.
+    local marks = 0
+    if module and module:GetMarkItem() then
+        marks = math.max(0, (m.marks or {})[bgType] or 0)
+    else
+        for _, delta in pairs(m.marks or {}) do marks = marks + math.max(0, delta) end
     end
 
-    -- Track the change in honor
-    if lastHonorValue and currentHonor > lastHonorValue then
-        local gained = currentHonor - lastHonorValue
-        bgHonorAccumulated = bgHonorAccumulated + gained
+    local rankPoints = RankDelta(m.snapshot.rank, ReadRank())
+
+    local duration
+    if m.duration and not m.joinedInProgress and result ~= "left" then
+        duration = m.duration
+    else
+        duration = (m.completedAt or GetTime()) - m.startTime
+    end
+    duration = math.max(0, math.floor(duration))
+
+    local extra = {
+        result = result,
+        joinedInProgress = m.joinedInProgress,
+        rankPoints = rankPoints,
+        scoreboard = m.sb ~= nil,
+    }
+    if m.sb then
+        local me = m.sb.me
+        extra.kb, extra.hk, extra.deaths = me.kb, me.hk, me.deaths
+        extra.damage, extra.healing = me.damage, me.healing
+        extra.objectives = me.objectives
+        extra.teams = m.sb.teams
+    end
+
+    dbg("RECORDING", bgType, result, "honor", honor, "marks", marks, "rank", rankPoints, "via", reason)
+    local ok, err = pcall(HonorLog.RecordGame, HonorLog, bgType, result == "win", duration, honor, marks, extra)
+    if not ok then
+        print("|cffff0000[HonorLog ERROR]|r RecordGame failed: " .. tostring(err))
+    else
+        print(string.format("|cff00ff00[HonorLog]|r %s in %s - %s, +%d honor, +%d marks, +%d rank points",
+            ResultLabel(result), HonorLog:GetBGDisplayName(bgType), HonorLog:FormatDuration(duration),
+            honor, marks, rankPoints))
+    end
+    SaveBGState()
+end
+
+--------------------------------------------------------------------------------
+-- Honor: measured gains, the cap warning
+--------------------------------------------------------------------------------
+
+function HonorLog:OnHonorGained(amount)
+    self:AddHonorGain(amount)
+    if match then
+        match.honorGained = (match.honorGained or 0) + amount
         SaveBGState()
-
-        if debugMode then
-            print("|cffff00ff[HonorLog Debug]|r   Gained " .. gained .. " honor, total accumulated: " .. bgHonorAccumulated)
-        end
+    elseif not InPvPInstance() then
+        self:RecordWorldHonor(amount)
     end
-
-    lastHonorValue = currentHonor
 end
 
--- TBC Classic: Parse honor from chat messages
--- Formats:
---   "PlayerName dies, honorable kill Rank: RankName (X Honor Points)"
---   "You have been awarded X honor points."
-function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
-    local honorAmount = nil
-    local isHonorableKill = false
-
-    -- Try pattern 1: "(X Honor Points)" - honorable kills
-    -- This pattern only matches actual player kills, not quest rewards
-    honorAmount = msg:match("%((%d+) Honor Point")
-    if honorAmount then
-        isHonorableKill = true
-    end
-
-    -- Try pattern 2: "awarded X honor points" - BG bonus honor
-    if not honorAmount then
-        honorAmount = msg:match("awarded (%d+) honor")
-    end
-
-    -- Try pattern 3: just look for any number followed by "honor"
-    if not honorAmount then
-        honorAmount = msg:match("(%d+) honor")
-    end
-
-    if honorAmount then
-        honorAmount = tonumber(honorAmount)
-        if honorAmount and honorAmount > 0 then
-            -- Safety check: detect actual BG instance even if isInBG variable is stale
-            -- This handles cases like /reload where isInBG might not be set yet
-            local actuallyInBG = isInBG
-            if not actuallyInBG then
-                local _, instanceType = GetInstanceInfo()
-                actuallyInBG = (instanceType == "pvp")
+-- Warn once each time honor climbs to the configured share of the cap.
+function HonorLog:CheckHonorCap()
+    local settings = self.db and self.db.settings
+    if not settings or settings.honorCapWarning == false then return end
+    local info = C_CurrencyInfo and call(C_CurrencyInfo.GetCurrencyInfo, HONOR_CURRENCY)
+    if type(info) ~= "table" then return end
+    local quantity, cap = num(info.quantity), num(info.maxQuantity)
+    if not quantity or not cap or cap <= 0 then return end -- never a hardcoded cap
+    local pct = (settings.honorCapWarnPct or 90)
+    local char = self.db.char
+    if quantity >= cap * pct / 100 then
+        if not char.honorCapWarned then
+            char.honorCapWarned = true
+            local text = string.format("Honor cap: %s of %s (%d%%). Spend honor before it is wasted.",
+                tostring(quantity), tostring(cap), math.floor(quantity / cap * 100))
+            -- Same style as goal completion: sound, raid notice, screen text, chat.
+            PlaySound(878)
+            if RaidNotice_AddMessage and RaidBossEmoteFrame then
+                RaidNotice_AddMessage(RaidBossEmoteFrame, "|cffffd700" .. text .. "|r", ChatTypeInfo["RAID_WARNING"])
             end
-
-            if actuallyInBG then
-                -- If we detected we're in a BG but isInBG wasn't set, trigger detection
-                if not isInBG then
-                    self:CheckBattlegroundStatus()
-                end
-                -- In BG (active or ended): accumulate for BG tracking
-                if not bgEnded then
-                    bgHonorAccumulated = bgHonorAccumulated + honorAmount
-                    SaveBGState()
-                end
-                if debugMode then
-                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (BG) - parsed: " .. honorAmount .. " honor, total: " .. bgHonorAccumulated)
-                end
-            elseif isHonorableKill then
-                -- Outside BG: only track honor from actual honorable kills, not quest rewards
-                self:RecordWorldHonor(honorAmount)
-                if debugMode then
-                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (World Kill) - parsed: " .. honorAmount .. " honor")
-                end
-            elseif debugMode then
-                print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN (Ignored - not a kill) - parsed: " .. honorAmount .. " honor")
+            if UIErrorsFrame then
+                UIErrorsFrame:AddMessage("|cffffd700[HonorLog]|r " .. text, 1, 0.82, 0, 1, 3)
             end
+            print("|cffffd700[HonorLog]|r " .. text)
         end
-    elseif debugMode then
-        print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_COMBAT_HONOR_GAIN - couldn't parse: " .. tostring(msg))
+    else
+        char.honorCapWarned = false
     end
 end
 
--- TBC Classic: Parse honor from system messages
--- Format: "You receive currency: [Honor Points] x10"
-function HonorLog:CHAT_MSG_SYSTEM(msg)
-    -- Debug: show all system messages in BG when debug mode is on
-    if debugMode and isInBG then
-        print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM: " .. tostring(msg))
+function HonorLog:CURRENCY_DISPLAY_UPDATE(currencyType, quantity, quantityChange)
+    if num(currencyType) == HONOR_CURRENCY then
+        local change = num(quantityChange)
+        if change and change > 0 then self:OnHonorGained(change) end
+        self:CheckHonorCap()
     end
 
-    if not isInBG then return end
-
-    -- Check for honor currency messages (case-insensitive)
-    local msgLower = msg:lower()
-    if msgLower:find("honor points") or msgLower:find("honor point") then
-        -- Try pattern: "Honor Points] x10" or "Honor Points] xN"
-        local honorAmount = msg:match("%[Honor Points%]%s*x(%d+)")
-
-        if not honorAmount then
-            -- Try alternate pattern without x: just a number after Honor Points
-            honorAmount = msg:match("%[Honor Points%]%s*(%d+)")
-        end
-
-        if honorAmount then
-            honorAmount = tonumber(honorAmount)
-            if honorAmount and honorAmount > 0 then
-                bgHonorAccumulated = bgHonorAccumulated + honorAmount
-                SaveBGState()
-
-                if debugMode then
-                    print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM - parsed honor: " .. honorAmount .. ", total: " .. bgHonorAccumulated)
-                end
-            end
-        elseif debugMode then
-            print("|cffff00ff[HonorLog Debug]|r CHAT_MSG_SYSTEM - found Honor Points but couldn't parse amount: " .. tostring(msg))
-        end
-    end
-end
-
--- Player logout - save current GetTime() for reload detection
-function HonorLog:PLAYER_LOGOUT()
-    if self.db and self.db.char then
-        -- Store current GetTime() - on /reload this value will be less than GetTime() at next load
-        -- On fresh login after logout, GetTime() will have reset, so it will be less than this stored value
-        self.db.char.lastGameTime = GetTime()
-        self.db.char.wasLogout = true -- Keep for backwards compatibility
-    end
-end
-
--- Currency display update - honor/marks changed (outside BG updates)
-function HonorLog:CURRENCY_DISPLAY_UPDATE()
     -- Update goals panel when currency changes (honor, marks)
     if self.mainFrame and self.mainFrame:IsShown() then
         if self.mainFrame.goalsPanel and self.mainFrame.goalsPanel:IsShown() then
             self:UpdateGoalsPanel()
         end
-        -- Also update main frame for honor display
         self:UpdateMainFrame()
+    end
+end
+
+-- Marks arrive as items: recompute this game's deltas once the bags settle.
+function HonorLog:BAG_UPDATE_DELAYED()
+    if match and not match.recorded then
+        UpdateMarks(match)
+        SaveBGState()
     end
 end
 
@@ -967,130 +797,299 @@ function HonorLog:BAG_UPDATE()
     end)
 end
 
--- Helper: Check if we're actually in a BG instance (handles stale isInBG variable)
-local function IsActuallyInBG()
-    if isInBG then return true end
-    local _, instanceType = GetInstanceInfo()
-    return instanceType == "pvp"
+function HonorLog:PLAYER_LOGOUT()
+    if self.db and self.db.char then
+        -- Store current GetTime() - on /reload this value will be less than GetTime() at next load
+        -- On fresh login after logout, GetTime() will have reset, so it will be less than this stored value
+        self.db.char.lastGameTime = GetTime()
+        self.db.char.wasLogout = true -- Keep for backwards compatibility
+        SaveBGState()
+    end
 end
 
--- Combat log event - track world kills outside battlegrounds
--- Track the last enemy player who damaged us for death detection
-local lastEnemyPlayerAttacker = nil
-local lastEnemyPlayerAttackerTime = 0
+--------------------------------------------------------------------------------
+-- World PvP: kills
+--------------------------------------------------------------------------------
 
-function HonorLog:COMBAT_LOG_EVENT_UNFILTERED()
-    -- Never fires on Forever (restricted event, see the events list); the
-    -- guard keeps a manual call from erroring on a missing combat-log API.
-    if not CombatLogGetCurrentEventInfo then return end
-    -- Skip if we're in a battleground (BG tracking is separate)
-    -- Use instance check to handle /reload scenarios where isInBG might be stale
-    if IsActuallyInBG() then return end
-
-    local timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceFlags,
-          sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags = CombatLogGetCurrentEventInfo()
-
-    local playerGUID = UnitGUID("player")
-
-    -- Track when enemy players damage us (for death attribution)
-    if destGUID == playerGUID then
-        -- Check if source is an enemy player
-        if sourceGUID and sourceGUID:match("^Player") then
-            local isEnemy = bit.band(sourceFlags, COMBATLOG_OBJECT_REACTION_HOSTILE) > 0
-            if isEnemy then
-                lastEnemyPlayerAttacker = sourceName
-                lastEnemyPlayerAttackerTime = GetTime()
-            end
-        end
-    end
-
-    -- Detect world kills: we killed an enemy player
-    if subEvent == "PARTY_KILL" then
-        -- Check if we are the source
-        if sourceGUID == playerGUID then
-            -- Check if destination is an enemy player
-            if destGUID and destGUID:match("^Player") then
-                self:RecordWorldKill()
-                if debugMode then
-                    print("|cffff00ff[HonorLog Debug]|r World kill recorded: " .. tostring(destName))
+-- Turn a client format string ("%s dies ... %d Honor") into a Lua pattern, so
+-- the parser follows whatever language the client speaks. Handles positional
+-- arguments (%1$s). Returns { pattern, order = { argIndex per capture }, kinds = { [argIndex] = "s"|"d" } }.
+local MAGIC = "[%^%$%(%)%%%.%[%]%*%+%-%?]"
+local function CompileFormat(fmt)
+    if type(fmt) ~= "string" then return nil end
+    local parts, order, kinds, seq = {}, {}, {}, 0
+    local i = 1
+    while i <= #fmt do
+        local c = fmt:sub(i, i)
+        if c == "%" then
+            if fmt:sub(i + 1, i + 1) == "%" then
+                parts[#parts + 1] = "%%"
+                i = i + 2
+            else
+                local n, dollar, kind = fmt:sub(i + 1):match("^(%d*)(%$?)([sd])")
+                if kind then
+                    seq = seq + 1
+                    local argIndex = (dollar == "$" and n ~= "") and tonumber(n) or seq
+                    order[#order + 1] = argIndex
+                    kinds[argIndex] = kind
+                    parts[#parts + 1] = kind == "s" and "(.+)" or "(%d+)"
+                    i = i + 1 + #n + #dollar + 1
+                else
+                    parts[#parts + 1] = "%%"
+                    i = i + 1
                 end
             end
+        else
+            parts[#parts + 1] = (c:gsub(MAGIC, "%%%0"))
+            i = i + 1
+        end
+    end
+    return { pattern = "^" .. table.concat(parts) .. "$", order = order, kinds = kinds }
+end
+HonorLog.CompileFormat = CompileFormat
+
+-- Kill messages carry victim, rank and honor; the award message is honor only.
+local KILL_FORMATS = { "COMBATLOG_HONORGAIN", "COMBATLOG_HONORGAIN_NO_RANK", "COMBATLOG_HONORGAIN_EXHAUSTION1" }
+local AWARD_FORMATS = { "COMBATLOG_HONORAWARD" }
+local honorFormats = {}
+
+local function BuildHonorFormats()
+    honorFormats = {}
+    for _, group in ipairs({ { "kill", KILL_FORMATS }, { "award", AWARD_FORMATS } }) do
+        for _, global in ipairs(group[2]) do
+            local compiled = CompileFormat(_G[global])
+            if compiled then
+                compiled.kind = group[1]
+                honorFormats[#honorFormats + 1] = compiled
+            end
+        end
+    end
+end
+BuildHonorFormats()
+
+-- Returns kind ("kill" | "award"), victim, rank, honor for one message.
+local function ParseHonorMessage(msg)
+    if #honorFormats == 0 then BuildHonorFormats() end
+    for _, f in ipairs(honorFormats) do
+        local caps = { msg:match(f.pattern) }
+        if #caps > 0 then
+            local byArg = {}
+            for k, value in ipairs(caps) do byArg[f.order[k]] = value end
+            local honor, names = nil, {}
+            for argIndex = 1, #f.order + 1 do
+                if f.kinds[argIndex] == "d" and not honor then honor = tonumber(byArg[argIndex]) end
+                if f.kinds[argIndex] == "s" then names[#names + 1] = byArg[argIndex] end
+            end
+            if honor then return f.kind, names[1], names[2], honor end
+        end
+    end
+    return nil
+end
+HonorLog.ParseHonorMessage = ParseHonorMessage
+
+-- Enemy players in sight: target, mouseover, focus and the nameplates.
+local UNITS = { "target", "mouseover", "focus" }
+for i = 1, 40 do UNITS[#UNITS + 1] = "nameplate" .. i end
+
+local function VisibleEnemies()
+    local seen, list = {}, {}
+    for _, unit in ipairs(UNITS) do
+        if call(UnitExists, unit) == true and call(UnitIsPlayer, unit) == true and call(UnitIsEnemy, "player", unit) == true then
+            local name = call(UnitName, unit)
+            if str(name) and not seen[name] then
+                seen[name] = true
+                local dead = call(UnitIsDeadOrGhost, unit) == true
+                if dead and call(UnitIsFeignDeath, unit) == true then dead = false end -- hunters
+                local _, token = call(UnitClass, unit)
+                list[#list + 1] = { unit = unit, name = name, class = str(token), dead = dead }
+            end
+        end
+    end
+    return list
+end
+
+local function ClassForName(name)
+    for _, enemy in ipairs(VisibleEnemies()) do
+        if enemy.name == name then return enemy.class end
+    end
+end
+
+-- A kill counter step with no message: the dead enemy in sight, else unknown.
+local function AttributeByVisible()
+    local now = GetTime()
+    local candidates = {}
+    for _, enemy in ipairs(VisibleEnemies()) do
+        local seen = credited[enemy.name]
+        if enemy.dead and (not seen or now - seen >= CREDIT_WINDOW) then candidates[#candidates + 1] = enemy end
+    end
+    if #candidates == 1 then return candidates[1] end
+    for _, enemy in ipairs(candidates) do
+        if enemy.unit == "target" then return enemy end
+    end
+    return nil
+end
+
+-- A PARTY_KILL (readable, ours) near the step makes it a killing blow.
+local function TakeParty(t)
+    for i, record in ipairs(pendingParty) do
+        if math.abs(record.t - t) <= KILL_WINDOW then
+            table.remove(pendingParty, i)
+            return record
         end
     end
 end
 
--- Override PLAYER_DEAD to detect world PvP deaths
-local originalPlayerDead = HonorLog.PLAYER_DEAD
-function HonorLog:PLAYER_DEAD()
-    -- Skip if we're in a battleground (use instance check for reliability)
-    if not IsActuallyInBG() then
-        -- Check if we were killed by an enemy player (within last 10 seconds)
-        if lastEnemyPlayerAttacker and (GetTime() - lastEnemyPlayerAttackerTime) < 10 then
-            self:RecordWorldDeath()
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r World death recorded (killed by: " .. tostring(lastEnemyPlayerAttacker) .. ")")
-            end
-            lastEnemyPlayerAttacker = nil
-            lastEnemyPlayerAttackerTime = 0
-        end
-    end
+local function ResolveKill(step, msg, enemy)
+    local party = TakeParty(step.t)
+    local name = (msg and msg.name) or (enemy and enemy.name) or (party and party.name)
+    local class = (enemy and enemy.class) or (name and ClassForName(name)) or (party and party.class)
+    if name then credited[name] = GetTime() end
+    HonorLog:RecordWorldKill(name, class, party ~= nil)
+    dbg("World kill:", tostring(name), "killing blow:", tostring(party ~= nil))
+end
 
-    -- Call original handler if it exists
-    if originalPlayerDead then
-        originalPlayerDead(self)
+-- Pair kill counter steps with honor messages that arrived within KILL_WINDOW.
+local function PairKills()
+    while pendingHK[1] and pendingMsgs[1] do
+        local step, msg = pendingHK[1], pendingMsgs[1]
+        if math.abs(step.t - msg.t) <= KILL_WINDOW then
+            table.remove(pendingHK, 1)
+            table.remove(pendingMsgs, 1)
+            ResolveKill(step, msg, nil)
+        elseif msg.t < step.t then
+            table.remove(pendingMsgs, 1) -- a message for a kill we never counted
+        else
+            break
+        end
     end
 end
 
--- Periodic winner check (safety net for missed events)
-local winnerCheckFrame = CreateFrame("Frame")
-local winnerCheckTimer = 0
-local WINNER_CHECK_INTERVAL = 1  -- Check every 1 second while in BG
-
-winnerCheckFrame:SetScript("OnUpdate", function(self, elapsed)
-    if not isInBG or bgEnded then return end
-
-    winnerCheckTimer = winnerCheckTimer + elapsed
-    if winnerCheckTimer >= WINNER_CHECK_INTERVAL then
-        winnerCheckTimer = 0
-
-        -- Method 1: GetBattlefieldWinner
-        local winner = GetBattlefieldWinner()
-        if winner ~= nil then
-            local factions = { [0] = "Horde", [1] = "Alliance" }
-            local winningFaction = factions[winner]
-            if debugMode then
-                print("|cffff00ff[HonorLog Debug]|r *** PERIODIC CHECK FOUND WINNER ***")
-                print("|cffff00ff[HonorLog Debug]|r   raw: " .. tostring(winner) .. " -> " .. tostring(winningFaction))
-                print("|cffff00ff[HonorLog Debug]|r   Setting bgEnded = true and calling OnBattlegroundEnd")
-            end
-            bgEnded = true
-            if winningFaction then
-                HonorLog:OnBattlegroundEnd(winningFaction)
-            end
+local function ExpireStep(step)
+    PairKills()
+    for i, s in ipairs(pendingHK) do
+        if s == step then
+            table.remove(pendingHK, i)
+            ResolveKill(step, nil, AttributeByVisible())
             return
         end
-
-        -- Method 2: Check battlefield score for resource-based BGs
-        if currentBG == "AB" or currentBG == "EotS" then
-            local allianceScore = 0
-            local hordeScore = 0
-
-            -- Try to get the scores from the world state
-            -- In TBC, AB and EotS use 2000 resources to win
-            local numScores = GetNumBattlefieldScores()
-            if numScores and numScores > 0 then
-                -- Check faction scores via faction stat widgets
-                for i = 1, numScores do
-                    local name, kills, killingBlows, deaths, honorGained, faction = GetBattlefieldScore(i)
-                    -- faction: 0 = Horde, 1 = Alliance
-                end
-            end
-        end
-
-        -- Method 3: Check if player just got honor (BG ended reward)
-        -- This is a fallback detection
     end
-end)
+end
+
+function HonorLog:PLAYER_PVP_KILLS_CHANGED()
+    local hk = call(GetPVPSessionStats)
+    if not num(hk) then return end
+    if lastHK == nil or hk < lastHK then lastHK = hk return end -- first read, or a new session
+    local gained = hk - lastHK
+    lastHK = hk
+    if gained <= 0 or InPvPInstance() then return end -- inside a battleground, kills come from the scoreboard
+    for _ = 1, gained do
+        local step = { t = GetTime() }
+        pendingHK[#pendingHK + 1] = step
+        PairKills()
+        -- Wait for a late honor message, then fall back to who is lying dead in sight.
+        C_Timer.After(KILL_WINDOW + 0.1, function() ExpireStep(step) end)
+    end
+end
+
+function HonorLog:CHAT_MSG_COMBAT_HONOR_GAIN(msg)
+    if isSecret(msg) or type(msg) ~= "string" then return end
+    local kind, victim, rank, honor = ParseHonorMessage(msg)
+    if not kind then
+        dbg("CHAT_MSG_COMBAT_HONOR_GAIN not parsed:", msg)
+        return
+    end
+    if InPvPInstance() then return end -- battleground honor is measured from the currency
+    if kind == "kill" then
+        self:RecordWorldHonorKind("kill", honor)
+        pendingMsgs[#pendingMsgs + 1] = { name = victim, rank = rank, honor = honor, t = GetTime() }
+        PairKills()
+    else
+        self:RecordWorldHonorKind("award", honor)
+    end
+end
+
+-- PARTY_KILL is only trusted when both GUIDs are readable and the killer is us.
+function HonorLog:PARTY_KILL(attackerGUID, targetGUID)
+    if isSecret(attackerGUID) or isSecret(targetGUID) then return end
+    if type(attackerGUID) ~= "string" or type(targetGUID) ~= "string" then return end
+    if attackerGUID ~= call(UnitGUID, "player") then return end
+    if not targetGUID:find("^Player") or InPvPInstance() then return end
+    local _, class, _, _, _, name = call(GetPlayerInfoByGUID, targetGUID)
+    pendingParty[#pendingParty + 1] = { t = GetTime(), name = str(name), class = str(class) }
+    while #pendingParty > 10 do table.remove(pendingParty, 1) end
+end
+
+--------------------------------------------------------------------------------
+-- World PvP: deaths
+--------------------------------------------------------------------------------
+
+-- Newest-first death recap sources that are players other than us.
+local function RecapKiller()
+    if not (C_DeathRecap and C_DeathRecap.GetRecapEvents) then return nil, false end
+    local events = call(C_DeathRecap.GetRecapEvents)
+    if type(events) ~= "table" or isSecret(events) then return nil, false end
+    local list = {}
+    for _, e in ipairs(events) do
+        if type(e) == "table" and not isSecret(e) then
+            list[#list + 1] = { t = num(e.timestamp) or 0, guid = str(e.sourceGUID), name = str(e.sourceName) }
+        end
+    end
+    table.sort(list, function(a, b) return a.t > b.t end)
+    local me = call(UnitGUID, "player")
+    for _, e in ipairs(list) do
+        if e.guid and e.guid ~= me and e.guid:find("^Player") then
+            local _, class = call(GetPlayerInfoByGUID, e.guid)
+            return { name = e.name or "Unknown", class = str(class) }, true
+        end
+    end
+    return nil, #list > 0
+end
+
+local function ReadDeath(token, attempt)
+    if token ~= deathToken then return end
+    local killer, hadEvents = RecapKiller()
+    if killer then
+        HonorLog:RecordWorldDeath(killer.name, killer.class)
+        dbg("World death by", killer.name)
+    elseif not hadEvents and attempt < 2 then
+        C_Timer.After(2, function() ReadDeath(token, attempt + 1) end) -- the recap can lag the death
+    else
+        dbg("Death not by a player; not counted")
+    end
+end
+
+function HonorLog:PLAYER_DEAD()
+    local _, instanceType = GetInstanceInfo()
+    if instanceType ~= "none" or match then return end -- world PvP only; battlegrounds use the scoreboard
+    deathToken = deathToken + 1
+    local token = deathToken
+    C_Timer.After(1, function() ReadDeath(token, 1) end)
+end
+
+--------------------------------------------------------------------------------
+-- State accessors
+--------------------------------------------------------------------------------
+
+function HonorLog:GetCurrentBG()
+    return match and match.bgType or nil
+end
+
+function HonorLog:IsInBG()
+    return match ~= nil
+end
+
+function HonorLog:GetBGStartTime()
+    return match and match.startTime or nil
+end
+
+function HonorLog:GetBGHonorAccumulated()
+    return match and match.honorGained or 0
+end
+
+-- The game in progress, for the debug commands and the tests.
+function HonorLog:GetMatchState()
+    return match
+end
 
 -- Slash commands
 function HonorLog:RegisterSlashCommands()
@@ -1118,13 +1117,11 @@ function HonorLog:HandleSlashCommand(msg)
         elseif resetType == "character" or resetType == "char" then
             -- Reset character battleground stats
             for bgType, _ in pairs(self.db.char.battlegrounds) do
-                self.db.char.battlegrounds[bgType] = {
-                    played = 0, wins = 0, losses = 0,
-                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
-                }
+                self.db.char.battlegrounds[bgType] = self.NewBGStats()
             end
-            -- Also reset World PvP stats
-            self.db.char.worldPvP = { kills = 0, deaths = 0, honor = 0 }
+            -- Also reset World PvP stats and the opponents list
+            self.db.char.worldPvP = self.NewWorldStats()
+            self.db.char.opponents = {}
             self.db.char.history = {}
             self:ResetSession()
             if self.UpdateMainFrame then
@@ -1134,13 +1131,10 @@ function HonorLog:HandleSlashCommand(msg)
         elseif resetType == "account" then
             -- Reset account-wide battleground stats
             for bgType, _ in pairs(self.db.global.battlegrounds) do
-                self.db.global.battlegrounds[bgType] = {
-                    played = 0, wins = 0, losses = 0,
-                    totalDuration = 0, honorLifetime = 0, marksLifetime = 0
-                }
+                self.db.global.battlegrounds[bgType] = self.NewBGStats()
             end
             -- Also reset World PvP stats
-            self.db.global.worldPvP = { kills = 0, deaths = 0, honor = 0 }
+            self.db.global.worldPvP = self.NewWorldStats()
             self.db.global.history = {}
             if self.UpdateMainFrame then
                 self:UpdateMainFrame()
@@ -1177,25 +1171,24 @@ function HonorLog:HandleSlashCommand(msg)
         print("|cff00ff00HonorLog|r Debug mode: " .. (debugMode and "ON" or "OFF"))
         if debugMode then
             print("|cff00ff00HonorLog|r Current state:")
-            print("  InBG: " .. tostring(isInBG))
-            print("  BG: " .. tostring(currentBG))
-            print("  Ended: " .. tostring(bgEnded))
-            print("  StartTime: " .. tostring(bgStartTime))
+            print("  InBG: " .. tostring(match ~= nil))
+            print("  BG: " .. tostring(match and match.bgType))
+            print("  Completed: " .. tostring(match and match.completed) .. ", result: " .. tostring(match and match.result))
+            print("  Scoreboard: " .. tostring(match and match.sbState))
+            print("  StartTime: " .. tostring(match and match.startTime))
             -- Try to detect BG
             local detected = self:DetectBattleground()
             print("  Detected BG: " .. tostring(detected))
-            -- Show GetBattlefieldWinner result
-            local winner = GetBattlefieldWinner()
-            print("  GetBattlefieldWinner: " .. tostring(winner))
+            print("  GetBattlefieldWinner: " .. tostring(call(GetBattlefieldWinner)))
             -- Show session data
             print("  Session wasLogout: " .. tostring(self.db.char.wasLogout))
         end
     elseif cmd == "status" then
         -- Show current tracking status
         print("|cff00ff00HonorLog Status:|r")
-        print("  In BG: " .. tostring(isInBG))
-        print("  Current BG: " .. tostring(currentBG))
-        print("  BG Ended: " .. tostring(bgEnded))
+        print("  In BG: " .. tostring(match ~= nil))
+        print("  Current BG: " .. tostring(match and match.bgType))
+        print("  Match complete: " .. tostring(match and match.completed) .. ", recorded: " .. tostring(match and match.recorded))
         local detected = self:DetectBattleground()
         print("  Detected BG: " .. tostring(detected))
         local session = self:GetTotalSessionStats()
@@ -1204,27 +1197,27 @@ function HonorLog:HandleSlashCommand(msg)
         print("  |cffffd700Session breakdown:|r")
         for bgType, s in pairs(self.db.char.session) do
             if s.played then
-                print(string.format("    %s: %d played, %d wins, %d losses", bgType, s.played or 0, s.wins or 0, s.losses or 0))
+                print(string.format("    %s: %d played, %d wins, %d losses, %d draws, %d left", bgType, s.played or 0, s.wins or 0, s.losses or 0, s.draws or 0, s.left or 0))
             end
         end
     elseif cmd == "test" then
         -- Test command to manually record a game or world kill
         local subCmd = arg:lower()
         if subCmd == "kill" then
-            self:RecordWorldKill()
+            self:RecordWorldKill("Testplayer", "WARRIOR", false)
             print("|cff00ff00HonorLog|r Test world kill recorded")
         elseif subCmd == "death" then
-            self:RecordWorldDeath()
+            self:RecordWorldDeath("Testplayer", "WARRIOR")
             print("|cff00ff00HonorLog|r Test world death recorded")
         else
             local bgType = arg:upper()
             if bgType == "" then bgType = "WSG" end
-            if self.db.char.battlegrounds[bgType] then
-                self:RecordGame(bgType, true, 600, 100, 3)
+            if self.Battlegrounds[bgType] and bgType ~= "EOTS" then
+                self:RecordGame(bgType, true, 600, 100, 3, { result = "win" })
                 print("|cff00ff00HonorLog|r Test game recorded: " .. bgType .. " WIN")
             else
                 print("|cff00ff00HonorLog|r Usage:")
-                print("  /honorlog test [AV|AB|WSG|EotS] - Record test BG win")
+                print("  /honorlog test [AV|AB|WSG|DI] - Record test BG win")
                 print("  /honorlog test kill - Record test world kill")
                 print("  /honorlog test death - Record test world death")
             end
@@ -1335,7 +1328,7 @@ function HonorLog:HandleSlashCommand(msg)
 
         -- Marks
         print("|cff55bbffMarks:|r")
-        local markItems = self.MARK_ITEMS
+        local markItems = self.BG_MARK_ITEMS
         if markItems then
             for bgType, itemID in pairs(markItems) do
                 local count = GetItemCount(itemID, true)
@@ -1345,7 +1338,7 @@ function HonorLog:HandleSlashCommand(msg)
                     itemName and (" - " .. itemName) or " - (item not cached)"))
             end
         else
-            print("  MARK_ITEMS not defined!")
+            print("  BG_MARK_ITEMS not defined!")
         end
 
         -- Check bag contents for marks manually
@@ -1368,8 +1361,8 @@ function HonorLog:HandleSlashCommand(msg)
                     slotItemID = GetContainerItemID(bag, slot)
                 end
                 if slotItemID then
-                    -- Check if it's a mark (20558=WSG, 20559=AB, 20560=AV, 29024=EotS)
-                    if slotItemID == 20558 or slotItemID == 20559 or slotItemID == 20560 or slotItemID == 29024 then
+                    -- Check if it's a mark (20558=WSG, 20559=AB, 20560=AV, 274895=DI)
+                    if slotItemID == 20558 or slotItemID == 20559 or slotItemID == 20560 or slotItemID == 274895 then
                         local itemName = GetItemInfo(slotItemID)
                         local count = 0
                         if C_Container and C_Container.GetContainerItemInfo then
@@ -1406,6 +1399,25 @@ function HonorLog:HandleSlashCommand(msg)
             print("  |cffffffff/honorlog resize|r - Reset frame size to default")
             print("  |cffffffff/honorlog resize toggle|r - Toggle resizing on/off")
         end
+    elseif cmd == "history" then
+        local list = self:GetHistory(self.db.settings.viewMode, tonumber(arg) or 10)
+        if #list == 0 then print("|cff00ff00HonorLog|r No games recorded yet.") end
+        for _, entry in ipairs(list) do
+            print(date("%m-%d %H:%M ", entry.timestamp or 0) .. self:FormatHistoryRow(entry))
+        end
+    elseif cmd == "honor" then
+        local h = self:GetHonorSummary()
+        print(string.format("|cff00ff00HonorLog|r Honor: today %d, this week %d, this session %d (%d/hr). Now %d of %d (%.0f%%).",
+            h.today, h.week, h.session, h.perHour, h.current, h.cap, h.percent))
+    elseif cmd == "cap" then
+        local value = arg:lower()
+        if value == "on" or value == "off" then
+            self.db.settings.honorCapWarning = value == "on"
+        elseif tonumber(value) then
+            self.db.settings.honorCapWarnPct = math.max(1, math.min(100, tonumber(value)))
+        end
+        print(string.format("|cff00ff00HonorLog|r Honor cap warning %s at %d%% of the cap. Usage: /honorlog cap [on|off|percent]",
+            self.db.settings.honorCapWarning == false and "OFF" or "ON", self.db.settings.honorCapWarnPct or 90))
     elseif cmd == "probe" then
         if self.Probe then
             self.Probe:HandleCommand(arg)
@@ -1505,6 +1517,9 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog debug|r - Toggle debug mode")
     print("  |cffffffff/honorlog currency|r - Show currency diagnostic")
     print("  |cffffffff/honorlog test [bg]|r - Test record a game")
+    print("  |cffffffff/honorlog history [n]|r - Recent games")
+    print("  |cffffffff/honorlog honor|r - Honor today, this week and this session")
+    print("  |cffffffff/honorlog cap [on|off|percent]|r - Honor cap warning")
     print("  |cffffffff/honorlog probe [on|off|status|clear]|r - Record what PvP data the client exposes (dev)")
     print("  |cffffffff/honorlog scan|r - Scan current PvP vendor (dev)")
     print("  |cffffffff/honorlog scan export|r - Export scanned data as Lua")
@@ -1517,10 +1532,10 @@ function HonorLog:PrintStats(bgFilter)
 
     print("|cff00ff00=== HonorLog Summary (" .. scopeLabel .. ") ===|r")
 
-    local bgTypes = {"AV", "AB", "WSG", "EotS"}
+    local bgTypes = self:GetAllBattlegrounds()
     if bgFilter and bgFilter ~= "" then
         bgFilter = bgFilter:upper()
-        if self.db.char.battlegrounds[bgFilter] then
+        if self.Battlegrounds[bgFilter] then
             bgTypes = {bgFilter}
         end
     end
@@ -1531,8 +1546,8 @@ function HonorLog:PrintStats(bgFilter)
         local session = self:GetSessionStats(bgType)
 
         if stats.played > 0 or session.played > 0 then
-            print(string.format("|cffffd700%s:|r %d played (%d-%d) %.1f%% WR, Avg %s",
-                bgType, stats.played, stats.wins, stats.losses,
+            print(string.format("|cffffd700%s:|r %d played (%d-%d, %d draws, %d left) %.1f%% WR, Avg %s",
+                self:GetBGShortName(bgType), stats.played, stats.wins, stats.losses, stats.draws or 0, stats.left or 0,
                 derived.winrate, self:FormatDuration(derived.avgDuration)))
             print(string.format("  Honor: %d lifetime | Marks: %d lifetime",
                 stats.honorLifetime, stats.marksLifetime))
@@ -1555,30 +1570,13 @@ function HonorLog:PrintStats(bgFilter)
     local worldStats = self:GetWorldPvPStats(scope)
     local worldSession = self:GetSessionWorldPvPStats()
     if worldStats.kills > 0 or worldStats.deaths > 0 or worldSession.kills > 0 or worldSession.deaths > 0 then
-        print(string.format("|cff888888World PvP:|r %d kills, %d deaths (lifetime)",
-            worldStats.kills, worldStats.deaths))
+        print(string.format("|cff888888World PvP:|r %d kills (%d unattributed), %d deaths (lifetime)",
+            worldStats.kills, worldStats.unknownKills or 0, worldStats.deaths))
         if worldSession.kills > 0 or worldSession.deaths > 0 then
             print(string.format("  Today: %d kills, %d deaths",
                 worldSession.kills, worldSession.deaths))
         end
     end
-end
-
--- Accessor for current BG state
-function HonorLog:GetCurrentBG()
-    return currentBG
-end
-
-function HonorLog:IsInBG()
-    return isInBG
-end
-
-function HonorLog:GetBGStartTime()
-    return bgStartTime
-end
-
-function HonorLog:GetBGHonorAccumulated()
-    return bgHonorAccumulated or 0
 end
 
 -- Callback for data updates
@@ -1667,11 +1665,11 @@ function HonorLog:UpdateLDB()
     if currentBG then
         local sessionBG = self:GetSessionStats(currentBG)
         if sessionBG.played > 0 then
-            local wr = sessionBG.played > 0 and (sessionBG.wins / sessionBG.played * 100) or 0
+            local wr = self:GetDerivedStats(currentBG).sessionWinrate
             text = string.format("|cffffd700%s|r %d-%d (%.0f%%)",
-                currentBG, sessionBG.wins, sessionBG.losses, wr)
+                self:GetBGShortName(currentBG), sessionBG.wins, sessionBG.losses, wr)
         else
-            text = string.format("|cffffd700%s|r In Progress", currentBG)
+            text = string.format("|cffffd700%s|r In Progress", self:GetBGShortName(currentBG))
         end
     elseif session.played > 0 then
         text = string.format("%d-%d (%.0f%%) +%dH",
@@ -1691,14 +1689,13 @@ function HonorLog:BuildLDBTooltip(tooltip)
     local scopeLabel = scope == "account" and "Account-Wide" or "Character"
     tooltip:AddLine(scopeLabel .. " Stats:", 1, 0.82, 0)
 
-    local bgTypes = {"AV", "AB", "WSG", "EotS"}
-    for _, bgType in ipairs(bgTypes) do
+    for _, bgType in ipairs(self:GetAllBattlegrounds()) do
         local stats = self:GetBGStats(bgType, scope)
         if stats.played > 0 then
             local derived = self:GetDerivedStats(bgType, scope)
             local color = derived.winrate >= 50 and "|cff00ff00" or "|cffff0000"
             tooltip:AddDoubleLine(
-                bgType,
+                self:GetBGShortName(bgType),
                 string.format("%s%d-%d (%.0f%%)|r", color, stats.wins, stats.losses, derived.winrate),
                 1, 1, 1,
                 1, 1, 1
@@ -1725,6 +1722,9 @@ function HonorLog:BuildLDBTooltip(tooltip)
         end
         tooltip:AddDoubleLine("Honor", honorText, 1, 1, 1, 1, 0.82, 0)
         tooltip:AddDoubleLine("Marks", string.format("+%d", session.marks), 1, 1, 1, 0.5, 0.5, 1)
+        if session.draws > 0 or session.left > 0 then
+            tooltip:AddDoubleLine("Draws / left early", string.format("%d / %d", session.draws, session.left), 1, 1, 1, 0.7, 0.7, 0.7)
+        end
 
         -- World PvP today
         local worldSession = self:GetSessionWorldPvPStats()
@@ -1737,11 +1737,18 @@ function HonorLog:BuildLDBTooltip(tooltip)
         end
     end
 
+    -- Honor summary (measured from the honor currency)
+    local honor = self:GetHonorSummary()
+    tooltip:AddLine(" ")
+    tooltip:AddDoubleLine("Honor today", tostring(honor.today), 1, 1, 1, 1, 0.82, 0)
+    tooltip:AddDoubleLine("Honor this week", tostring(honor.week), 1, 1, 1, 1, 0.82, 0)
+    tooltip:AddDoubleLine("Honor this session", tostring(honor.session), 1, 1, 1, 1, 0.82, 0)
+
     -- Current BG
     local currentBG = self:GetCurrentBG()
     if currentBG then
         tooltip:AddLine(" ")
-        tooltip:AddLine("Currently in: |cffffd700" .. currentBG .. "|r", 0, 1, 0)
+        tooltip:AddLine("Currently in: |cffffd700" .. self:GetBGDisplayName(currentBG) .. "|r", 0, 1, 0)
         local startTime = self:GetBGStartTime()
         if startTime then
             local duration = math.floor(GetTime() - startTime)

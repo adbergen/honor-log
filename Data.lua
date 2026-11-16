@@ -56,42 +56,61 @@ end
 local GetItemInfo = Compat.GetItemInfo
 local GetItemCount = Compat.GetItemCount
 
+-- Saved-variable layout version. 2 = Forever (EotS moved to `legacy`, new history fields).
+local DB_VERSION = 2
+
+-- Lifetime counters for one battleground. played counts every recorded game;
+-- win rate uses wins and losses only, draws and games left early are shown apart.
+local function NewBGStats()
+    return { played = 0, wins = 0, losses = 0, draws = 0, left = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 }
+end
+local function NewSessionBG()
+    return { played = 0, wins = 0, losses = 0, draws = 0, left = 0, honor = 0, marks = 0 }
+end
+local function NewWorldStats()
+    return { kills = 0, deaths = 0, honor = 0, honorKill = 0, honorAward = 0, killingBlows = 0, unknownKills = 0 }
+end
+
+HonorLog.NewBGStats = NewBGStats
+HonorLog.NewWorldStats = NewWorldStats
+
 -- Default database structure
 local DEFAULTS = {
     global = {
         -- Account-wide lifetime stats per BG
         battlegrounds = {
-            AV = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
-            AB = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
-            WSG = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
-            EotS = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
+            AV = NewBGStats(),
+            WSG = NewBGStats(),
+            AB = NewBGStats(),
+            DI = NewBGStats(),
         },
         -- Account-wide world PvP stats
-        worldPvP = {
-            kills = 0,
-            deaths = 0,
-            honor = 0,
-        },
+        worldPvP = NewWorldStats(),
         history = {}, -- Account-wide history
         historyLimit = 200,
         characters = {}, -- Track which characters contributed
+        legacy = {}, -- TBC aggregates for battlegrounds Forever does not have (EotS)
+        dbVersion = DB_VERSION,
     },
     char = {
         -- Per-character stats
         battlegrounds = {
-            AV = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
-            AB = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
-            WSG = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
-            EotS = { played = 0, wins = 0, losses = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 },
+            AV = NewBGStats(),
+            WSG = NewBGStats(),
+            AB = NewBGStats(),
+            DI = NewBGStats(),
         },
         -- Per-character world PvP stats
-        worldPvP = {
-            kills = 0,
-            deaths = 0,
-            honor = 0,
-        },
+        worldPvP = NewWorldStats(),
         history = {}, -- Per-character history
         historyLimit = 200,
+        legacy = {}, -- TBC aggregates for battlegrounds Forever does not have (EotS)
+        dbVersion = DB_VERSION,
+        -- Opponents met in world PvP: name -> { class, kills, deaths, lastSeen }, capped at 500
+        opponents = {},
+        -- Measured honor: today (by date), this week (until the weekly reset) and this login session
+        honorLog = { day = 0, today = 0, weekEnd = 0, week = 0, session = 0 },
+        honorCapWarned = false,
         -- Gear Goals system
         goals = {
             items = {}, -- Array of { itemID, addedAt, priority }
@@ -105,11 +124,11 @@ local DEFAULTS = {
         },
         -- Daily stats (persists across /reload, resets at midnight)
         session = {
-            AV = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
-            AB = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
-            WSG = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
-            EotS = { played = 0, wins = 0, losses = 0, honor = 0, marks = 0 },
-            worldPvP = { kills = 0, deaths = 0, honor = 0 },
+            AV = NewSessionBG(),
+            WSG = NewSessionBG(),
+            AB = NewSessionBG(),
+            DI = NewSessionBG(),
+            worldPvP = NewWorldStats(),
         },
         sessionStartTime = 0, -- Timestamp when session started (deprecated, use sessionTotalDuration)
         sessionTotalDuration = 0, -- Cumulative BG duration in seconds (for accurate hourly rate)
@@ -117,11 +136,9 @@ local DEFAULTS = {
         wasLogout = false, -- Track if last exit was logout vs reload (deprecated, kept for migration)
         lastGameTime = 0, -- GetTime() at last save - used to detect reload vs fresh login
         -- BG state (persists across /reload for mid-BG continuity)
+        -- bgState.match carries the snapshot and running sums of the game in progress.
         bgState = {
             currentBG = nil,
-            bgStartTime = nil,
-            bgStartHonor = nil,
-            bgHonorAccumulated = 0,
             isInBG = false,
         },
     },
@@ -141,11 +158,13 @@ local DEFAULTS = {
             hide = false,
         },
         goalProgressMode = "shared", -- "shared" (all show same %) or "waterfall" (fills top-to-bottom)
+        honorCapWarning = true,
+        honorCapWarnPct = 90, -- warn once per crossing at this percent of the honor cap
         visibleCards = { -- Which stat cards to show
             AV = true,
-            AB = true,
             WSG = true,
-            EotS = true,
+            AB = true,
+            DI = true,
             World = true,
         },
     },
@@ -179,8 +198,46 @@ local function DeepMerge(target, source)
     end
 end
 
+-- Battleground keys Forever tracks. Anything else in an old save (EotS, arena
+-- aggregates) moves under `legacy`; its history entries stay in the history list.
+local TRACKED_BG = { AV = true, WSG = true, AB = true, DI = true }
+
+local function MigrateStore(store, isChar)
+    if (store.dbVersion or 1) >= DB_VERSION then return end
+    store.legacy = store.legacy or {}
+    if type(store.battlegrounds) == "table" then
+        for key, stats in pairs(store.battlegrounds) do
+            if not TRACKED_BG[key] then
+                store.legacy[key] = stats
+                store.battlegrounds[key] = nil
+            end
+        end
+    end
+    if isChar then
+        if type(store.session) == "table" then
+            for key, value in pairs(store.session) do
+                if key ~= "worldPvP" and not TRACKED_BG[key] and type(value) == "table" then
+                    store.session[key] = nil
+                end
+            end
+        end
+        -- A TBC mid-game state has no snapshot to resume from.
+        store.bgState = nil
+    end
+    store.dbVersion = DB_VERSION
+end
+HonorLog.MigrateStore = MigrateStore
+
 -- Initialize database
 function HonorLog:InitializeDB()
+    if type(HonorLogDB) == "table" then
+        MigrateStore(HonorLogDB, false)
+        if type(HonorLogDB.settings) == "table" and type(HonorLogDB.settings.visibleCards) == "table" then
+            HonorLogDB.settings.visibleCards.EotS = nil
+        end
+    end
+    if type(HonorLogCharDB) == "table" then MigrateStore(HonorLogCharDB, true) end
+
     -- Global (account-wide) saved variables
     if not HonorLogDB then
         HonorLogDB = DeepCopy(DEFAULTS.global)
@@ -275,6 +332,9 @@ function HonorLog:InitializeDB()
         HonorLogCharDB.lastUpdateTime = now
     end
 
+    -- The honor "session" is this login; a /reload keeps it.
+    if not self.isReload then HonorLogCharDB.honorLog.session = 0 end
+
     -- Update tracking values
     HonorLogCharDB.lastGameTime = currentGameTime
 
@@ -291,9 +351,23 @@ function HonorLog:InitializeDB()
     return self.db
 end
 
+-- Counters for a battleground, created on first use so a generic "MAP<id>"
+-- battleground (one the registry did not know) is recorded like any other.
+function HonorLog:EnsureBGStats(bgType)
+    local char, global, session = self.db.char, self.db.global, self.db.char.session
+    char.battlegrounds[bgType] = char.battlegrounds[bgType] or NewBGStats()
+    global.battlegrounds[bgType] = global.battlegrounds[bgType] or NewBGStats()
+    session[bgType] = session[bgType] or NewSessionBG()
+    for _, tbl in ipairs({ char.battlegrounds[bgType], global.battlegrounds[bgType] }) do
+        DeepMerge(tbl, NewBGStats())
+    end
+    DeepMerge(session[bgType], NewSessionBG())
+end
+
 -- Get stats for a specific BG
 function HonorLog:GetBGStats(bgType, scope)
     scope = scope or self.db.settings.viewMode
+    self:EnsureBGStats(bgType)
     if scope == "account" then
         return self.db.global.battlegrounds[bgType]
     else
@@ -303,6 +377,7 @@ end
 
 -- Get session stats for a BG
 function HonorLog:GetSessionStats(bgType)
+    self:EnsureBGStats(bgType)
     return self.db.char.session[bgType]
 end
 
@@ -316,82 +391,87 @@ function HonorLog:GetAllBGStats(scope)
     end
 end
 
+-- Win rate is wins over decided games; draws and games left early are not in it.
+local function WinRate(wins, losses)
+    local decided = (wins or 0) + (losses or 0)
+    if decided <= 0 then return 0 end
+    return (wins / decided) * 100
+end
+
 -- Calculate derived stats
 function HonorLog:GetDerivedStats(bgType, scope)
     local stats = self:GetBGStats(bgType, scope)
     local session = self:GetSessionStats(bgType)
-
-    local winrate = 0
-    if stats.played > 0 then
-        winrate = (stats.wins / stats.played) * 100
-    end
 
     local avgDuration = 0
     if stats.played > 0 then
         avgDuration = stats.totalDuration / stats.played
     end
 
-    local sessionWinrate = 0
-    if session.played > 0 then
-        sessionWinrate = (session.wins / session.played) * 100
-    end
-
     return {
-        winrate = winrate,
+        winrate = WinRate(stats.wins, stats.losses),
         avgDuration = avgDuration,
-        sessionWinrate = sessionWinrate,
+        sessionWinrate = WinRate(session.wins, session.losses),
     }
 end
 
--- Record a completed game
-function HonorLog:RecordGame(bgType, won, duration, honor, marks)
+local RESULTS = { win = "wins", loss = "losses", draw = "draws", left = "left" }
+
+-- Record a completed game. `won` stays for older callers; extra.result
+-- ("win" | "loss" | "draw" | "left") wins over it. extra also carries the
+-- optional history fields: joinedInProgress, kb, hk, deaths, damage, healing,
+-- objectives, rankPoints, teams, scoreboard.
+function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
+    extra = extra or {}
+    local result = extra.result or (won and "win" or "loss")
+    local counter = RESULTS[result] or "losses"
+    honor = honor or 0
+    marks = marks or 0
+    duration = duration or 0
+    self:EnsureBGStats(bgType)
+
     -- Track cumulative BG time for accurate hourly rate calculation
     self.db.char.sessionTotalDuration = (self.db.char.sessionTotalDuration or 0) + duration
 
-    -- Update character stats
-    local charBG = self.db.char.battlegrounds[bgType]
-    charBG.played = charBG.played + 1
-    if won then
-        charBG.wins = charBG.wins + 1
-    else
-        charBG.losses = charBG.losses + 1
+    local function bump(stats)
+        stats.played = stats.played + 1
+        stats[counter] = (stats[counter] or 0) + 1
     end
+    local charBG = self.db.char.battlegrounds[bgType]
+    bump(charBG)
     charBG.totalDuration = charBG.totalDuration + duration
     charBG.honorLifetime = charBG.honorLifetime + honor
     charBG.marksLifetime = charBG.marksLifetime + marks
 
-    -- Update account stats
     local globalBG = self.db.global.battlegrounds[bgType]
-    globalBG.played = globalBG.played + 1
-    if won then
-        globalBG.wins = globalBG.wins + 1
-    else
-        globalBG.losses = globalBG.losses + 1
-    end
+    bump(globalBG)
     globalBG.totalDuration = globalBG.totalDuration + duration
     globalBG.honorLifetime = globalBG.honorLifetime + honor
     globalBG.marksLifetime = globalBG.marksLifetime + marks
 
-    -- Update session stats
     local session = self.db.char.session[bgType]
-    session.played = session.played + 1
-    if won then
-        session.wins = session.wins + 1
-    else
-        session.losses = session.losses + 1
-    end
+    bump(session)
     session.honor = session.honor + honor
     session.marks = session.marks + marks
 
-    -- Add to history
+    -- Add to history. Every field after `character` is optional, so entries
+    -- from older versions (win/duration/honor/marks only) display unchanged.
     local historyEntry = {
         bgType = bgType,
-        win = won,
+        win = result == "win",
+        result = result,
         duration = duration,
         honor = honor,
         marks = marks,
         timestamp = time(),
         character = UnitName("player"),
+        joinedInProgress = extra.joinedInProgress or nil,
+        kb = extra.kb, hk = extra.hk, deaths = extra.deaths,
+        damage = extra.damage, healing = extra.healing,
+        objectives = extra.objectives,
+        rankPoints = extra.rankPoints,
+        teams = extra.teams,
+        scoreboard = extra.scoreboard,
     }
 
     -- Character history
@@ -407,7 +487,7 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks)
     end
 
     -- Check milestones
-    self:CheckMilestones(bgType)
+    self:CheckMilestones(bgType, result)
 
     -- Fire callback for UI update
     if self.OnDataUpdated then
@@ -418,7 +498,7 @@ end
 -- Reset session stats
 function HonorLog:ResetSession(bgType)
     if bgType then
-        self.db.char.session[bgType] = DeepCopy(DEFAULTS.char.session[bgType])
+        self.db.char.session[bgType] = DeepCopy(DEFAULTS.char.session[bgType] or NewSessionBG())
     else
         self.db.char.session = DeepCopy(DEFAULTS.char.session)
         self.db.char.sessionTotalDuration = 0 -- Reset cumulative BG time
@@ -450,6 +530,26 @@ function HonorLog:GetHistory(scope, limit)
     return result
 end
 
+-- One history entry as a line: "Win  WSG  3/12/2  +450 honor  +3 marks  +100 rank".
+-- Entries from before 2.0 have no result or scoreboard fields and show what they have.
+local RESULT_TEXT = { win = "Win", loss = "Loss", draw = "Draw", left = "Left" }
+local RESULT_COLOR = { win = "40d860", loss = "e65959", draw = "ffd700", left = "999999" }
+function HonorLog:FormatHistoryRow(entry)
+    local result = entry.result or (entry.win and "win" or "loss")
+    local parts = {
+        string.format("|cff%s%s|r", RESULT_COLOR[result] or "ffffff", RESULT_TEXT[result] or tostring(result)),
+        self:GetBGDisplayName(entry.bgType),
+    }
+    if entry.kb or entry.hk or entry.deaths then
+        parts[#parts + 1] = string.format("%d/%d/%d", entry.kb or 0, entry.hk or 0, entry.deaths or 0)
+    end
+    parts[#parts + 1] = string.format("+%d honor", entry.honor or 0)
+    parts[#parts + 1] = string.format("+%d marks", entry.marks or 0)
+    if entry.rankPoints then parts[#parts + 1] = string.format("+%d rank", entry.rankPoints) end
+    if entry.joinedInProgress then parts[#parts + 1] = "(joined late)" end
+    return table.concat(parts, "  ")
+end
+
 -- Set history limit
 function HonorLog:SetHistoryLimit(limit)
     limit = math.max(10, math.min(500, limit))
@@ -472,15 +572,15 @@ local MILESTONES = {
     winrate = { 50, 60, 70, 80, 90 },
 }
 
-function HonorLog:CheckMilestones(bgType)
+function HonorLog:CheckMilestones(bgType, result)
     if not self.db.settings.notificationsEnabled then return end
 
     local stats = self:GetBGStats(bgType, "character")
     local derived = self:GetDerivedStats(bgType, "character")
 
-    -- Check win milestones
+    -- Check win milestones (only a win can reach one)
     for _, milestone in ipairs(MILESTONES.wins) do
-        if stats.wins == milestone then
+        if result == "win" and stats.wins == milestone then
             self:AnnounceMilestone(bgType, "wins", milestone)
         end
     end
@@ -492,10 +592,11 @@ function HonorLog:CheckMilestones(bgType)
         end
     end
 
-    -- Check winrate milestones (only if 10+ games)
-    if stats.played >= 10 then
+    -- Check winrate milestones (only if 10+ decided games, and only a win raises the rate)
+    local decided = stats.wins + stats.losses
+    if result == "win" and decided >= 10 then
         for _, milestone in ipairs(MILESTONES.winrate) do
-            local prevWinrate = ((stats.wins - 1) / (stats.played - 1)) * 100
+            local prevWinrate = ((stats.wins - 1) / (decided - 1)) * 100
             if prevWinrate < milestone and derived.winrate >= milestone then
                 self:AnnounceMilestone(bgType, "winrate", milestone)
             end
@@ -504,10 +605,11 @@ function HonorLog:CheckMilestones(bgType)
 end
 
 function HonorLog:AnnounceMilestone(bgType, statType, value)
+    local name = self:GetBGDisplayName(bgType)
     local messages = {
-        wins = string.format("|cff00ff00[HonorLog]|r Milestone! %d wins in %s!", value, bgType),
-        played = string.format("|cff00ff00[HonorLog]|r Milestone! %d games played in %s!", value, bgType),
-        winrate = string.format("|cff00ff00[HonorLog]|r Milestone! %d%% winrate achieved in %s!", value, bgType),
+        wins = string.format("|cff00ff00[HonorLog]|r Milestone! %d wins in %s!", value, name),
+        played = string.format("|cff00ff00[HonorLog]|r Milestone! %d games played in %s!", value, name),
+        winrate = string.format("|cff00ff00[HonorLog]|r Milestone! %d%% winrate achieved in %s!", value, name),
     }
 
     DEFAULT_CHAT_FRAME:AddMessage(messages[statType])
@@ -524,6 +626,7 @@ end
 
 -- Format time duration
 function HonorLog:FormatDuration(seconds)
+    seconds = math.floor(seconds or 0) -- averages are fractional; %d needs whole seconds
     if seconds < 60 then
         return string.format("%ds", seconds)
     elseif seconds < 3600 then
@@ -539,6 +642,8 @@ function HonorLog:GetTotalSessionStats()
         played = 0,
         wins = 0,
         losses = 0,
+        draws = 0,
+        left = 0,
         honor = 0,
         marks = 0,
         hourlyRate = 0,
@@ -551,20 +656,22 @@ function HonorLog:GetTotalSessionStats()
             total.played = total.played + session.played
             total.wins = total.wins + session.wins
             total.losses = total.losses + session.losses
+            total.draws = total.draws + (session.draws or 0)
+            total.left = total.left + (session.left or 0)
             total.honor = total.honor + session.honor
             total.marks = total.marks + session.marks
         end
     end
 
-    total.winrate = total.played > 0 and (total.wins / total.played * 100) or 0
+    total.winrate = WinRate(total.wins, total.losses)
 
     -- Calculate hourly rate based on cumulative BG duration (actual play time)
     local cumulativeDuration = self.db.char.sessionTotalDuration or 0
 
     -- Include current in-progress BG duration for live rate updates
-    local bgState = self.db.char.bgState
-    if bgState and bgState.isInBG and bgState.bgStartTime then
-        local currentBGElapsed = GetTime() - bgState.bgStartTime
+    local bgStart = self:GetBGStartTime()
+    if bgStart then
+        local currentBGElapsed = GetTime() - bgStart
         if currentBGElapsed > 0 then
             cumulativeDuration = cumulativeDuration + currentBGElapsed
         end
@@ -588,57 +695,103 @@ WORLD PVP TRACKING APIs
 ============================================================================
 --]]
 
--- Record a world kill (outside battlegrounds)
-function HonorLog:RecordWorldKill()
-    -- Update character stats
-    self.db.char.worldPvP.kills = self.db.char.worldPvP.kills + 1
-
-    -- Update account stats
-    self.db.global.worldPvP.kills = self.db.global.worldPvP.kills + 1
-
-    -- Update session stats
-    self.db.char.session.worldPvP.kills = self.db.char.session.worldPvP.kills + 1
-
-    -- Fire callback for UI update
-    if self.OnDataUpdated then
-        self:OnDataUpdated()
-    end
+-- The three world-PvP counters every kill, death and honor gain lands in.
+local function WorldTargets(self)
+    return { self.db.char.worldPvP, self.db.global.worldPvP, self.db.char.session.worldPvP }
 end
 
--- Record a world death (killed by enemy player outside battlegrounds)
-function HonorLog:RecordWorldDeath()
-    -- Update character stats
-    self.db.char.worldPvP.deaths = self.db.char.worldPvP.deaths + 1
+local OPPONENT_CAP = 500
 
-    -- Update account stats
-    self.db.global.worldPvP.deaths = self.db.global.worldPvP.deaths + 1
-
-    -- Update session stats
-    self.db.char.session.worldPvP.deaths = self.db.char.session.worldPvP.deaths + 1
-
-    -- Fire callback for UI update
-    if self.OnDataUpdated then
-        self:OnDataUpdated()
+-- Note an opponent met in the open world. kind = "kill" or "death".
+function HonorLog:NoteOpponent(name, class, kind)
+    if type(name) ~= "string" or name == "" then return end
+    local opponents = self.db.char.opponents
+    local entry = opponents[name]
+    if not entry then
+        entry = { kills = 0, deaths = 0 }
+        opponents[name] = entry
+        local count = 0
+        for _ in pairs(opponents) do count = count + 1 end
+        -- Over the cap: drop the oldest lastSeen first (never the entry just added).
+        while count > OPPONENT_CAP do
+            local oldestName, oldestSeen
+            for other, e in pairs(opponents) do
+                if other ~= name and (not oldestSeen or (e.lastSeen or 0) < oldestSeen) then
+                    oldestName, oldestSeen = other, e.lastSeen or 0
+                end
+            end
+            if not oldestName then break end
+            opponents[oldestName] = nil
+            count = count - 1
+        end
     end
+    if class then entry.class = class end
+    if kind == "kill" then entry.kills = entry.kills + 1 else entry.deaths = entry.deaths + 1 end
+    self.opponentSeq = (self.opponentSeq or 0) + 1
+    -- time() is whole seconds; the sequence keeps lastSeen strictly ordered within one second.
+    entry.lastSeen = time() + self.opponentSeq / 1e6
 end
 
--- Record honor earned from world PvP
+-- Top opponents by total encounters (most kills + deaths first).
+function HonorLog:GetTopOpponents(limit)
+    local list = {}
+    for name, e in pairs(self.db.char.opponents) do
+        list[#list + 1] = { name = name, class = e.class, kills = e.kills or 0, deaths = e.deaths or 0, lastSeen = e.lastSeen or 0 }
+    end
+    table.sort(list, function(a, b)
+        local ta, tb = a.kills + a.deaths, b.kills + b.deaths
+        if ta ~= tb then return ta > tb end
+        if a.lastSeen ~= b.lastSeen then return a.lastSeen > b.lastSeen end
+        return a.name < b.name
+    end)
+    for i = #list, (limit or 5) + 1, -1 do list[i] = nil end
+    return list
+end
+
+-- Record a world kill (outside battlegrounds). name is nil for a kill nobody
+-- could be named for ("unknown").
+function HonorLog:RecordWorldKill(name, class, killingBlow)
+    for _, w in ipairs(WorldTargets(self)) do
+        w.kills = w.kills + 1
+        if not name then w.unknownKills = (w.unknownKills or 0) + 1 end
+        if killingBlow then w.killingBlows = (w.killingBlows or 0) + 1 end
+    end
+    if name then self:NoteOpponent(name, class, "kill") end
+    if self.OnDataUpdated then self:OnDataUpdated() end
+end
+
+-- Record a world death (killed by an enemy player outside battlegrounds)
+function HonorLog:RecordWorldDeath(name, class)
+    for _, w in ipairs(WorldTargets(self)) do
+        w.deaths = w.deaths + 1
+    end
+    if name then self:NoteOpponent(name, class, "death") end
+    if self.OnDataUpdated then self:OnDataUpdated() end
+end
+
+-- Record honor earned outside battlegrounds (measured from the currency).
 function HonorLog:RecordWorldHonor(amount)
     if not amount or amount <= 0 then return end
-
-    -- Update character stats
-    self.db.char.worldPvP.honor = self.db.char.worldPvP.honor + amount
-
-    -- Update account stats
-    self.db.global.worldPvP.honor = self.db.global.worldPvP.honor + amount
-
-    -- Update session stats
-    self.db.char.session.worldPvP.honor = self.db.char.session.worldPvP.honor + amount
-
-    -- Fire callback for UI update
-    if self.OnDataUpdated then
-        self:OnDataUpdated()
+    for _, w in ipairs(WorldTargets(self)) do
+        w.honor = w.honor + amount
     end
+    if self.OnDataUpdated then self:OnDataUpdated() end
+end
+
+-- The kill and award messages tell what kind of honor it was; the measured
+-- total stays in `honor`, the rest is "other" (see GetWorldHonorSplit).
+function HonorLog:RecordWorldHonorKind(kind, amount)
+    if not amount or amount <= 0 then return end
+    local field = kind == "kill" and "honorKill" or "honorAward"
+    for _, w in ipairs(WorldTargets(self)) do
+        w[field] = (w[field] or 0) + amount
+    end
+end
+
+function HonorLog:GetWorldHonorSplit(scope)
+    local w = self:GetWorldPvPStats(scope)
+    local kill, award = w.honorKill or 0, w.honorAward or 0
+    return { total = w.honor or 0, kill = kill, award = award, other = math.max(0, (w.honor or 0) - kill - award) }
 end
 
 -- Get world PvP stats
@@ -654,6 +807,59 @@ end
 -- Get session world PvP stats
 function HonorLog:GetSessionWorldPvPStats()
     return self.db.char.session.worldPvP
+end
+
+--[[
+============================================================================
+HONOR SUMMARY - measured from currency 1792 gains, never assumed
+============================================================================
+--]]
+
+local HONOR_CURRENCY = 1792
+
+local function Today()
+    return tonumber(date("%Y%m%d", time()))
+end
+
+-- Roll today / this week over when the date or the weekly reset has passed.
+local function RollHonorLog(self)
+    local log = self.db.char.honorLog
+    local now = time()
+    local day = Today()
+    if log.day ~= day then log.day = day; log.today = 0 end
+    if (log.weekEnd or 0) <= now then
+        log.week = 0
+        local untilReset = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and C_DateAndTime.GetSecondsUntilWeeklyReset()
+        if type(untilReset) == "number" and not (issecretvalue and issecretvalue(untilReset)) and untilReset > 0 then
+            log.weekEnd = now + untilReset
+        else
+            log.weekEnd = now + 7 * 86400 -- no reset clock: a rolling week
+        end
+    end
+    return log
+end
+
+-- Called for every positive honor change, in a battleground or not.
+function HonorLog:AddHonorGain(amount)
+    if type(amount) ~= "number" or amount <= 0 then return end
+    local log = RollHonorLog(self)
+    log.today = log.today + amount
+    log.week = log.week + amount
+    log.session = log.session + amount
+end
+
+-- Today, this week, this session, the hourly rate and the cap.
+function HonorLog:GetHonorSummary()
+    local log = RollHonorLog(self)
+    local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(HONOR_CURRENCY)
+    local cap = info and info.maxQuantity or 0
+    local current = info and info.quantity or 0
+    return {
+        today = log.today, week = log.week, session = log.session,
+        perHour = self:GetTotalSessionStats().hourlyRate,
+        current = current, cap = cap,
+        percent = cap > 0 and (current / cap * 100) or 0,
+    }
 end
 
 --[[
@@ -721,8 +927,9 @@ end
 
 -- Get current marks for a specific BG type
 function HonorLog:GetCurrentMarks(bgType)
-    if not self.MARK_ITEMS then return 0 end
-    local itemID = self.MARK_ITEMS[bgType]
+    -- The battleground registry knows Forever's mark items; the gear database's
+    -- table still carries the TBC ones (EotS) that old goals refer to.
+    local itemID = (self.BG_MARK_ITEMS and self.BG_MARK_ITEMS[bgType]) or (self.MARK_ITEMS and self.MARK_ITEMS[bgType])
     if itemID then
         return GetItemCount(itemID, true) -- true = include bank
     end
@@ -735,7 +942,7 @@ function HonorLog:GetAllCurrentMarks()
         AV = self:GetCurrentMarks("AV"),
         AB = self:GetCurrentMarks("AB"),
         WSG = self:GetCurrentMarks("WSG"),
-        EotS = self:GetCurrentMarks("EotS"),
+        DI = self:GetCurrentMarks("DI"),
     }
 end
 
