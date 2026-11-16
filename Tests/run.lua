@@ -49,7 +49,7 @@ local function run()
         "Data/GearDatabase.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
-        "Modules/DI.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "UI/Theme.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua",
     }
@@ -578,6 +578,261 @@ local function run()
     HL:ShowBGTooltip(HL.mainFrame.bgCards.WSG, "WSG")
     HL:ShowWorldTooltip(HL.mainFrame.worldCard)
     HL:UpdateMainFrame()
+
+    ----------------------------------------------------------------------
+    -- Round 2: the rank climb
+    ----------------------------------------------------------------------
+    local Rank = HL.Rank
+    local CURVE = { 750, 900, 1050, 1200, 1350, 1500, 1650, 1800, 1950, 2100, 2350, 2500, 2650, 3000 }
+    local function setRank(level, earned, cap, week, prevCap)
+        mock.rank = { level = level, earned = earned, threshold = CURVE[level + 1] or 0 }
+        mock.rankWindow.cap, mock.rankWindow.week = cap, week
+        mock.rankWindow.prevCap = prevCap or math.max(0, cap - 1)
+    end
+    local function countPlain(text)
+        local n = 0
+        for _, line in ipairs(printed) do if line:find(text, 1, true) then n = n + 1 end end
+        return n
+    end
+    local char = HL.db.char
+    local savedHistory = char.history
+    local function history(spec) -- spec: list of { result, rankPoints, hoursAgo }, newest first
+        local h = {}
+        for i, g in ipairs(spec) do
+            h[i] = { bgType = "WSG", result = g[1], win = g[1] == "win", rankPoints = g[2], timestamp = time() - g[3] * 3600 }
+        end
+        char.history = h
+    end
+    local function measuredGames(n, wins, winPts, lossPts)
+        local spec = {}
+        for i = 1, n do
+            local won = i <= wins
+            spec[i] = { won and "win" or "loss", won and winPts or lossPts, i * 2 }
+        end
+        history(spec)
+    end
+
+    -- GetInfo maps the client's numbers and titles the rank for the faction.
+    setRank(4, 300, 6, 3, 5)
+    mock.faction = "Alliance"
+    local info = Rank:GetInfo()
+    check(info and info.rank == 4 and info.points == 300 and info.threshold == 1350, "GetInfo: rank, points, threshold")
+    check(info.totalPoints == 3900 + 300, "GetInfo: total = total for the rank + points earned: " .. tostring(info.totalPoints))
+    check(info.weekCapRank == 6 and info.weekCapTotal == 6750 and info.prevWeekCapRank == 5 and info.seasonMaxRank == 14, "GetInfo: cap fields")
+    check(info.weekNumber == 3 and info.season == 2 and info.secondsToSeasonEnd == 30 * 86400 and info.secondsToWeeklyReset == 3 * 86400, "GetInfo: week, season, countdowns")
+    check(info.capped == false and info.pointsLeftThisWeek == 2550, "GetInfo: not capped, points left this week")
+    check(info.title == "Master Sergeant", "Alliance title for rank 4: " .. tostring(info.title))
+    mock.faction = "Horde"
+    check(Rank:GetInfo().title == "Senior Sergeant", "Horde title for rank 4")
+    mock.faction = "Alliance"
+    setRank(0, 100, 3, 1)
+    check(Rank:GetInfo().title == "Unranked" and Rank:GetInfo().rank == 0, "rank 0 is Unranked")
+    setRank(5, 0, 5, 3)
+    check(Rank:GetInfo().capped == true and Rank:GetInfo().pointsLeftThisWeek == 0, "capped once the total reaches the cap total")
+
+    -- TotalForRank: the client's number, else the curve.
+    check(Rank:TotalForRank(6) == 6750 and Rank:TotalForRank(0) == 0, "TotalForRank from the client")
+    local clientTotal = C_MajorFactions.GetTotalReputationForRenownLevel
+    mock.removeTotalFn()
+    local curveSum = 0
+    for _, v in ipairs(CURVE) do curveSum = curveSum + v end
+    check(Rank:TotalForRank(6) == 6750 and Rank:TotalForRank(14) == curveSum, "TotalForRank falls back to the curve")
+    C_MajorFactions.GetTotalReputationForRenownLevel = clientTotal
+
+    -- CapRankForWeek: client number now, curve later, shifted to agree, bounded by the season.
+    setRank(4, 300, 6, 3, 5)
+    info = Rank:GetInfo()
+    check(Rank:CapRankForWeek(3, info) == 6 and Rank:CapRankForWeek(4, info) == 7 and Rank:CapRankForWeek(5, info) == 8, "cap by week follows the curve from the client's week")
+    check(Rank:CapRankForWeek(8, info) == 12 and Rank:CapRankForWeek(10, info) == 14 and Rank:CapRankForWeek(30, info) == 14, "cap by week reaches 14 and stays")
+    setRank(4, 300, 7, 3, 6) -- the client is a step ahead of the table
+    check(Rank:CapRankForWeek(3) == 7 and Rank:CapRankForWeek(4) == 8, "the table is shifted so the current week agrees with the client")
+    mock.rankWindow.seasonMax = 10
+    check(Rank:CapRankForWeek(9) == 10, "never above the season maximum")
+    mock.rankWindow.seasonMax = 14
+
+    -- Pace: an estimate below 5 measured games, measured from 30.
+    history({})
+    local pace = Rank:GetPace()
+    check(pace.estimated and pace.pointsPerWin == 100 and pace.pointsPerLoss == 25 and pace.measuredGames == 0 and pace.gamesPerDay == 0, "pace defaults with no games")
+    measuredGames(4, 4, 500, 500)
+    pace = Rank:GetPace()
+    check(pace.estimated and pace.pointsPerWin == 100 and pace.measuredGames == 4, "4 measured games is still an estimate, with the default points")
+    measuredGames(30, 20, 120, 30)
+    local pad = char.history
+    for i = 1, 10 do pad[#pad + 1] = { result = "win", rankPoints = 999, timestamp = time() - 100 * 3600 - i } end -- older than the 30
+    pace = Rank:GetPace()
+    check(not pace.estimated and pace.measuredGames == 30, "30 measured games is a measurement")
+    check(pace.pointsPerWin == 120 and pace.pointsPerLoss == 30, "average points per win and loss over the last 30: " .. pace.pointsPerWin .. "/" .. pace.pointsPerLoss)
+    check(math.abs(pace.winRate - 30 / 40) < 1e-9, "win rate over the decided games: " .. pace.winRate)
+    check(pace.gamesPerDay > 9 and pace.gamesPerDay < 15, "games per day over the last 7 days: " .. pace.gamesPerDay)
+    measuredGames(30, 20, 120, 30) -- clean set for the plans
+
+    -- Plans.
+    setRank(4, 300, 6, 3, 5)
+    info = Rank:GetInfo()
+    pace = Rank:GetPace()
+    local now = time()
+    local plan = Rank:PlanToRank(6, info, pace) -- this week allows it: pace decides
+    check(plan.pointsNeeded == 2550 and plan.gamesNeeded == math.ceil(2550 / pace.pointsPerGame), "plan: points and games")
+    check(plan.earliestWeekByCap == 3 and plan.earliestDateByCap >= now and plan.earliestDateByCap <= now + 2 and plan.limitedBy == "pace", "plan limited by pace")
+    check(plan.projectedDateAtPace > now and plan.date == plan.projectedDateAtPace, "pace date is the plan date")
+    plan = Rank:PlanToRank(8, info, pace) -- rank 8 opens in week 5
+    check(plan.earliestWeekByCap == 5 and math.abs(plan.earliestDateByCap - (now + 3 * 86400 + 7 * 86400)) <= 2, "plan: cap date = reset + whole weeks")
+    check(plan.limitedBy == "cap" and plan.date == plan.earliestDateByCap and plan.projectedDateAtPace < plan.earliestDateByCap, "plan limited by the cap")
+    plan = Rank:PlanToRank(3, info, pace)
+    check(plan.reached and plan.limitedBy == "reached" and plan.pointsNeeded == 0 and plan.gamesNeeded == 0, "plan for a rank already reached")
+    plan = Rank:PlanToRank(4, info, pace)
+    check(plan.reached, "the current rank counts as reached")
+    mock.rankWindow.seasonMax = 10
+    plan = Rank:PlanToRank(12, Rank:GetInfo(), pace)
+    check(plan.limitedBy == "season" and not plan.reached and plan.pointsNeeded > 0, "target above the season maximum")
+    mock.rankWindow.seasonMax = 14
+    mock.seasonSeconds = 86400
+    plan = Rank:PlanToRank(8, Rank:GetInfo(), pace)
+    check(plan.limitedBy == "season", "a date later than the season end is limited by the season")
+    mock.seasonSeconds = 86400 * 30
+    history({})
+    plan = Rank:PlanToRank(6)
+    check(plan.projectedDateAtPace == nil and plan.limitedBy == "pace" and plan.date == plan.earliestDateByCap, "no recent games: no pace date")
+    measuredGames(30, 20, 120, 30)
+
+    -- Rewards: the first rank above the current one that has any.
+    setRank(4, 300, 6, 3, 5)
+    local nextRank, rewards = Rank:NextReward()
+    check(nextRank == 8 and #rewards == 2 and rewards[1].description == "Wrist Seal" and rewards[1].icon == 1008, "next reward skips ranks without rewards")
+    setRank(1, 0, 3, 1)
+    check((Rank:NextReward()) == 2, "next reward from rank 1")
+    setRank(8, 0, 9, 7)
+    check(Rank:NextReward() == nil, "no reward left above rank 8")
+    check(#Rank:GetRewards(5) == 0 and #Rank:GetRewards(8) == 2, "GetRewards")
+
+    -- A rank-up fires one celebration.
+    setRank(5, 0, 6, 3, 5)
+    local celebBefore = countPlain("Sergeant Major")
+    mock.fireEvent("MAJOR_FACTION_RENOWN_LEVEL_CHANGED", 2800, 5, 4)
+    check(countPlain("Sergeant Major") == celebBefore + 1, "rank-up prints one celebration")
+    check(countPlain("Rank 5 \226\128\148 Sergeant Major") >= 1, "celebration reads Rank N - title")
+    check(countPlain("Next reward at Rank 8") == 1 and countPlain("Alliance quartermasters") == 1, "celebration names the next reward and the vendor")
+    mock.fireEvent("MAJOR_FACTION_RENOWN_LEVEL_CHANGED", 2800, 5, 4)
+    check(countPlain("Sergeant Major") == celebBefore + 1, "the same rank-up is not celebrated twice")
+    mock.fireEvent("MAJOR_FACTION_RENOWN_LEVEL_CHANGED", 1234, 9, 8)
+    check(countPlain("Rank 9") == 0, "another faction's renown is ignored")
+
+    -- The weekly cap alert: once a week, again the next week.
+    char.rankCapAlertWeek = 0
+    local capAlerts = function() return countPlain("Weekly rank cap reached") end
+    local base = capAlerts()
+    setRank(5, 0, 5, 3, 3) -- total 5250 = the cap total for rank 5
+    mock.fireEvent("UPDATE_FACTION")
+    check(capAlerts() == base + 1 and countPlain("Rank 6 opens in 3d 0h") >= 1, "cap alert names the next rank and the time")
+    mock.fireEvent("CURRENCY_DISPLAY_UPDATE", 3468, 100, 10)
+    mock.fireEvent("PLAYER_PVP_RANK_CHANGED", "player")
+    check(capAlerts() == base + 1, "the cap alert fires once in a week")
+    setRank(5, 0, 6, 4, 5) -- next week: a higher cap, not reached
+    mock.fireEvent("UPDATE_FACTION")
+    check(capAlerts() == base + 1, "no alert while under the new cap")
+    setRank(6, 0, 6, 4, 5) -- reaches it
+    mock.fireEvent("UPDATE_FACTION")
+    check(capAlerts() == base + 2, "the cap alert fires again the next week")
+    HL.db.settings.rankCapAlert = false
+    setRank(7, 0, 7, 5, 6)
+    mock.fireEvent("UPDATE_FACTION")
+    check(capAlerts() == base + 2, "the setting turns the cap alert off")
+    HL.db.settings.rankCapAlert = true
+
+    -- The weekly log rolls over a week change and keeps 20 weeks.
+    check(char.rankWeeks[3] and char.rankWeeks[4] and char.rankWeeks[4].startTotal == char.rankWeeks[3].endTotal,
+        "a new week starts where the last one ended")
+    check(char.rankWeeks[4].endTotal == 6750 and char.rankWeeks[4].capRank == 6, "the week log holds the end total and the cap")
+    history({ { "win", 100, 1 }, { "win", 100, 5 }, { "loss", 25, 24 * 20 } })
+    setRank(7, 0, 7, 5, 6)
+    Rank:Refresh()
+    check(char.rankWeeks[5].games == 2, "games this week are counted from the history: " .. tostring(char.rankWeeks[5].games))
+    HL.db.settings.rankCapAlert = false
+    for w = 6, 30 do
+        setRank(7, 0, 7, w, 6)
+        Rank:Refresh()
+    end
+    HL.db.settings.rankCapAlert = true
+    local weeks = 0
+    for _ in pairs(char.rankWeeks) do weeks = weeks + 1 end
+    check(weeks == 20 and char.rankWeeks[30] and char.rankWeeks[11] and not char.rankWeeks[10], "the weekly log keeps the last 20 weeks")
+    measuredGames(30, 20, 120, 30)
+
+    -- The rank bar, the broker text and the slash command.
+    setRank(4, 300, 6, 3, 5)
+    HL.db.settings.showRankBar = true
+    Rank:Refresh()
+    local rui = HL.rankUI
+    check(rui.bar:IsShown() and rui.tab:IsShown(), "rank bar and Rank tab shown with data")
+    check(rui.bar.title:GetText() == "R4 Master Sergeant" and rui.bar.text:GetText() == "300 / 1,350 \194\183 cap R6", "rank bar text: " .. tostring(rui.bar.text:GetText()))
+    check(rui.markerAt == nil, "no cap marker when the cap is beyond this rank")
+    local tip = { lines = {} }
+    function tip:AddLine(t) self.lines[#self.lines + 1] = t end
+    function tip:AddDoubleLine(l, r) self.lines[#self.lines + 1] = l .. " " .. r end
+    check(Rank:AddTooltipLines(tip), "tooltip fills with data")
+    local tipText = table.concat(tip.lines, "\n")
+    check(tipText:find("R5 Sergeant Major", 1, true) and tipText:find("R6", 1, true) and tipText:find("R7", 1, true), "tooltip plans the next 3 ranks")
+    check(tipText:find("Next reward: Rank 8", 1, true) and tipText:find("Wrist Seal", 1, true), "tooltip names the next reward")
+    check(tipText:find("Season ends in", 1, true) and tipText:find("Weekly reset in", 1, true), "tooltip has both countdowns")
+    HL.db.settings.ldbFormat = "rank"
+    HL:UpdateLDB()
+    check(HL.ldb.text == "R4 Master Sergeant \194\183 22%", "broker rank text: " .. tostring(HL.ldb.text))
+    HL.db.settings.ldbFormat = "games"
+    HL:UpdateLDB()
+    check(HL.ldb.text ~= "R4 Master Sergeant \194\183 22%", "the default broker text is unchanged")
+    slash("rank")
+    check(countPlain("Rank 4 Master Sergeant") >= 1, "/honorlog rank prints the summary")
+    slash("rank 8")
+    check(countPlain("Rank 8 Knight-Captain") >= 1 and countPlain("Limited by cap") >= 1, "/honorlog rank 8 prints the plan")
+    slash("rank 2")
+    check(countPlain("already reached") >= 1, "/honorlog rank for a reached rank")
+    HL:ShowBGTooltip(HL.mainFrame.bgCards.WSG, "WSG")
+    HL.ldb.OnTooltipShow(GameTooltip)
+
+    -- The Rank tab with data.
+    HL:SetExpanded(true)
+    HL:SwitchTab("rank")
+    check(HL.mainFrame.currentView == "rank" and rui.panel:IsShown() and not HL.mainFrame.expanded:IsShown(), "Rank tab shows the rank panel")
+    check(#rui.panel.rows == 14 and rui.panel.rows[4].name:GetText() == "R4 Master Sergeant", "the table has ranks 1-14")
+    check(rui.panel.rows[1].detail:GetText():find("reached", 1, true) and rui.panel.rows[8].detail:GetText():find("to go", 1, true), "reached and open rows")
+    check(rui.panel.rows[8].tag:GetText() == "cap" and rui.panel.rows[5].tag:GetText() == "pace", "limited-by tags")
+    check(rui.panel.rows[8].icons[2]:IsShown() and not rui.panel.rows[8].icons[3]:IsShown() and not rui.panel.rows[5].icons[1]:IsShown(), "reward icons per rank")
+    check(rui.panel.lines[1]:GetText():find("Master Sergeant", 1, true), "summary line")
+    -- (Not the Goals tab: GoalsPanel.lua's Update indexes DI in tables that only list AV, AB, WSG, EotS. Round 3.)
+    HL:SwitchTab("stats")
+    check(HL.mainFrame.currentView == "stats" and not rui.panel:IsShown() and not rui.tab.isActive, "switching to Stats hides the rank panel")
+    HL:SetExpanded(false)
+
+    -- No rank data: nothing errors and the rank UI hides.
+    HL:SetExpanded(true)
+    HL:SwitchTab("rank")
+    mock.rankWindow.noData = true
+    check(Rank:GetInfo() == nil and Rank:PlanToRank(8) == nil and Rank:BrokerText() == nil, "no data: GetInfo, PlanToRank and BrokerText give nil")
+    local errorsBefore = #mock.handledErrors
+    mock.fireEvent("UPDATE_FACTION")
+    mock.fireEvent("CURRENCY_DISPLAY_UPDATE", 3468, 0, 0)
+    mock.fireEvent("MAJOR_FACTION_RENOWN_LEVEL_CHANGED", 2800, 1, 0)
+    mock.fireEvent("PLAYER_PVP_RANK_CHANGED", "player")
+    HL:UpdateMainFrame()
+    HL:UpdateLDB()
+    check(not rui.bar:IsShown() and not rui.tab:IsShown() and not rui.barActive, "no data: the rank bar and the Rank tab hide")
+    check(HL.mainFrame.currentView ~= "rank" and not rui.panel:IsShown(), "no data: the Rank view falls back to Stats")
+    rui.panel:Update(nil)
+    check(rui.panel.lines[1]:GetText():find("No PvP rank data", 1, true), "the Rank panel builds without data")
+    slash("rank")
+    check(countPlain("No PvP rank data") >= 1 and #mock.handledErrors == errorsBefore, "/honorlog rank without data")
+    mock.rankWindow.noData = false
+    setRank(4, 300, 6, 3, 5)
+    Rank:Refresh()
+    check(rui.bar:IsShown() and rui.tab:IsShown(), "the rank UI returns when data does")
+    HL:SetExpanded(false)
+
+    -- Options: the stale Eye of the Storm toggle is gone; rank settings exist.
+    check(_G.HonorLogDICheck and not _G.HonorLogEotSCheck, "options: Darkspear Islands card toggle replaces Eye of the Storm")
+    check(_G.HonorLogRankBarCheck and _G.HonorLogRankCapCheck and _G.HonorLogLDBFormatDropdown, "options: rank bar, cap alert and broker format")
+    char.history = savedHistory
+    check(not printedMatching("HonorLog ERROR"), "rank tests reported an error: " .. tostring(printedMatching("HonorLog ERROR")))
 
     -- 11. Migration: a TBC-era save with EotS and arena fields loads, migrates, keeps its history.
     local fixture = dofile(ROOT .. "/Tests/fixtures/tbc_savedvars.lua")

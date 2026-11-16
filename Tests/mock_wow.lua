@@ -213,7 +213,7 @@ for _, e in ipairs({
     "PLAYER_DEAD", "BATTLEGROUND_POINTS_UPDATE", "CURRENCY_DISPLAY_UPDATE", "BAG_UPDATE",
     "BAG_UPDATE_DELAYED", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
-    "PARTY_KILL", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
+    "PARTY_KILL", "UPDATE_FACTION", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
@@ -337,16 +337,54 @@ function GetPVPLifetimeStats() return 120, 4 end
 function GetPVPYesterdayStats() return 9, 0 end
 
 M.rank = { level = 3, earned = 120, threshold = 1050 }
+-- Rank-window state the progression mock reports; tests change it. noData makes the
+-- call return nil (a low-level character); noTotalFn removes GetTotalReputationForRenownLevel.
+M.rankWindow = { cap = 5, prevCap = 3, week = 2, seasonMax = 14, noData = false }
+local RANK_CURVE = { 750, 900, 1050, 1200, 1350, 1500, 1650, 1800, 1950, 2100, 2350, 2500, 2650, 3000 }
+-- Ranks that have rewards; the others return an empty list, like the client.
+M.rankRewards = {
+    [2] = { { icon = 1002, description = "Insignia trinket" } },
+    [3] = { { icon = 1003, description = "Cloak" } },
+    [8] = { { icon = 1008, description = "Wrist Seal" }, { icon = 1009, description = "Waist Seal" } },
+}
 C_MajorFactions = {
     GetMajorFactionProgressionInfo = function(id)
-        if id == 2800 then
+        if id == 2800 and not M.rankWindow.noData then
             return { renownLevel = M.rank.level, renownReputationEarned = M.rank.earned,
-                     renownLevelThreshold = M.rank.threshold, currentWeekProgressiveMaxLevel = 5, weekNumber = 2 }
+                     renownLevelThreshold = M.rank.threshold, currentWeekProgressiveMaxLevel = M.rankWindow.cap,
+                     previousWeekProgressiveMaxLevel = M.rankWindow.prevCap, maxLevel = M.rankWindow.seasonMax,
+                     weekNumber = M.rankWindow.week }
         end
     end,
+    GetTotalReputationForRenownLevel = function(_, level)
+        local sum = 0
+        for i = 1, math.min(level, #RANK_CURVE) do sum = sum + RANK_CURVE[i] end
+        return sum
+    end,
     GetMajorFactionData = function(id) return { factionID = id, name = "PvP Rank Points" } end,
-    GetRenownRewardsForLevel = function(id, level) return { { itemID = 1000 + level } } end,
+    GetRenownRewardsForLevel = function(_, level) return M.rankRewards[level] or {} end,
 }
+function M.removeTotalFn() C_MajorFactions.GetTotalReputationForRenownLevel = nil end
+-- Faction and rank titles, as the client's own strings (key PVP_RANK_<5..18>_<0 Horde|1 Alliance>).
+M.faction = "Alliance"
+local HORDE = { "Scout", "Grunt", "Sergeant", "Senior Sergeant", "First Sergeant", "Stone Guard", "Blood Guard",
+    "Legionnaire", "Centurion", "Champion", "Lieutenant General", "General", "Warlord", "High Warlord" }
+local ALLIANCE = { "Private", "Corporal", "Sergeant", "Master Sergeant", "Sergeant Major", "Knight", "Knight-Lieutenant",
+    "Knight-Captain", "Knight-Champion", "Lieutenant Commander", "Commander", "Marshal", "Field Marshal", "Grand Marshal" }
+for i = 1, 14 do
+    _G["PVP_RANK_" .. (4 + i) .. "_0"] = HORDE[i]
+    _G["PVP_RANK_" .. (4 + i) .. "_1"] = ALLIANCE[i]
+end
+PVP_RANK_0_NAME = "Unranked"
+PVP_RANK_REWARDS_VENDOR_HORDE = "Rank rewards are sold by the Horde quartermasters."
+PVP_RANK_REWARDS_VENDOR_ALLIANCE = "Rank rewards are sold by the Alliance quartermasters."
+local Enum_PvPRanks = { RankNone = 0, Rank_1 = 5, Rank_14 = 18 }
+function GetText(key) return _G[key] end
+function UnitSex() return 2 end
+M.arenaSeason = 2
+function GetCurrentArenaSeason() return M.arenaSeason end
+-- Atlases the texture mock knows; SetAtlas on an unknown one would show nothing on the client.
+C_Texture = { GetAtlasInfo = function(name) if name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") then return { width = 64 } end end }
 local CURRENCIES = {
     [1792] = { name = "Honor", quantity = 8200, maxQuantity = 25000 },
     [3468] = { name = "PvP Rank Points", quantity = 120, maxQuantity = 0 },
@@ -360,10 +398,11 @@ C_CurrencyInfo = {
         return { name = c.name, quantity = c.quantity, maxQuantity = c.maxQuantity, currencyID = id }
     end,
 }
+M.seasonSeconds = 86400 * 30
 C_SeasonInfo = {
     GetCurrentDisplaySeasonID = function() return 1 end,
     GetCurrentDisplaySeasonExpansion = function() return 0 end,
-    GetTimeUntilCurrentPVPSeasonEnd = function() return 86400 * 30 end,
+    GetTimeUntilCurrentPVPSeasonEnd = function() return M.seasonSeconds end,
 }
 M.bagItems = { [20558] = 12, [20559] = 3 }
 C_Item = {
@@ -379,7 +418,8 @@ C_Container = {
     GetContainerItemInfo = function() return nil end,
 }
 C_MerchantFrame = { GetItemInfo = function() return nil end }
-Enum = { AddOnRestrictionType = { Combat = 0, Encounter = 1, ChallengeMode = 2, PvPMatch = 3, Map = 4, Chat = 5 } }
+Enum = { AddOnRestrictionType = { Combat = 0, Encounter = 1, ChallengeMode = 2, PvPMatch = 3, Map = 4, Chat = 5 },
+    PvPRanks = Enum_PvPRanks }
 C_RestrictedActions = {
     GetAddOnRestrictionState = function(t) return t == 3 and M.pvp.matchActive and 2 or 0 end,
     IsAddOnRestrictionActive = function(t) return t == 3 and M.pvp.matchActive end,
@@ -396,7 +436,7 @@ function UnitName(unit)
     local u = M.units[unit]
     return u and u.name or nil
 end
-function UnitFactionGroup() return "Alliance", "Alliance" end
+function UnitFactionGroup() return M.faction, M.faction end
 function UnitLevel() return 60 end
 function UnitClass(unit)
     local u = unit and unit ~= "player" and M.units[unit]

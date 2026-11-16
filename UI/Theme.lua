@@ -61,7 +61,25 @@ HonorLog.Theme = {
     honor = { 1.0, 0.85, 0.25, 1 },
     arena = { 0.70, 0.30, 0.90, 1 },
     marks = { 0.35, 0.78, 1.0, 1 },
+
+    -- Rank climb
+    rankFill = { 0.85, 0.70, 0.30, 1 },
+    rankCap = { 1.0, 0.55, 0.20, 1 },
+    rankCurrentBg = { 0.20, 0.18, 0.10, 0.95 },
 }
+
+-- Colour of the "limited by" tag in the Rank tab.
+HonorLog.RANK_TAG_COLORS = {
+    cap = { 1.0, 0.55, 0.20, 1 },
+    pace = { 0.35, 0.78, 1.0, 1 },
+    season = { 0.95, 0.35, 0.35, 1 },
+    reached = { 0.30, 0.90, 0.40, 1 },
+}
+
+-- Rank icons: the atlas Blizzard's own rank window uses, then the classic badge file, then a neutral icon.
+HonorLog.RANK_ICON_ATLAS = "UI-Character-Info-Honor-Icon-%d"
+HonorLog.RANK_ICON_FILE = "Interface\\PvPRankBadges\\PvPRank%02d"
+HonorLog.RANK_ICON_FALLBACK = "Interface\\Icons\\Spell_Holy_ChampionsBond"
 
 --------------------------------------------------------------------------------
 -- BG-SPECIFIC COLORS
@@ -146,6 +164,12 @@ HonorLog.Layout = {
     ITEM_ROW_HEIGHT = 56,
     TAB_WIDTH = 38,
     TAB_HEIGHT = 16,
+
+    -- Rank bar (under the header) and Rank tab rows
+    RANK_BAR_HEIGHT = 16,
+    RANK_BAR_GAP = 3,
+    RANK_ROW_HEIGHT = 30,
+    RANK_SUMMARY_HEIGHT = 66,
 
     -- Icon sizes
     ICON_SMALL = 16,

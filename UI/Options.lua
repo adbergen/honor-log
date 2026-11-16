@@ -221,7 +221,7 @@ function HonorLog:InitializeOptions()
 
     -- Ensure visibleCards exists
     if not self.db.settings.visibleCards then
-        self.db.settings.visibleCards = { AV = true, AB = true, WSG = true, EotS = true, World = true }
+        self.db.settings.visibleCards = { AV = true, AB = true, WSG = true, DI = true, World = true }
     end
 
     -- Card checkboxes
@@ -229,7 +229,7 @@ function HonorLog:InitializeOptions()
         { key = "AV", label = "Alterac Valley" },
         { key = "AB", label = "Arathi Basin" },
         { key = "WSG", label = "Warsong Gulch" },
-        { key = "EotS", label = "Eye of the Storm" },
+        { key = "DI", label = "Darkspear Islands" },
         { key = "World", label = "World PvP" },
     }
 
@@ -243,6 +243,39 @@ function HonorLog:InitializeOptions()
         check:SetChecked(self.db.settings.visibleCards[card.key] ~= false)
     end
     leftY = cardStartY - (#cardData * 24) - 12
+
+    -- === RANK ===
+    local rankHeader = CreateSectionHeader(scrollChild, "PvP Rank")
+    rankHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
+    leftY = leftY - 24
+
+    local rankBarCheck = CreateCheckbox(scrollChild, "HonorLogRankBarCheck", "Show Rank Bar", "Show the rank progress bar under the title", function(checked)
+        HonorLog.db.settings.showRankBar = checked
+        if HonorLog.RefreshRank then HonorLog:RefreshRank() end
+    end)
+    rankBarCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
+    rankBarCheck:SetChecked(self.db.settings.showRankBar ~= false)
+    leftY = leftY - 26
+
+    local rankCapCheck = CreateCheckbox(scrollChild, "HonorLogRankCapCheck", "Weekly Cap Alert", "Alert once a week when the weekly rank cap is reached", function(checked)
+        HonorLog.db.settings.rankCapAlert = checked
+    end)
+    rankCapCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL, leftY)
+    rankCapCheck:SetChecked(self.db.settings.rankCapAlert ~= false)
+    leftY = leftY - 26
+
+    local ldbFormatDropdown = CreateDropdown(scrollChild, "HonorLogLDBFormatDropdown", "Broker Text", {
+        { text = "Games (today's record)", value = "games" },
+        { text = "Rank (R7 Title - 62%)", value = "rank" },
+    }, function(value)
+        self.db.settings.ldbFormat = value
+        if HonorLog.UpdateLDB then HonorLog:UpdateLDB() end
+    end)
+    ldbFormatDropdown:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", LEFT_COL - 13, leftY - 22)
+    ldbFormatDropdown.setting = "ldbFormat"
+    UIDropDownMenu_SetSelectedValue(ldbFormatDropdown, self.db.settings.ldbFormat)
+    UIDropDownMenu_SetText(ldbFormatDropdown, self.db.settings.ldbFormat == "rank" and "Rank (R7 Title - 62%)" or "Games (today's record)")
+    leftY = leftY - 70
 
     ----------------------------------------------------------------------------
     -- RIGHT COLUMN: Features & Data

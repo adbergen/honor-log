@@ -27,6 +27,7 @@ Modules\AV.lua
 Modules\AB.lua
 Modules\WSG.lua
 Modules\DI.lua
+Modules\Rank.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 

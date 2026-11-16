@@ -39,7 +39,8 @@ read_globals = {
     "COMBATLOG_HONORGAIN", "COMBATLOG_HONORGAIN_NO_RANK", "COMBATLOG_HONORGAIN_EXHAUSTION1", "COMBATLOG_HONORAWARD",
     "GetInventoryItemID", "GetCursorPosition", "SetCursor", "ResetCursor",
     "IsShiftKeyDown", "IsControlKeyDown", "PlaySound", "SOUNDKIT", "ChatTypeInfo", "BreakUpLargeNumbers",
-    "CreateColor", "GetMoney",
+    "CreateColor", "GetMoney", "C_Texture", "GetText", "UnitSex", "GetCurrentArenaSeason",
+    "PVP_RANK_0_NAME", "PVP_RANK_REWARDS_VENDOR_HORDE", "PVP_RANK_REWARDS_VENDOR_ALLIANCE",
     -- UIDropDownMenu (Blizzard_SharedXML)
     "UIDropDownMenu_AddButton", "UIDropDownMenu_CreateInfo", "UIDropDownMenu_Initialize",
     "UIDropDownMenu_SetSelectedValue", "UIDropDownMenu_SetText", "UIDropDownMenu_SetWidth",
@@ -71,6 +72,8 @@ files["Tests/"] = {
         "UnitClass", "UnitRace", "UnitGUID", "GetRealmName", "GetRealZoneText", "GetInstanceInfo", "GetBuildInfo",
         "GetMoney", "GetTime", "PlaySound", "SOUNDKIT", "IsShiftKeyDown", "IsControlKeyDown",
         "GetCursorPosition", "SetCursor", "ResetCursor", "BreakUpLargeNumbers", "CreateColor", "ChatTypeInfo",
+        "C_Texture", "GetText", "UnitSex", "GetCurrentArenaSeason", "PVP_RANK_0_NAME",
+        "PVP_RANK_REWARDS_VENDOR_HORDE", "PVP_RANK_REWARDS_VENDOR_ALLIANCE",
         "COMBATLOG_HONORGAIN", "COMBATLOG_HONORGAIN_NO_RANK", "COMBATLOG_HONORAWARD",
         "C_DateAndTime", "C_DeathRecap", "UnitExists", "UnitIsPlayer", "UnitIsEnemy", "UnitIsDeadOrGhost",
         "UnitIsFeignDeath", "GetPlayerInfoByGUID", "RequestBattlefieldScoreData",
