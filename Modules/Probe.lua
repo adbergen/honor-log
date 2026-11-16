@@ -52,6 +52,10 @@ local EVENTS = {
     "ZONE_CHANGED_NEW_AREA",
     "UPDATE_BATTLEFIELD_STATUS",
     "BAG_UPDATE_DELAYED",
+    -- The client's own end-of-match reward report; may give each game's honor
+    -- and rank points directly, without currency deltas.
+    "POST_MATCH_CURRENCY_REWARD_UPDATE",
+    "POST_MATCH_ITEM_REWARD_UPDATE",
 }
 
 -- Flagged HasRestrictions in the Forever docs. Never called, never registered.
@@ -336,6 +340,8 @@ local function readScoreboard(label)
     rec.team = readGlobal("GetBattlefieldArenaFaction")
     rec.duration = readNs("C_PvP", "GetActiveMatchDuration")
     rec.matchComplete = readNs("C_PvP", "IsMatchComplete")
+    rec.postMatchCurrency = readNs("C_PvP", "GetPostMatchCurrencyRewards")
+    rec.postMatchItems = readNs("C_PvP", "GetPostMatchItemRewards")
 
     local scoresOK = type(numScores) == "number" and numScores > 0
     local columnsOK = type(columns) == "table"
