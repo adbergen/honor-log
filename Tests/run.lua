@@ -198,6 +198,13 @@ local function run()
     check(not ok, "registering COMBAT_LOG_EVENT_UNFILTERED raises in the mock")
 
     check(not printedMatching("HonorLog ERROR"), "an error line was printed: " .. tostring(printedMatching("HonorLog ERROR")))
+
+    -- The embedded LibDataBroker must be the real CallbackHandler-based one:
+    -- a stand-in with the same minor version would win LibStub for every addon
+    -- loaded after HonorLog and break their broker callbacks.
+    local ldb = LibStub("LibDataBroker-1.1")
+    check(type(ldb.RegisterCallback) == "function", "LibDataBroker exposes RegisterCallback")
+    check(#mock.handledErrors == 0, "errors reached geterrorhandler: " .. tostring(mock.handledErrors[1]))
 end
 
 local ok, err = xpcall(run, debug.traceback)
