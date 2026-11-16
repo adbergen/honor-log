@@ -14,3 +14,7 @@
 CLAUDE.md
 # Claude Code worktrees and local state
 .claude/
+
+# generator downloads
+tools/.cache/
+__pycache__/
