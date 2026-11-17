@@ -40,6 +40,17 @@ local CARD_HEIGHT = Layout.CARD_HEIGHT
 local CARD_SPACING = Layout.CARD_SPACING
 local PADDING = Layout.PADDING
 local INNER_PADDING = Layout.INNER_PADDING
+local RANK_BAR_HEIGHT = Layout.RANK_BAR_HEIGHT
+local RANK_BAR_GAP = Layout.RANK_BAR_GAP
+
+-- Rank UI state (bar, tab, panel) lives here, not on the frame, so a missing piece reads as nil.
+local ui = {}
+HonorLog.rankUI = ui
+
+-- Extra frame height while the rank bar is shown.
+local function RankBarExtra()
+    return ui.barActive and (RANK_BAR_HEIGHT + RANK_BAR_GAP) or 0
+end
 
 --------------------------------------------------------------------------------
 -- UTILITY FUNCTIONS
@@ -899,9 +910,9 @@ function HonorLog:ResetFrameSize()
     if self.mainFrame then
         self.mainFrame:SetWidth(FRAME_WIDTH)
         if self.db.settings.frameExpanded then
-            self.mainFrame:SetHeight(FRAME_HEIGHT_EXPANDED)
+            self.mainFrame:SetHeight(FRAME_HEIGHT_EXPANDED + RankBarExtra())
         else
-            self.mainFrame:SetHeight(FRAME_HEIGHT_COMPACT)
+            self.mainFrame:SetHeight(FRAME_HEIGHT_COMPACT + RankBarExtra())
         end
     end
 
@@ -938,12 +949,18 @@ function HonorLog:SetExpanded(expanded)
     local currentView = frame.currentView or "stats"
 
     if expanded then
-        frame:SetSize(width, FRAME_HEIGHT_EXPANDED)
+        frame:SetSize(width, FRAME_HEIGHT_EXPANDED + RankBarExtra())
         frame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-MinusButton-UP")
 
         -- Show the appropriate expanded view based on current tab
-        if currentView == "goals" then
+        if currentView == "rank" and ui.panel then
             frame.expanded:Hide()
+            if frame.goalsPanel then frame.goalsPanel:Hide() end
+            ui.panel:Show()
+            self:UpdateRankUI(self.Rank and self.Rank:GetInfo())
+        elseif currentView == "goals" then
+            frame.expanded:Hide()
+            if ui.panel then ui.panel:Hide() end
             if frame.goalsPanel then
                 frame.goalsPanel:SetAlpha(1) -- Ensure panel is visible (reset from any animation)
                 frame.goalsPanel:Show()
@@ -952,6 +969,7 @@ function HonorLog:SetExpanded(expanded)
         else
             frame.expanded:SetAlpha(1) -- Ensure panel is visible (reset from any animation)
             frame.expanded:Show()
+            if ui.panel then ui.panel:Hide() end
             if frame.goalsPanel then
                 frame.goalsPanel:Hide()
             end
@@ -969,7 +987,8 @@ function HonorLog:SetExpanded(expanded)
         if frame.goalsPanel then
             frame.goalsPanel:Hide()
         end
-        frame:SetSize(width, FRAME_HEIGHT_COMPACT)
+        if ui.panel then ui.panel:Hide() end
+        frame:SetSize(width, FRAME_HEIGHT_COMPACT + RankBarExtra())
         frame.expandBtn.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-UP")
     end
 
@@ -1016,6 +1035,8 @@ function HonorLog:UpdateMainFrame()
 
     local scope = self.db.settings.viewMode
     local frame = self.mainFrame
+
+    self:UpdateRankUI(self.Rank and self.Rank:GetInfo())
 
     -- Update view mode indicator
     if scope == "account" then
@@ -1662,3 +1683,413 @@ local function OnUpdate(self, elapsed)
 end
 
 HonorLog.eventFrame:SetScript("OnUpdate", OnUpdate)
+
+--------------------------------------------------------------------------------
+-- RANK BAR AND RANK TAB
+--------------------------------------------------------------------------------
+-- The bar sits under the header; the Rank tab holds the summary and the table of
+-- ranks 1-14. Data comes from HonorLog.Rank; with no rank data the bar and the tab
+-- stay hidden. GoalsPanel.lua owns SwitchTab for Stats and Goals, so the Rank tab
+-- wraps it instead of editing it.
+
+local function commas(n) return HonorLog.Rank.FormatNumber(n) end
+
+-- Rank badge: the atlas Blizzard's rank window uses, else the classic badge file,
+-- else a neutral icon for unranked or unknown.
+local function SetRankIcon(tex, rank)
+    tex:SetTexCoord(0, 1, 0, 1)
+    if rank and rank > 0 and rank <= HonorLog.Rank.MAX_RANK then
+        local atlas = string.format(HonorLog.RANK_ICON_ATLAS, rank)
+        local known = true
+        if C_Texture and C_Texture.GetAtlasInfo then known = C_Texture.GetAtlasInfo(atlas) ~= nil end
+        if known and tex.SetAtlas and pcall(tex.SetAtlas, tex, atlas) then return end
+        tex:SetTexture(string.format(HonorLog.RANK_ICON_FILE, rank))
+        return
+    end
+    tex:SetTexture(HonorLog.RANK_ICON_FALLBACK)
+    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+end
+
+local function CreateRankTabButton(parent, text)
+    local tab = CreateFrame("Button", nil, parent)
+    tab:SetSize(Layout.TAB_WIDTH, Layout.TAB_HEIGHT)
+    local bg = tab:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.15, 0.15, 0.20, 0.8)
+    tab.bg = bg
+    local label = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("CENTER", 0, 0)
+    label:SetText(text)
+    label:SetTextColor(unpack(COLORS.textSecondary))
+    tab.label = label
+    local active = tab:CreateTexture(nil, "OVERLAY")
+    active:SetHeight(2)
+    active:SetPoint("BOTTOMLEFT", 1, 0)
+    active:SetPoint("BOTTOMRIGHT", -1, 0)
+    active:SetColorTexture(unpack(COLORS.brand))
+    active:Hide()
+    tab.activeIndicator = active
+    tab:SetScript("OnEnter", function(self)
+        if not self.isActive then self.bg:SetColorTexture(0.20, 0.20, 0.25, 0.9) end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("PvP Rank")
+        GameTooltip:AddLine("Rank, weekly cap and the plan to any rank", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    tab:SetScript("OnLeave", function(self)
+        if not self.isActive then self.bg:SetColorTexture(0.15, 0.15, 0.20, 0.8) end
+        GameTooltip:Hide()
+    end)
+    function tab:SetActive(isActive)
+        self.isActive = isActive
+        if isActive then
+            self.bg:SetColorTexture(0.18, 0.22, 0.28, 1)
+            self.label:SetTextColor(unpack(COLORS.brand))
+            self.activeIndicator:Show()
+        else
+            self.bg:SetColorTexture(0.15, 0.15, 0.20, 0.8)
+            self.label:SetTextColor(unpack(COLORS.textSecondary))
+            self.activeIndicator:Hide()
+        end
+    end
+    return tab
+end
+
+local function CreateRankBar(frame)
+    local bar = CreateFrame("Frame", nil, frame)
+    bar:SetHeight(RANK_BAR_HEIGHT)
+    bar:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -RANK_BAR_GAP)
+    bar:SetPoint("TOPRIGHT", frame.header, "BOTTOMRIGHT", 0, -RANK_BAR_GAP)
+    bar:EnableMouse(true)
+
+    local icon = bar:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(RANK_BAR_HEIGHT - 2, RANK_BAR_HEIGHT - 2)
+    icon:SetPoint("LEFT", PADDING, 0)
+    bar.icon = icon
+
+    local title = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+    title:SetWidth(92)
+    title:SetJustifyH("LEFT")
+    title:SetWordWrap(false)
+    title:SetTextColor(unpack(COLORS.accent))
+    bar.title = title
+
+    local track = CreateFrame("Frame", nil, bar)
+    track:SetHeight(RANK_BAR_HEIGHT - 4)
+    track:SetPoint("LEFT", title, "RIGHT", 4, 0)
+    track:SetPoint("RIGHT", bar, "RIGHT", -PADDING, 0)
+    local trackBg = track:CreateTexture(nil, "BACKGROUND")
+    trackBg:SetAllPoints()
+    trackBg:SetColorTexture(0.12, 0.12, 0.15, 0.9)
+    local fill = track:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", 0, 0)
+    fill:SetPoint("BOTTOMLEFT", 0, 0)
+    fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    fill:SetVertexColor(unpack(COLORS.rankFill))
+    fill:SetWidth(1)
+    local marker = track:CreateTexture(nil, "OVERLAY")
+    marker:SetWidth(2)
+    marker:SetPoint("TOP", track, "TOP", 0, 0)
+    marker:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
+    marker:SetColorTexture(unpack(COLORS.rankCap))
+    marker:Hide()
+    local text = track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("CENTER", 0, 0)
+    bar.track, bar.fill, bar.marker, bar.text = track, fill, marker, text
+
+    -- The fill and the marker are widths of the track, so a resize redraws them.
+    function bar:Layout()
+        local w = self.track:GetWidth() or 0
+        self.fill:SetWidth(math.max(1, w * (ui.percent or 0) / 100))
+        if ui.markerAt then
+            self.marker:ClearAllPoints()
+            self.marker:SetPoint("TOP", self.track, "TOPLEFT", w * ui.markerAt, 0)
+            self.marker:SetPoint("BOTTOM", self.track, "BOTTOMLEFT", w * ui.markerAt, 0)
+            self.marker:Show()
+        else
+            self.marker:Hide()
+        end
+    end
+    track:SetScript("OnSizeChanged", function() bar:Layout() end)
+
+    bar:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:ClearLines()
+        if HonorLog.Rank and HonorLog.Rank:AddTooltipLines(GameTooltip) then GameTooltip:Show() end
+    end)
+    bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    bar:SetScript("OnMouseUp", function(_, button)
+        if button ~= "LeftButton" then return end
+        HonorLog:SwitchTab("rank")
+        if not HonorLog.db.settings.frameExpanded then HonorLog:SetExpanded(true) end
+    end)
+    bar:Hide()
+    return bar
+end
+
+-- Rank, points, cap: "1,240 / 1,800 · cap R8".
+local function RankBarText(info)
+    local parts = {}
+    if info.threshold > 0 then
+        parts[1] = commas(info.points) .. " / " .. commas(info.threshold)
+    else
+        parts[1] = commas(info.totalPoints) .. " pts"
+    end
+    if info.weekCapRank > 0 then
+        parts[#parts + 1] = (info.capped and "capped R" or "cap R") .. info.weekCapRank
+    end
+    return table.concat(parts, " \194\183 ")
+end
+
+local function UpdateRankBar(frame, info, show)
+    local bar = ui.bar
+    local was = ui.barActive or false
+    ui.barActive = show and true or false
+    if show then
+        bar:Show()
+        SetRankIcon(bar.icon, info.rank)
+        bar.title:SetText(info.rank > 0 and string.format("R%d %s", info.rank, info.title) or info.title)
+        bar.text:SetText(RankBarText(info))
+        ui.percent = info.percent
+        -- A marker where the weekly cap falls inside the current rank.
+        local capPos = info.weekCapTotal - (info.totalPoints - info.points)
+        ui.markerAt = (info.threshold > 0 and capPos > 0 and capPos < info.threshold) and (capPos / info.threshold) or nil
+        bar:Layout()
+    else
+        bar:Hide()
+    end
+    if was ~= ui.barActive then
+        frame.compact:ClearAllPoints()
+        local anchor = show and bar or frame.header
+        frame.compact:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+        frame.compact:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+        local expanded = HonorLog.db.settings.frameExpanded
+        frame:SetHeight((expanded and FRAME_HEIGHT_EXPANDED or FRAME_HEIGHT_COMPACT) + RankBarExtra())
+    end
+end
+
+local rewardOf = setmetatable({}, { __mode = "k" }) -- icon button -> reward
+
+local function CreateRankRow(parent, index)
+    local row = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    row:SetHeight(Layout.RANK_ROW_HEIGHT)
+    row:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    row:SetPoint("TOPLEFT", PADDING, -(index - 1) * (Layout.RANK_ROW_HEIGHT + 2))
+    row:SetPoint("TOPRIGHT", -PADDING, -(index - 1) * (Layout.RANK_ROW_HEIGHT + 2))
+
+    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.name:SetPoint("TOPLEFT", 6, -4)
+    row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
+
+    row.tag = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.tag:SetJustifyH("RIGHT")
+
+    row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.detail:SetPoint("BOTTOMLEFT", 6, 4)
+    row.detail:SetPoint("BOTTOMRIGHT", -4, 4)
+    row.detail:SetJustifyH("LEFT")
+    row.detail:SetWordWrap(false)
+    row.detail:SetTextColor(unpack(COLORS.textSecondary))
+
+    -- Reward icons, right to left; each shows its description on hover.
+    row.icons = {}
+    for i = 1, 3 do
+        local btn = CreateFrame("Button", nil, row)
+        btn:SetSize(14, 14)
+        btn:SetPoint("TOPRIGHT", -4 - (i - 1) * 16, -3)
+        btn.tex = btn:CreateTexture(nil, "ARTWORK")
+        btn.tex:SetAllPoints()
+        btn.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        btn:SetScript("OnEnter", function(self)
+            local reward = rewardOf[self]
+            if not reward then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(reward.description or reward.name or "Reward")
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        btn:Hide()
+        row.icons[i] = btn
+    end
+    row.tag:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4 - 3 * 16, -4)
+    row.name:SetPoint("TOPRIGHT", row.tag, "TOPLEFT", -4, 0)
+    return row
+end
+
+local function CreateRankPanel(frame)
+    local panel = CreateFrame("Frame", nil, frame)
+    panel:SetPoint("TOPLEFT", frame.compact, "BOTTOMLEFT", 0, -2)
+    panel:SetPoint("TOPRIGHT", frame.compact, "BOTTOMRIGHT", 0, -2)
+    panel:SetPoint("BOTTOM", 0, 5)
+
+    panel.lines = {}
+    for i = 1, 4 do
+        local fs = panel:CreateFontString(nil, "OVERLAY", i == 1 and "GameFontNormal" or "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", PADDING, -4 - (i == 1 and 0 or 4 + (i - 1) * 13))
+        fs:SetPoint("TOPRIGHT", -PADDING, -4 - (i == 1 and 0 or 4 + (i - 1) * 13))
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(false)
+        if i > 1 then fs:SetTextColor(unpack(COLORS.textSecondary)) end
+        panel.lines[i] = fs
+    end
+
+    local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 0, -Layout.RANK_SUMMARY_HEIGHT)
+    scroll:SetPoint("BOTTOMRIGHT", -22, 2)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetWidth(FRAME_WIDTH - 22)
+    content:SetHeight(HonorLog.Rank.MAX_RANK * (Layout.RANK_ROW_HEIGHT + 2))
+    scroll:SetScrollChild(content)
+    panel.scroll, panel.content = scroll, content
+    scroll:SetScript("OnSizeChanged", function(_, width) if width and width > 0 then content:SetWidth(width) end end)
+
+    panel.rows = {}
+    for n = 1, HonorLog.Rank.MAX_RANK do panel.rows[n] = CreateRankRow(content, n) end
+
+    function panel:Update(info)
+        local L = self.lines
+        for _, row in ipairs(self.rows) do row:SetShown(info ~= nil) end
+        if not info then
+            L[1]:SetText("No PvP rank data from the client yet.")
+            for i = 2, 4 do L[i]:SetText("") end
+            return
+        end
+        local Rank = HonorLog.Rank
+        local pace = Rank:GetPace()
+        L[1]:SetText(info.rank > 0 and string.format("Rank %d  %s", info.rank, info.title) or info.title)
+        local progress = info.threshold > 0 and string.format("%s / %s (%d%%) \194\183 %s pts total", commas(info.points),
+            commas(info.threshold), math.floor(info.percent), commas(info.totalPoints)) or (commas(info.totalPoints) .. " pts total")
+        local cap
+        if info.weekCapRank <= 0 then
+            cap = "No weekly cap reported"
+        elseif info.capped then
+            cap = string.format("Week %d cap: Rank %d reached. Next cap in %s", info.weekNumber, info.weekCapRank,
+                Rank.FormatSpan(info.secondsToWeeklyReset))
+        else
+            cap = string.format("Week %d cap: Rank %d, %s pts left. Next cap in %s", info.weekNumber, info.weekCapRank,
+                commas(info.pointsLeftThisWeek or 0), Rank.FormatSpan(info.secondsToWeeklyReset))
+        end
+        L[2]:SetText(progress)
+        L[3]:SetText(cap .. (info.secondsToSeasonEnd > 0 and (" \194\183 season ends in " .. Rank.FormatSpan(info.secondsToSeasonEnd)) or ""))
+        L[4]:SetText(string.format("Pace: %d/win, %d/loss, %d%% wins, %.1f games/day%s", math.floor(pace.pointsPerWin + 0.5),
+            math.floor(pace.pointsPerLoss + 0.5), math.floor(pace.winRate * 100 + 0.5), pace.gamesPerDay,
+            pace.estimated and " (estimate)" or ""))
+
+        for n, row in ipairs(self.rows) do
+            local plan = Rank:PlanToRank(n, info, pace)
+            local color = HonorLog.RANK_TAG_COLORS[plan.limitedBy] or COLORS.textSecondary
+            row.name:SetText(string.format("R%d %s", n, Rank:TitleForRank(n)))
+            row.name:SetTextColor(unpack(plan.reached and COLORS.textTertiary or COLORS.accent))
+            row.tag:SetText(Rank.TAG_TEXT[plan.limitedBy] or "")
+            row.tag:SetTextColor(unpack(color))
+            local total = commas(Rank:TotalForRank(n)) .. " total"
+            if plan.reached then
+                row.detail:SetText(total .. " \194\183 reached")
+            else
+                row.detail:SetText(string.format("%s \194\183 %s to go \194\183 ~%s games \194\183 %s", total,
+                    commas(plan.pointsNeeded), commas(plan.gamesNeeded), plan.date and Rank.FormatDate(plan.date) or "no date"))
+            end
+            -- The current rank and this week's cap stand out.
+            local isCurrent, isCap = n == info.rank, info.weekCapRank > 0 and n == info.weekCapRank
+            row:SetBackdropColor(unpack(isCurrent and COLORS.rankCurrentBg or COLORS.bgCard))
+            row:SetBackdropBorderColor(unpack(isCurrent and COLORS.brand or (isCap and COLORS.rankCap or COLORS.borderDark)))
+            row:SetAlpha(plan.reached and not isCurrent and 0.65 or 1)
+            local rewards = Rank:GetRewards(n)
+            for i, btn in ipairs(row.icons) do
+                local r = rewards[i]
+                rewardOf[btn] = r
+                if r then
+                    btn.tex:SetTexture(r.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                    btn:Show()
+                else
+                    btn:Hide()
+                end
+            end
+        end
+    end
+
+    panel:Hide()
+    return panel
+end
+
+-- Rank bar and Rank tab, built after the Goals UI so the tabs line up.
+function HonorLog:InitializeRankUI()
+    local frame = self.mainFrame
+    if not frame then return end
+
+    ui.bar = CreateRankBar(frame)
+    ui.panel = CreateRankPanel(frame)
+    ui.tab = CreateRankTabButton(frame.header, "Rank")
+    ui.tab:SetPoint("RIGHT", frame.expandBtn, "LEFT", -4, 0)
+    ui.tab:SetActive(false)
+    ui.tab:Hide()
+    ui.tab:SetScript("OnClick", function() HonorLog:SwitchTab("rank") end)
+
+    -- GoalsPanel.lua owns SwitchTab for Stats and Goals; Rank handles itself and hands the rest on.
+    local goalsSwitch = self.SwitchTab
+    self.SwitchTab = function(addon, tabName)
+        local f = addon.mainFrame
+        if not f then return end
+        if tabName ~= "rank" then
+            ui.panel:Hide()
+            ui.tab:SetActive(false)
+            if goalsSwitch then goalsSwitch(addon, tabName) end
+            return
+        end
+        if not ui.tab:IsShown() then return end -- no rank data: no Rank view
+        f.currentView = "rank"
+        if f.statsTab then f.statsTab:SetActive(false) end
+        if f.goalsTab then f.goalsTab:SetActive(false) end
+        ui.tab:SetActive(true)
+        addon:UpdateCompactView()
+        f.statsView:Hide()
+        if f.goalsPanel then f.goalsPanel:Hide() end
+        if addon.db.settings.frameExpanded then
+            ui.panel:Show()
+            addon:UpdateRankUI(addon.Rank and addon.Rank:GetInfo())
+        else
+            ui.panel:Hide()
+        end
+    end
+
+    -- Keep the Rank tab current whenever data changes (a recorded game moves the pace).
+    local previous = self.OnDataUpdated
+    self.OnDataUpdated = function(addon, ...)
+        if previous then previous(addon, ...) end
+        addon:RefreshRank()
+    end
+
+    self:UpdateRankUI(self.Rank and self.Rank:GetInfo())
+end
+
+-- info is nil when the client has no rank data: the bar and the tab hide.
+function HonorLog:UpdateRankUI(info)
+    local frame = self.mainFrame
+    if not (frame and ui.bar and ui.tab) then return end
+    local showBar = info ~= nil and self.db.settings.showRankBar ~= false
+    UpdateRankBar(frame, info, showBar)
+
+    local hasTab = info ~= nil
+    if ui.tab:IsShown() ~= hasTab then
+        ui.tab:SetShown(hasTab)
+        -- The Goals tab sits beside the Rank tab when there is one.
+        if frame.goalsTab then
+            frame.goalsTab:ClearAllPoints()
+            frame.goalsTab:SetPoint("RIGHT", hasTab and ui.tab or frame.expandBtn, "LEFT", hasTab and -2 or -4, 0)
+        end
+    end
+    if not hasTab and frame.currentView == "rank" then
+        self:SwitchTab("stats")
+        return
+    end
+    if frame.currentView == "rank" and ui.panel:IsShown() then
+        ui.panel:Update(info)
+    end
+end

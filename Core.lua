@@ -125,6 +125,9 @@ local events = {
     "CURRENCY_DISPLAY_UPDATE",
     "BAG_UPDATE_DELAYED",
     "BAG_UPDATE", -- For detecting acquired goal items
+    "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", -- rank gained (faction 2800)
+    "PLAYER_PVP_RANK_CHANGED",
+    "UPDATE_FACTION",
     -- COMBAT_LOG_EVENT_UNFILTERED is deliberately not registered: the Forever
     -- docs flag it HasRestrictions and registering it raises the "blocked"
     -- popup. Kills and deaths come from the signals above instead.
@@ -182,6 +185,7 @@ function HonorLog:ADDON_LOADED(addon)
     local uiOK = SafeInit("MainFrame", function() self:InitializeMainFrame() end)
     if uiOK then
         SafeInit("GoalsUI", function() self:InitializeGoalsUI() end)
+        SafeInit("RankUI", function() self:InitializeRankUI() end)
     end
     SafeInit("Options", function() self:InitializeOptions() end)
     SafeInit("LDB", function() self:InitializeLDB() end)
@@ -279,6 +283,7 @@ function HonorLog:PLAYER_ENTERING_WORLD()
     lastHK = lastHK or call(GetPVPSessionStats)
     if not num(lastHK) then lastHK = nil end
     self:CheckHonorCap()
+    self:RefreshRank()
 
     -- Delayed scan for acquired goal items (bags may not be ready immediately)
     C_Timer.After(2, function()
@@ -289,6 +294,24 @@ function HonorLog:PLAYER_ENTERING_WORLD()
             end
         end
     end)
+end
+
+-- Rank data refresh (the Rank module owns the logic).
+function HonorLog:RefreshRank()
+    if self.Rank then self.Rank:Refresh() end
+end
+
+function HonorLog:MAJOR_FACTION_RENOWN_LEVEL_CHANGED(factionID, newLevel, oldLevel)
+    if self.Rank then self.Rank:OnRenownChanged(factionID, newLevel, oldLevel) end
+end
+
+function HonorLog:PLAYER_PVP_RANK_CHANGED(unitTarget)
+    if unitTarget ~= nil and not isSecret(unitTarget) and unitTarget ~= "player" then return end
+    self:RefreshRank()
+end
+
+function HonorLog:UPDATE_FACTION()
+    self:RefreshRank()
 end
 
 function HonorLog:ZONE_CHANGED_NEW_AREA()
@@ -760,6 +783,8 @@ function HonorLog:CURRENCY_DISPLAY_UPDATE(currencyType, quantity, quantityChange
         local change = num(quantityChange)
         if change and change > 0 then self:OnHonorGained(change) end
         self:CheckHonorCap()
+    elseif num(currencyType) == 3468 then
+        self:RefreshRank()
     end
 
     -- Update goals panel when currency changes (honor, marks)
@@ -1109,6 +1134,8 @@ function HonorLog:HandleSlashCommand(msg)
         self:ToggleMainFrame()
     elseif cmd == "stats" then
         self:PrintStats(arg)
+    elseif cmd == "rank" then
+        if self.Rank then self.Rank:PrintSlash(arg) end
     elseif cmd == "reset" then
         local resetType = arg:lower()
         if resetType == "today" or resetType == "session" then
@@ -1520,6 +1547,7 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog history [n]|r - Recent games")
     print("  |cffffffff/honorlog honor|r - Honor today, this week and this session")
     print("  |cffffffff/honorlog cap [on|off|percent]|r - Honor cap warning")
+    print("  |cffffffff/honorlog rank [n]|r - PvP rank summary, or the plan to rank n")
     print("  |cffffffff/honorlog probe [on|off|status|clear]|r - Record what PvP data the client exposes (dev)")
     print("  |cffffffff/honorlog scan|r - Scan current PvP vendor (dev)")
     print("  |cffffffff/honorlog scan export|r - Export scanned data as Lua")
@@ -1658,6 +1686,12 @@ end
 function HonorLog:UpdateLDB()
     if not self.ldb or not self.db.settings.ldbEnabled then return end
 
+    local rankText = self.Rank and self.Rank:BrokerText()
+    if rankText then
+        self.ldb.text = rankText
+        return
+    end
+
     local currentBG = self:GetCurrentBG()
     local session = self:GetTotalSessionStats()
 
@@ -1735,6 +1769,12 @@ function HonorLog:BuildLDBTooltip(tooltip)
             end
             tooltip:AddDoubleLine("World PvP", worldText, 1, 1, 1, 1, 1, 1)
         end
+    end
+
+    -- Rank plan
+    if self.Rank then
+        tooltip:AddLine(" ")
+        if not self.Rank:AddTooltipLines(tooltip) then tooltip:AddLine("No PvP rank data yet", 0.6, 0.6, 0.6) end
     end
 
     -- Honor summary (measured from the honor currency)

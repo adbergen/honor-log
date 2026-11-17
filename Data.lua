@@ -111,6 +111,11 @@ local DEFAULTS = {
         -- Measured honor: today (by date), this week (until the weekly reset) and this login session
         honorLog = { day = 0, today = 0, weekEnd = 0, week = 0, session = 0 },
         honorCapWarned = false,
+        -- Rank climb: weekly log (week number -> { startTotal, endTotal, games, capRank }, last 20 weeks),
+        -- the week the cap alert last fired and the last rank celebrated.
+        rankWeeks = {},
+        rankCapAlertWeek = 0,
+        rankCelebrated = 0,
         -- Gear Goals system
         goals = {
             items = {}, -- Array of { itemID, addedAt, priority }
@@ -160,6 +165,9 @@ local DEFAULTS = {
         goalProgressMode = "shared", -- "shared" (all show same %) or "waterfall" (fills top-to-bottom)
         honorCapWarning = true,
         honorCapWarnPct = 90, -- warn once per crossing at this percent of the honor cap
+        showRankBar = true, -- the rank bar under the header of the main panel
+        rankCapAlert = true, -- one alert per week when the weekly rank cap is reached
+        ldbFormat = "games", -- broker text: "games" (win-loss today) or "rank" (R7 Title · 62%)
         visibleCards = { -- Which stat cards to show
             AV = true,
             WSG = true,
