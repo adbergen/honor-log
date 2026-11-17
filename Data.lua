@@ -266,6 +266,11 @@ function HonorLog:InitializeDB()
         DeepMerge(HonorLogCharDB, DEFAULTS.char)
     end
 
+    -- Early 2.0 builds saved lastSeen with a fractional part; keep whole seconds.
+    for _, e in pairs(HonorLogCharDB.opponents or {}) do
+        if type(e) == "table" and type(e.lastSeen) == "number" then e.lastSeen = math.floor(e.lastSeen) end
+    end
+
     -- Settings (stored in global)
     if not HonorLogDB.settings then
         HonorLogDB.settings = DeepCopy(DEFAULTS.settings)
@@ -730,10 +735,12 @@ function HonorLog:NoteOpponent(name, class, kind)
         for _ in pairs(opponents) do count = count + 1 end
         -- Over the cap: drop the oldest lastSeen first (never the entry just added).
         while count > OPPONENT_CAP do
-            local oldestName, oldestSeen
+            local oldestName, oldestSeen, oldestOrder
             for other, e in pairs(opponents) do
-                if other ~= name and (not oldestSeen or (e.lastSeen or 0) < oldestSeen) then
-                    oldestName, oldestSeen = other, e.lastSeen or 0
+                local seen = math.floor(e.lastSeen or 0)
+                local order = self.opponentOrder and self.opponentOrder[other] or 0
+                if other ~= name and (not oldestSeen or seen < oldestSeen or (seen == oldestSeen and order < oldestOrder)) then
+                    oldestName, oldestSeen, oldestOrder = other, seen, order
                 end
             end
             if not oldestName then break end
@@ -743,9 +750,12 @@ function HonorLog:NoteOpponent(name, class, kind)
     end
     if class then entry.class = class end
     if kind == "kill" then entry.kills = entry.kills + 1 else entry.deaths = entry.deaths + 1 end
+    -- lastSeen is whole seconds. Entries noted within the same second are told apart by an in-memory
+    -- counter (never saved), so the cap still drops the oldest first.
     self.opponentSeq = (self.opponentSeq or 0) + 1
-    -- time() is whole seconds; the sequence keeps lastSeen strictly ordered within one second.
-    entry.lastSeen = time() + self.opponentSeq / 1e6
+    self.opponentOrder = self.opponentOrder or {}
+    self.opponentOrder[name] = self.opponentSeq
+    entry.lastSeen = time()
 end
 
 -- Top opponents by total encounters (most kills + deaths first).
@@ -758,6 +768,8 @@ function HonorLog:GetTopOpponents(limit)
         local ta, tb = a.kills + a.deaths, b.kills + b.deaths
         if ta ~= tb then return ta > tb end
         if a.lastSeen ~= b.lastSeen then return a.lastSeen > b.lastSeen end
+        local oa, ob = self.opponentOrder and self.opponentOrder[a.name] or 0, self.opponentOrder and self.opponentOrder[b.name] or 0
+        if oa ~= ob then return oa > ob end
         return a.name < b.name
     end)
     for i = #list, (limit or 5) + 1, -1 do list[i] = nil end

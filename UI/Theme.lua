@@ -59,7 +59,6 @@ HonorLog.Theme = {
 
     -- Currency colors
     honor = { 1.0, 0.85, 0.25, 1 },
-    arena = { 0.70, 0.30, 0.90, 1 },
     marks = { 0.35, 0.78, 1.0, 1 },
 
     -- Rank climb
@@ -90,8 +89,7 @@ HonorLog.BG_COLORS = {
     AV = { 0.45, 0.75, 1.0, 1 },   -- Ice blue
     AB = { 1.0, 0.78, 0.28, 1 },   -- Rich gold
     WSG = { 1.0, 0.38, 0.38, 1 },  -- Vibrant red
-    DI = { 0.35, 0.85, 0.65, 1 },  -- Island teal
-    EotS = { 0.75, 0.45, 1.0, 1 }, -- Deep purple (TBC history only)
+    DI = { 0.35, 0.85, 0.65, 1 },  -- Island teal (matches the DI hex below)
 }
 
 -- Glow/subtle BG colors (for backgrounds, subtle indicators)
@@ -100,7 +98,6 @@ HonorLog.BG_GLOW_COLORS = {
     AB = { 0.90, 0.68, 0.18, 0.3 },
     WSG = { 0.90, 0.28, 0.28, 0.3 },
     DI = { 0.25, 0.75, 0.55, 0.3 },
-    EotS = { 0.65, 0.35, 0.90, 0.3 },
 }
 
 -- Hex codes for inline text coloring
@@ -109,16 +106,14 @@ HonorLog.BG_COLOR_HEX = {
     AB = "e65959",   -- Red (adjusted to match goals panel usage)
     WSG = "59d973",  -- Green
     DI = "59d9a6",   -- Teal
-    EotS = "cc80f2", -- Purple (TBC history only)
 }
 
--- Mark of Honor icons (TBC Classic mark item icons)
+-- Mark of Honor icons, one per battleground mark item
 HonorLog.BG_ICONS = {
     AV = "Interface\\Icons\\INV_Jewelry_Necklace_21",   -- Alterac Valley Mark
     AB = "Interface\\Icons\\INV_Jewelry_Amulet_07",     -- Arathi Basin Mark
     WSG = "Interface\\Icons\\INV_Misc_Rune_07",         -- Warsong Gulch Mark
-    DI = "Interface\\Icons\\INV_BannerPVP_01",        -- Darkspear Islands Mark
-    EotS = "Interface\\Icons\\Spell_Nature_EyeOfTheStorm", -- TBC history only
+    DI = 237427,                                        -- Darkspear Islands Mark (item 274895): its own icon file id from the 1.60.1 client data
 }
 
 -- A battleground the registry does not know yet (generic "MAP<id>" entry) still needs colours.
@@ -127,19 +122,18 @@ local FALLBACK_GLOW = { 0.60, 0.60, 0.68, 0.3 }
 function HonorLog:GetBGColor(bgType) return HonorLog.BG_COLORS[bgType] or FALLBACK_COLOR end
 function HonorLog:GetBGGlow(bgType) return HonorLog.BG_GLOW_COLORS[bgType] or FALLBACK_GLOW end
 
--- Currency icons (TBC Classic compatible, faction-specific for honor)
+-- Currency icons (honor, by faction)
 HonorLog.CURRENCY_ICONS = {
     honor = {
         Alliance = "Interface\\Icons\\Spell_Holy_ChampionsBond",  -- Gold medallion
         Horde = "Interface\\Icons\\Spell_Holy_ChampionsBond",     -- Gold medallion
     },
-    arena = "Interface\\Icons\\INV_Jewelry_Talisman_08",  -- Purple talisman
 }
 
 --------------------------------------------------------------------------------
 -- BATTLEGROUND ORDER
 --------------------------------------------------------------------------------
--- Active BGs for UI display. EotS is TBC history only; arenas are not tracked.
+-- Active BGs for UI display.
 HonorLog.BG_ORDER = { "AV", "WSG", "AB", "DI" }
 
 --------------------------------------------------------------------------------
