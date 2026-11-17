@@ -165,18 +165,35 @@ function hooksecurefunc(arg1, arg2, arg3)
 end
 
 -- Timers run at once unless a test defers them with M.deferTimers = true.
+-- A deferred timer remembers when it is due (M.now + delay), so M.advance(dt)
+-- can move the clock and run what falls due, in order, including timers that
+-- the callbacks themselves schedule.
 M.timers = {}
 M.deferTimers = false
 C_Timer = {
     After = function(delay, fn)
         if not fn then return end
         if M.deferTimers then
-            M.timers[#M.timers + 1] = { delay = delay, fn = fn }
+            M.timers[#M.timers + 1] = { delay = delay, fn = fn, due = (M.now or 0) + delay }
         else
             fn()
         end
     end,
 }
+function M.advance(dt)
+    local target = (M.now or 0) + dt
+    while true do
+        local nextIndex
+        for i, t in ipairs(M.timers) do
+            if t.due <= target and (not nextIndex or t.due < M.timers[nextIndex].due) then nextIndex = i end
+        end
+        if not nextIndex then break end
+        local t = table.remove(M.timers, nextIndex)
+        if t.due > (M.now or 0) then M.now = t.due end
+        t.fn()
+    end
+    M.now = target
+end
 function M.flushTimers(maxDelay)
     local pending = M.timers
     M.timers = {}
@@ -196,7 +213,7 @@ for _, e in ipairs({
     "PLAYER_DEAD", "BATTLEGROUND_POINTS_UPDATE", "CURRENCY_DISPLAY_UPDATE", "BAG_UPDATE",
     "BAG_UPDATE_DELAYED", "POST_MATCH_CURRENCY_REWARD_UPDATE", "POST_MATCH_ITEM_REWARD_UPDATE", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
-    "PARTY_KILL", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED",
+    "PARTY_KILL", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
@@ -226,17 +243,45 @@ M.pvp = {
     matchComplete = false,
     scoresSecret = false,  -- GetScoreInfo rows carry secret numbers
     numScores = 0,
+    duration = 612,        -- C_PvP.GetActiveMatchDuration
+    winner = 1,            -- C_PvP.GetActiveMatchWinner (the client reports 0 at other times)
+    bfWinner = nil,        -- GetBattlefieldWinner
+    team = 1,              -- GetBattlefieldArenaFaction
+    sessionHK = 5,         -- GetPVPSessionStats
+    roster = nil,          -- optional list of { name, guid, faction, kb, hk, deaths, damage, healing, stats = { { id, name, value } } }
+    columns = nil,         -- optional list of { id, name } for GetMatchPVPStatColumns
+    requests = 0,          -- RequestBattlefieldScoreData calls
 }
 M.secretHonor = M.newSecret()
 
+local function rosterRow(i)
+    local r = M.pvp.roster[i]
+    if not r then return nil end
+    local secret = M.pvp.scoresSecret
+    local function v(x) return secret and M.newSecret() or x end
+    local stats = {}
+    for _, st in ipairs(r.stats or {}) do
+        stats[#stats + 1] = { pvpStatID = st.id, pvpStatValue = v(st.value), name = st.name }
+    end
+    return {
+        name = r.name, guid = r.guid, killingBlows = v(r.kb), honorableKills = v(r.hk), deaths = v(r.deaths),
+        honorGained = secret and M.secretHonor or (r.honor or 0), faction = r.faction, raceName = "Human",
+        className = "Warrior", classToken = r.class or "WARRIOR", damageDone = v(r.damage or 0),
+        healingDone = v(r.healing or 0), stats = stats,
+    }
+end
+
 local function scoreRow(i)
+    if M.pvp.roster then return rosterRow(i) end
     if i > M.pvp.numScores or i < 1 then return nil end
     local secret = M.pvp.scoresSecret
     return {
         name = i == 1 and "Tester" or ("Player" .. i), guid = "Player-1-" .. i,
         killingBlows = secret and M.newSecret() or 3, honorableKills = secret and M.newSecret() or 12,
         deaths = secret and M.newSecret() or 2, honorGained = secret and M.secretHonor or 450,
-        faction = 1, className = "Warrior", stats = { { pvpStatID = 1, pvpStatValue = secret and M.newSecret() or 7, name = "Flags" } },
+        damageDone = secret and M.newSecret() or 1000, healingDone = secret and M.newSecret() or 0,
+        faction = 1, className = "Warrior", classToken = "WARRIOR",
+        stats = { { pvpStatID = 1, pvpStatValue = secret and M.newSecret() or 7, name = "Flags" } },
     }
 end
 
@@ -251,12 +296,26 @@ C_PvP = {
     end,
     GetScoreInfo = scoreRow,
     GetScoreInfoByPlayerGuid = function(guid)
+        if M.pvp.roster then
+            for i, r in ipairs(M.pvp.roster) do
+                if r.guid == guid then return rosterRow(i) end
+            end
+            return nil
+        end
         if guid == "Player-1-1" then return scoreRow(1) end
     end,
-    GetMatchPVPStatColumns = function() return { { pvpStatID = 1, name = "Flags", orderIndex = 1 } } end,
-    GetActiveMatchWinner = function() return 1 end,
-    GetActiveMatchDuration = function() return 612 end,
-    GetActiveMatchState = function() return M.pvp.matchComplete and 4 or 2 end,
+    GetMatchPVPStatColumns = function()
+        if M.pvp.columns then
+            local cols = {}
+            for i, c in ipairs(M.pvp.columns) do cols[i] = { pvpStatID = c.id, name = c.name, orderIndex = i } end
+            return cols
+        end
+        return { { pvpStatID = 1, name = "Flags", orderIndex = 1 } }
+    end,
+    GetActiveMatchWinner = function() return M.pvp.matchComplete and M.pvp.winner or 0 end,
+    GetActiveMatchDuration = function() return M.pvp.duration end,
+    -- Enum.PvPMatchState: 2 StartUp, 3 Engaged, 5 Complete.
+    GetActiveMatchState = function() return M.pvp.matchComplete and 5 or 3 end,
     IsMatchActive = function() return M.pvp.matchActive end,
     IsMatchComplete = function() return M.pvp.matchComplete end,
     IsBattleground = function() return false end,
@@ -267,20 +326,22 @@ C_PvP = {
 M.handledErrors = {}
 function geterrorhandler() return function(e) M.handledErrors[#M.handledErrors + 1] = tostring(e) end end
 function GetNumBattlegroundTypes() return 3 end
-function GetBattlefieldWinner() return nil end
-function GetNumBattlefieldScores() return M.pvp.numScores end
+function GetBattlefieldWinner() return M.pvp.bfWinner end
+function GetNumBattlefieldScores() return M.pvp.roster and #M.pvp.roster or M.pvp.numScores end
 function GetBattlefieldStatus() return "none" end
 function GetMaxBattlefieldID() return 3 end
-function GetBattlefieldArenaFaction() return 1 end
-function GetPVPSessionStats() return 5, 0 end
+function GetBattlefieldArenaFaction() return M.pvp.team end
+function RequestBattlefieldScoreData() M.pvp.requests = M.pvp.requests + 1 end
+function GetPVPSessionStats() return M.pvp.sessionHK, 0 end
 function GetPVPLifetimeStats() return 120, 4 end
 function GetPVPYesterdayStats() return 9, 0 end
 
+M.rank = { level = 3, earned = 120, threshold = 1050 }
 C_MajorFactions = {
     GetMajorFactionProgressionInfo = function(id)
         if id == 2800 then
-            return { renownLevel = 3, renownReputationEarned = 120, renownLevelThreshold = 1050,
-                     currentWeekProgressiveMaxLevel = 5, weekNumber = 2 }
+            return { renownLevel = M.rank.level, renownReputationEarned = M.rank.earned,
+                     renownLevelThreshold = M.rank.threshold, currentWeekProgressiveMaxLevel = 5, weekNumber = 2 }
         end
     end,
     GetMajorFactionData = function(id) return { factionID = id, name = "PvP Rank Points" } end,
@@ -291,6 +352,7 @@ local CURRENCIES = {
     [3468] = { name = "PvP Rank Points", quantity = 120, maxQuantity = 0 },
     [3473] = { name = "PvP Rank", quantity = 3, maxQuantity = 14 },
 }
+M.currencies = CURRENCIES
 C_CurrencyInfo = {
     GetCurrencyInfo = function(id)
         local c = CURRENCIES[id]
@@ -329,15 +391,51 @@ C_AddOns = {
 
 function GetInventoryItemID() return nil end
 function UnitHonor() return 0 end
-function UnitName() return "Tester" end
+function UnitName(unit)
+    if unit == nil or unit == "player" then return "Tester" end
+    local u = M.units[unit]
+    return u and u.name or nil
+end
 function UnitFactionGroup() return "Alliance", "Alliance" end
 function UnitLevel() return 60 end
-function UnitClass() return "Warrior", "WARRIOR", 1 end
+function UnitClass(unit)
+    local u = unit and unit ~= "player" and M.units[unit]
+    if u then return u.class, u.class, 1 end
+    return "Warrior", "WARRIOR", 1
+end
 function UnitRace() return "Human", "Human" end
 function UnitGUID() return "Player-1-1" end
 function GetRealmName() return "TestRealm" end
 function GetRealZoneText() return "Stormwind City" end
-function GetInstanceInfo() return "Stormwind City", "none", 0, "", 0, 0, false, 0 end
+-- The instance the player is in; tests change it. mapID is the 8th return.
+M.instance = { name = "Stormwind City", type = "none", mapID = 0 }
+function GetInstanceInfo()
+    local i = M.instance
+    return i.name, i.type, 0, "", 0, 0, false, i.mapID
+end
+function M.setInstance(name, instanceType, mapID) M.instance = { name = name, type = instanceType, mapID = mapID } end
+
+-- Units in sight (target, mouseover, nameplate1...): { name, class, enemy, dead, player }.
+M.units = {}
+function UnitExists(unit) return M.units[unit] ~= nil end
+function UnitIsPlayer(unit) local u = M.units[unit]; return u ~= nil and u.player ~= false end
+function UnitIsEnemy(_, unit) local u = M.units[unit]; return u ~= nil and u.enemy == true end
+function UnitIsDeadOrGhost(unit) local u = M.units[unit]; return u ~= nil and u.dead == true end
+function UnitIsFeignDeath() return false end
+-- Death recap events the client would return: { timestamp, sourceGUID, sourceName, spellName, amount }.
+M.recap = {}
+C_DeathRecap = {
+    GetRecapEvents = function() return M.recap end,
+    HasRecapEvents = function() return #M.recap > 0 end,
+}
+-- Seconds to the weekly reset.
+M.weeklyReset = 3 * 86400
+C_DateAndTime = { GetSecondsUntilWeeklyReset = function() return M.weeklyReset end }
+-- localizedClass, englishClass, localizedRace, englishRace, sex, name, realm
+function GetPlayerInfoByGUID(guid)
+    if guid == "Player-2-77" then return "Rogue", "ROGUE", "Orc", "Orc", 2, "EnemyRogue", "" end
+    return "Warrior", "WARRIOR", "Human", "Human", 2, "Someone", ""
+end
 function GetBuildInfo() return "1.60.1", "70938", "Nov 1 2026", 16001 end
 function GetMoney() return 123456 end
 function GetTime() return M.now or os.clock() end

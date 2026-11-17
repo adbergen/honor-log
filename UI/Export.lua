@@ -248,8 +248,8 @@ function HonorLog:GenerateCSVExport(scope)
     local history = self:GetHistory(scope, 50)
     for _, entry in ipairs(history) do
         table.insert(lines, string.format("%s\t%s\t%d\t%d\t%d\t%s",
-            entry.bgType,
-            entry.win and "Win" or "Loss",
+            self:GetBGDisplayName(entry.bgType),
+            ({ win = "Win", loss = "Loss", draw = "Draw", left = "Left" })[entry.result or (entry.win and "win" or "loss")] or "Loss",
             entry.duration,
             entry.honor,
             entry.marks,

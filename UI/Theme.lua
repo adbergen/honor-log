@@ -72,7 +72,8 @@ HonorLog.BG_COLORS = {
     AV = { 0.45, 0.75, 1.0, 1 },   -- Ice blue
     AB = { 1.0, 0.78, 0.28, 1 },   -- Rich gold
     WSG = { 1.0, 0.38, 0.38, 1 },  -- Vibrant red
-    EotS = { 0.75, 0.45, 1.0, 1 }, -- Deep purple
+    DI = { 0.35, 0.85, 0.65, 1 },  -- Island teal
+    EotS = { 0.75, 0.45, 1.0, 1 }, -- Deep purple (TBC history only)
 }
 
 -- Glow/subtle BG colors (for backgrounds, subtle indicators)
@@ -80,6 +81,7 @@ HonorLog.BG_GLOW_COLORS = {
     AV = { 0.35, 0.65, 0.90, 0.3 },
     AB = { 0.90, 0.68, 0.18, 0.3 },
     WSG = { 0.90, 0.28, 0.28, 0.3 },
+    DI = { 0.25, 0.75, 0.55, 0.3 },
     EotS = { 0.65, 0.35, 0.90, 0.3 },
 }
 
@@ -88,7 +90,8 @@ HonorLog.BG_COLOR_HEX = {
     AV = "73b3f2",   -- Icy blue
     AB = "e65959",   -- Red (adjusted to match goals panel usage)
     WSG = "59d973",  -- Green
-    EotS = "cc80f2", -- Purple
+    DI = "59d9a6",   -- Teal
+    EotS = "cc80f2", -- Purple (TBC history only)
 }
 
 -- Mark of Honor icons (TBC Classic mark item icons)
@@ -96,8 +99,15 @@ HonorLog.BG_ICONS = {
     AV = "Interface\\Icons\\INV_Jewelry_Necklace_21",   -- Alterac Valley Mark
     AB = "Interface\\Icons\\INV_Jewelry_Amulet_07",     -- Arathi Basin Mark
     WSG = "Interface\\Icons\\INV_Misc_Rune_07",         -- Warsong Gulch Mark
-    EotS = "Interface\\Icons\\Spell_Nature_EyeOfTheStorm", -- Eye of the Storm Mark
+    DI = "Interface\\Icons\\INV_BannerPVP_01",        -- Darkspear Islands Mark
+    EotS = "Interface\\Icons\\Spell_Nature_EyeOfTheStorm", -- TBC history only
 }
+
+-- A battleground the registry does not know yet (generic "MAP<id>" entry) still needs colours.
+local FALLBACK_COLOR = { 0.70, 0.70, 0.78, 1 }
+local FALLBACK_GLOW = { 0.60, 0.60, 0.68, 0.3 }
+function HonorLog:GetBGColor(bgType) return HonorLog.BG_COLORS[bgType] or FALLBACK_COLOR end
+function HonorLog:GetBGGlow(bgType) return HonorLog.BG_GLOW_COLORS[bgType] or FALLBACK_GLOW end
 
 -- Currency icons (TBC Classic compatible, faction-specific for honor)
 HonorLog.CURRENCY_ICONS = {
@@ -111,8 +121,8 @@ HonorLog.CURRENCY_ICONS = {
 --------------------------------------------------------------------------------
 -- BATTLEGROUND ORDER
 --------------------------------------------------------------------------------
--- Active BGs for UI display
-HonorLog.BG_ORDER = { "AV", "AB", "WSG", "EotS" }
+-- Active BGs for UI display. EotS is TBC history only; arenas are not tracked.
+HonorLog.BG_ORDER = { "AV", "WSG", "AB", "DI" }
 
 --------------------------------------------------------------------------------
 -- LAYOUT CONSTANTS
