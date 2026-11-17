@@ -544,6 +544,11 @@ local function run()
     for _ in pairs(HL.db.char.opponents) do count = count + 1 end
     check(count == 500 and HL.db.char.opponents.Cap510 and not HL.db.char.opponents.Cap1, "opponents capped at 500, oldest dropped")
     check(#HL:GetTopOpponents(5) == 5, "top opponents list")
+    local wholeSeconds = true
+    for _, e in pairs(HL.db.char.opponents) do
+        wholeSeconds = wholeSeconds and e.lastSeen == math.floor(e.lastSeen) and e.lastSeen > 1e9
+    end
+    check(wholeSeconds, "opponent lastSeen is stored as whole seconds (time())")
 
     -- 10. The honor cap warning fires once per crossing, from the currency's own max.
     mock.deferTimers = false
@@ -1144,6 +1149,42 @@ local function run()
         slash("scan status")
         slash("scan clear")
         check(next(HonorLogDB.scannedGear) == nil, "scan clear")
+
+        -- Opening a vendor that sells database items scans it quietly and prints one line.
+        local function openVendor() mock.fireEvent("MERCHANT_SHOW"); mock.flushTimers() end
+        local manualScans = countPlain("Scanned ")
+        mock.advance(1000)
+        openVendor()
+        check(HonorLogDB.scannedGear[BLUE] and HonorLogDB.scannedGear[BLUE].honor == 13500, "auto scan at a GearDB vendor stores the prices")
+        check(countPlain("updated prices for 3 PvP items from Test Quartermaster") == 1, "auto scan prints the one-line summary")
+        check(countPlain("Scanned ") == manualScans, "the auto scan is quiet apart from that line")
+        openVendor()
+        check(countPlain("updated prices for") == 1, "the same NPC is not scanned twice within 10 minutes")
+        mock.advance(599)
+        openVendor()
+        check(countPlain("updated prices for") == 1, "still guarded at 599 seconds")
+        mock.advance(2)
+        openVendor()
+        check(countPlain("updated prices for") == 2, "scanned again after 10 minutes")
+        mock.units.npc = { name = "Other Quartermaster" }
+        openVendor()
+        check(countPlain("updated prices for 3 PvP items from Other Quartermaster") == 1, "a different NPC is not guarded")
+        mock.advance(700)
+        HL.db.settings.autoVendorScan = false
+        openVendor()
+        check(countPlain("updated prices for") == 3, "the setting turns the auto scan off")
+        HL.db.settings.autoVendorScan = true
+        HL:ClearScannedData()
+        local normal = { { id = 99999999, name = "Linen Cloth", price = 5, ext = false, costs = {} } }
+        local saved = mock.merchant.items
+        mock.merchant.items = normal
+        mock.units.npc = { name = "Innkeeper" }
+        mock.advance(700)
+        openVendor()
+        check(countPlain("updated prices for") == 3 and next(HonorLogDB.scannedGear) == nil, "a normal merchant is not scanned")
+        mock.merchant.items = saved
+        mock.units.npc = { name = "Test Quartermaster" }
+        check(_G.HonorLogAutoScanCheck, "options: auto vendor scan checkbox")
         MerchantFrame:Hide()
         local noWindow = countPlain("No vendor window open")
         check(HL:ScanCurrentVendor() == 0 and countPlain("No vendor window open") == noWindow + 1, "no vendor open: nothing scanned")
@@ -1162,6 +1203,7 @@ local function run()
 
     -- 11. Migration: a TBC-era save with EotS and arena fields loads, migrates, keeps its history.
     local fixture = dofile(ROOT .. "/Tests/fixtures/tbc_savedvars.lua")
+    fixture.char.opponents = { Frac = { kills = 1, deaths = 0, lastSeen = 1794894684.0000069 } }
     HonorLogDB, HonorLogCharDB = fixture.global, fixture.char
     HL:InitializeDB()
     check(HonorLogDB.dbVersion == 2 and HonorLogCharDB.dbVersion == 2, "dbVersion 2 after migration")
@@ -1178,6 +1220,7 @@ local function run()
     check(#HonorLogCharDB.goals.completed == 0 and #HonorLogCharDB.goalsLegacy == 3, "TBC goals move to goalsLegacy (active and completed)")
     check(printedMatching("3 TBC goals archived"), "the archive is announced once")
     HL:InitializeDB()
+    check(HonorLogCharDB.opponents.Frac.lastSeen == 1794894684, "a saved fractional lastSeen is floored on load")
     check(#HonorLogCharDB.goalsLegacy == 3 and #HonorLogCharDB.goals.items == 1, "the archive does not repeat")
     check(HonorLogDB.settings.visibleCards.EotS == nil and HonorLogDB.settings.visibleCards.DI == true, "card toggles migrated")
     check(HonorLogCharDB.opponents and HonorLogCharDB.honorLog, "new per-character tables created")
@@ -1190,6 +1233,41 @@ local function run()
     check(HonorLogCharDB.battlegrounds.WSG.played == 31 and #HonorLogCharDB.history == 4, "recording works on a migrated save")
     HL:InitializeDB()
     check(HonorLogDB.legacy.EotS.played == 8, "migration runs once")
+
+    -- Export: every result kind, Darkspear Islands, objectives, world PvP, opponents and the TBC rows.
+    HL:RecordGame("DI", true, 600, 450, 3, { result = "win", joinedInProgress = true, kb = 4, hk = 12, deaths = 2,
+        damage = 123456, healing = 7890, objectives = { ["Flag Captures"] = 2, ["Bases Assaulted"] = 1, ["Bases Defended"] = 0 }, rankPoints = 100 })
+    HL:RecordGame("AV", false, 900, 120, 1, { result = "loss", kb = 1, hk = 5, deaths = 6, damage = 5000, healing = 0, rankPoints = 25 })
+    HL:RecordGame("WSG", false, 700, 200, 2, { result = "draw" })
+    HL:RecordGame("AB", false, 120, 10, 0, { result = "left" })
+    HL:NoteOpponent("Foe", "MAGE", "kill")
+    HL:NoteOpponent("Foe", "MAGE", "death")
+    HL:RecordWorldKill("Foe", "MAGE", true)
+    HL:RecordWorldHonor(80)
+    local text = HL:GenerateTextExport("character")
+    local csv = HL:GenerateCSVExport("character")
+    local function has(s, plain) return s:find(plain, 1, true) ~= nil end
+    check(has(text, "Darkspear Islands | Win") and has(text, "K 4 HK 12 D 2") and has(text, "dmg 123.5K") and has(text, "heal 7.9K"), "text export: DI game with K/HK/D, damage, healing")
+    check(has(text, "obj: Bases Assaulted 1; Flag Captures 2") and not has(text, "Bases Defended 0"), "text export: objectives in one compact column, zeros left out")
+    check(has(text, "rank +100") and has(text, "joined in progress") and has(text, "honor 450, marks 3"), "text export: rank points, joined in progress, honor, marks")
+    check(has(text, "| Loss |") and has(text, "| Draw |") and has(text, "| Left |"), "text export: loss, draw and left results")
+    check(has(text, "Eye of the Storm (TBC)") and has(text, "Warsong Gulch (TBC)") and has(text, "Arathi Basin (TBC)"), "text export: old rows are labelled (TBC)")
+    check(has(text, "WORLD PVP:") and has(text, "killing blows 1") and has(text, "kills "), "text export: world PvP section")
+    check(has(text, "OPPONENTS (this character)") and has(text, "Foe (MAGE) | kills 2, deaths 1"), "text export: opponents section")
+    local rows = {}
+    for line in csv:gmatch("[^\n]+") do rows[#rows + 1] = line end
+    local function row(prefix)
+        for _, l in ipairs(rows) do if l:find(prefix, 1, true) then return l end end
+    end
+    check(has(csv, "Date\tBattleground\tResult\tJoined In Progress\tDuration (s)\tK\tHK\tD\tDamage\tHealing\tObjectives\tHonor\tMarks\tRank Points"), "csv export: game header")
+    local di = row("Darkspear Islands\tWin")
+    check(di and di:find("\tyes\t600\t4\t12\t2\t123456\t7890\tBases Assaulted 1; Flag Captures 2\t450\t3\t100$"), "csv export: DI row carries every column: " .. tostring(di))
+    check(row("Alterac Valley\tLoss") and row("Warsong Gulch\tDraw") and row("Arathi Basin\tLeft"), "csv export: loss, draw and left rows")
+    check(row("Warsong Gulch\tDraw"):find("\tno\t700\t\t\t\t\t\t\t200\t2\t$"), "csv export: a row without scoreboard data leaves its columns empty")
+    check(row("Eye of the Storm (TBC)\tWin") and row("Warsong Gulch (TBC)\tLoss") and row("Arathi Basin (TBC)\tWin"), "csv export: TBC rows keep exporting, labelled (TBC)")
+    check(has(csv, "--- World PvP ---") and has(csv, "Kills\tDeaths\tKilling Blows"), "csv export: world PvP section")
+    check(row("Foe\tMAGE\t2\t1\t"), "csv export: opponents section (name, class, kills, deaths, last seen)")
+    check(has(csv, "Name\tClass\tKills\tDeaths\tLast Seen"), "csv export: opponents header")
     slash("history")
     slash("stats")
     HL:UpdateMainFrame()

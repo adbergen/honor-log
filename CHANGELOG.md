@@ -1,5 +1,55 @@
 # Changelog
 
+## [2.0.0] - Unreleased
+
+HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays on
+1.2.3: if you play TBC, keep that version.
+
+### Added
+- **Forever battlegrounds:** Alterac Valley, Warsong Gulch, Arathi Basin and the new
+  Darkspear Islands, with their own colours and mark icons. A battleground Forever
+  adds later is tracked from its first game.
+- **Measured, not assumed.** Honor, marks and rank points for each game are read from
+  your own currencies, bags and rank, so they match what you really got. Results are
+  win, loss, draw or left early, and a game you joined in progress is flagged.
+- **Scoreboard stats:** killing blows, honorable kills, deaths, damage, healing and the
+  objectives (flags, bases and so on) are saved with each game once the client
+  reveals the scoreboard.
+- **World PvP without the combat log:** kills, killing blows, deaths and honor outside
+  battlegrounds, split into honor from kills and honor from awards, plus a list of the
+  opponents you meet most.
+- **Rank planner:** Forever's 14 PvP ranks with the points into your rank, this week's
+  cap, the season countdown and the next reward. Pick a rank and it tells you the games
+  needed at your own pace and the earliest date the weekly cap allows it. The main
+  panel has a rank bar and a Rank tab, with a rank-up celebration and a weekly-cap alert.
+- **Honor summary** for today, this week and this session, with a warning before you hit
+  the 25,000 honor cap.
+- **Gear goals rebuilt for Forever:** about 900 items (Premier blue and epic sets, Seals,
+  rank 14 weapons, rank rewards and battleground reputation gear) with honor, marks, gold,
+  rank gates and reputation requirements. Epic upgrades are shown as the blue piece plus
+  its Seal. The picker filters by your faction and class, and every goal gets a
+  "ready on" date.
+- **Automatic vendor price scan.** Open a PvP vendor and HonorLog reads what it really
+  charges, so goals follow price changes. It prints one line, "updated prices for N PvP
+  items", and checks the same vendor at most once every 10 minutes. Turn it off under
+  Options, "Scan PvP Vendors".
+- **Fuller export:** text and CSV now hold every saved game (date, battleground, result,
+  joined in progress, duration, kills, honorable kills, deaths, damage, healing,
+  objectives, honor, marks, rank points), a world PvP section and your opponents.
+- `/honorlog probe`, a diagnostic that records which PvP data the client gives addons.
+
+### Changed
+- The theme drops the arena and Eye of the Storm leftovers, and Darkspear Islands uses its
+  own mark icon.
+- Your TBC history is kept and labelled "(TBC)"; old goals for TBC items are archived once.
+- Opponent "last seen" times are saved as whole seconds.
+
+### Fixed
+- `/honorlog goal list` raised an error.
+- The history limit stopped at 100 although the slider offers 500.
+- Debug messages appeared on every right-click.
+- The bundled Data Broker library could replace the real one for other addons.
+
 ## [1.2.3] - 2025-02-05
 
 ### Changed

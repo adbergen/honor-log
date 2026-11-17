@@ -71,7 +71,7 @@ function HonorLog:ReadMerchantCost(index)
     return itemID, cost
 end
 
-function HonorLog:ScanCurrentVendor()
+function HonorLog:ScanCurrentVendor(quiet)
     if not (MerchantFrame and MerchantFrame:IsShown()) then
         say("|cffff6666Error:|r No vendor window open. Talk to a PvP vendor first.")
         return 0
@@ -99,9 +99,38 @@ function HonorLog:ScanCurrentVendor()
     end
     HonorLogDB.scannedVendors[vendor] = { timestamp = time(), itemCount = kept }
 
-    say(string.format("Scanned |cffffffff%s|r: %d PvP items of %d.", vendor, kept, numItems))
+    if not quiet then
+        say(string.format("Scanned |cffffffff%s|r: %d PvP items of %d.", vendor, kept, numItems))
+    end
     if self.OnDataUpdated then self:OnDataUpdated() end
     return kept
+end
+
+local AUTO_SCAN_GAP = 600 -- seconds before the same NPC is scanned again
+
+-- Does the open merchant sell anything the generated gear database knows?
+local function SellsGearDBItem()
+    if not (HonorLog.GearDB and GetMerchantNumItems and GetMerchantItemLink) then return false end
+    for i = 1, GetMerchantNumItems() do
+        local itemID = IDFromLink(GetMerchantItemLink(i), "item")
+        if itemID and HonorLog.GearDB[itemID] then return true end
+    end
+    return false
+end
+
+-- Called when a vendor window opens. Scans quietly when the vendor sells PvP gear, then prints one
+-- line. The setting is autoVendorScan (on unless switched off); the same NPC is skipped for 10 minutes.
+function HonorLog:AutoScanVendor()
+    if self.db and self.db.settings and self.db.settings.autoVendorScan == false then return end
+    if not (MerchantFrame and MerchantFrame:IsShown()) then return end
+    local npc = UnitName("npc")
+    if not npc or not SellsGearDBItem() then return end
+    self.autoScanAt = self.autoScanAt or {}
+    local now = GetTime()
+    if self.autoScanAt[npc] and now - self.autoScanAt[npc] < AUTO_SCAN_GAP then return end
+    local kept = self:ScanCurrentVendor(true)
+    self.autoScanAt[npc] = now
+    print(string.format("|cff40d860HonorLog|r: updated prices for %d PvP items from %s", kept, npc))
 end
 
 local function MarksText(marks)

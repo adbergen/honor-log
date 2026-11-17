@@ -128,6 +128,7 @@ local events = {
     "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", -- rank gained (faction 2800)
     "PLAYER_PVP_RANK_CHANGED",
     "UPDATE_FACTION",
+    "MERCHANT_SHOW", -- automatic PvP vendor price scan
     -- COMBAT_LOG_EVENT_UNFILTERED is deliberately not registered: the Forever
     -- docs flag it HasRestrictions and registering it raises the "blocked"
     -- popup. Kills and deaths come from the signals above instead.
@@ -314,6 +315,12 @@ end
 function HonorLog:PLAYER_PVP_RANK_CHANGED(unitTarget)
     if unitTarget ~= nil and not isSecret(unitTarget) and unitTarget ~= "player" then return end
     self:RefreshRank()
+end
+
+-- A vendor opened: let the scanner decide whether it sells PvP gear. A short delay lets the
+-- merchant frame fill in its item links first.
+function HonorLog:MERCHANT_SHOW()
+    C_Timer.After(0.3, function() self:AutoScanVendor() end)
 end
 
 function HonorLog:UPDATE_FACTION()

@@ -322,6 +322,14 @@ function HonorLog:InitializeOptions()
     unverifiedCheck:SetChecked(self.db.settings.goalShowUnverified == true)
     rightY = rightY - 26
 
+    -- Automatic PvP vendor price scan
+    local autoScanCheck = CreateCheckbox(scrollChild, "HonorLogAutoScanCheck", "Scan PvP Vendors", "Read the real prices when you open a PvP vendor, so goals use what the vendor charges", function(checked)
+        HonorLog.db.settings.autoVendorScan = checked
+    end)
+    autoScanCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+    autoScanCheck:SetChecked(self.db.settings.autoVendorScan ~= false)
+    rightY = rightY - 26
+
     -- Enable LDB checkbox
     local ldbCheck = CreateCheckbox(scrollChild, "HonorLogLDBCheck", "Data Broker Feed", "Expose stats to Titan Panel, etc.", function(checked)
         HonorLog.db.settings.ldbEnabled = checked

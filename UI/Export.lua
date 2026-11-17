@@ -173,13 +173,83 @@ function HonorLog:UpdateExportContent(format)
     exportFrame.editBox:SetCursorPosition(0)
 end
 
+-- Whole numbers for %d: Lua 5.3+ refuses a float with a fraction, and damage can arrive as a float.
+local function int(x) return math.floor(tonumber(x) or 0) end
+
+local RESULT_NAMES = { win = "Win", loss = "Loss", draw = "Draw", left = "Left" }
+
+-- A row from before 2.0 has no `result` field; Eye of the Storm only exists in those. Both are TBC history.
+local function IsTBCRow(entry)
+    return entry.result == nil or entry.bgType == "EotS"
+end
+
+local function ResultName(entry)
+    return RESULT_NAMES[entry.result or (entry.win and "win" or "loss")] or "Loss"
+end
+
+-- Battleground name for a row; TBC-era rows say so once.
+local function RowBGName(self, entry)
+    local name = self:GetBGDisplayName(entry.bgType)
+    if IsTBCRow(entry) and not name:find("(TBC)", 1, true) then name = name .. " (TBC)" end
+    return name
+end
+
+-- Objectives as one compact cell: "Flag Captures 2; Bases Assaulted 1". Zeros are left out.
+local function ObjectivesText(objectives, separator)
+    if type(objectives) ~= "table" then return "" end
+    local labels = {}
+    for label, value in pairs(objectives) do
+        if type(value) == "number" and value ~= 0 then labels[#labels + 1] = label end
+    end
+    table.sort(labels)
+    local parts = {}
+    for _, label in ipairs(labels) do
+        parts[#parts + 1] = string.format("%s %d", (tostring(label):gsub("[\t\r\n]", " ")), int(objectives[label]))
+    end
+    return table.concat(parts, separator or "; ")
+end
+
+local function Stamp(entry) return date("%Y-%m-%d %H:%M", entry.timestamp or 0) end
+
+local function SortedOpponents(self)
+    local list = {}
+    for name, e in pairs(self.db.char.opponents or {}) do
+        list[#list + 1] = { name = name, class = e.class or "", kills = e.kills or 0, deaths = e.deaths or 0, lastSeen = e.lastSeen or 0 }
+    end
+    table.sort(list, function(a, b)
+        local ta, tb = a.kills + a.deaths, b.kills + b.deaths
+        if ta ~= tb then return ta > tb end
+        if a.lastSeen ~= b.lastSeen then return a.lastSeen > b.lastSeen end
+        return a.name < b.name
+    end)
+    return list
+end
+
+local function GameLine(self, entry)
+    local parts = {
+        Stamp(entry), RowBGName(self, entry), ResultName(entry),
+        self:FormatDuration(entry.duration),
+    }
+    if entry.kb or entry.hk or entry.deaths then
+        parts[#parts + 1] = string.format("K %d HK %d D %d", int(entry.kb), int(entry.hk), int(entry.deaths))
+    end
+    if entry.damage then parts[#parts + 1] = "dmg " .. self:FormatNumber(int(entry.damage)) end
+    if entry.healing then parts[#parts + 1] = "heal " .. self:FormatNumber(int(entry.healing)) end
+    local objectives = ObjectivesText(entry.objectives)
+    if objectives ~= "" then parts[#parts + 1] = "obj: " .. objectives end
+    parts[#parts + 1] = string.format("honor %d, marks %d", int(entry.honor), int(entry.marks))
+    if entry.rankPoints then parts[#parts + 1] = string.format("rank %+d", int(entry.rankPoints)) end
+    if entry.joinedInProgress then parts[#parts + 1] = "joined in progress" end
+    return table.concat(parts, " | ")
+end
+
 function HonorLog:GenerateTextExport(scope)
     local lines = {}
     local scopeLabel = scope == "account" and "Account-Wide" or ("Character: " .. UnitName("player"))
 
     table.insert(lines, "╔══════════════════════════════════════╗")
     table.insert(lines, "║          HonorLog Summary            ║")
-    table.insert(lines, "║  " .. scopeLabel .. string.rep(" ", 36 - #scopeLabel) .. "║")
+    table.insert(lines, "║  " .. scopeLabel .. string.rep(" ", math.max(0, 36 - #scopeLabel)) .. "║")
     table.insert(lines, "╠══════════════════════════════════════╣")
 
     for _, bgType in ipairs(HonorLog.BG_ORDER) do
@@ -187,15 +257,29 @@ function HonorLog:GenerateTextExport(scope)
         local derived = self:GetDerivedStats(bgType, scope)
 
         if stats.played > 0 then
-            table.insert(lines, "║ " .. bgType .. ":")
+            table.insert(lines, "║ " .. self:GetBGDisplayName(bgType) .. ":")
             table.insert(lines, string.format("║   Games: %d (%d-%d) %.1f%% WR",
                 stats.played, stats.wins, stats.losses, derived.winrate))
+            if (stats.draws or 0) > 0 or (stats.left or 0) > 0 then
+                table.insert(lines, string.format("║   Draws: %d | Left early: %d", stats.draws or 0, stats.left or 0))
+            end
             table.insert(lines, string.format("║   Avg Duration: %s", self:FormatDuration(derived.avgDuration)))
             table.insert(lines, string.format("║   Honor: %s | Marks: %d",
                 self:FormatNumber(stats.honorLifetime), stats.marksLifetime))
             table.insert(lines, "║")
         end
     end
+
+    -- World PvP
+    local world = self:GetWorldPvPStats(scope)
+    table.insert(lines, "╠══════════════════════════════════════╣")
+    table.insert(lines, "║ WORLD PVP:")
+    table.insert(lines, string.format("║   Kills: %d (killing blows %d) | Deaths: %d",
+        world.kills or 0, world.killingBlows or 0, world.deaths or 0))
+    local kill, award = world.honorKill or 0, world.honorAward or 0
+    table.insert(lines, string.format("║   Honor: %s (kills %s, awards %s, other %s)",
+        self:FormatNumber(world.honor or 0), self:FormatNumber(kill), self:FormatNumber(award),
+        self:FormatNumber(math.max(0, (world.honor or 0) - kill - award))))
 
     -- Session stats
     local session = self:GetTotalSessionStats()
@@ -209,6 +293,29 @@ function HonorLog:GenerateTextExport(scope)
     end
 
     table.insert(lines, "╚══════════════════════════════════════╝")
+
+    -- Every stored game
+    local history = self:GetHistory(scope, 500)
+    if #history > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "GAMES (newest first)")
+        for _, entry in ipairs(history) do
+            table.insert(lines, GameLine(self, entry))
+        end
+    end
+
+    -- Opponents are kept per character, whatever the scope
+    local opponents = SortedOpponents(self)
+    if #opponents > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "OPPONENTS (this character)")
+        for _, o in ipairs(opponents) do
+            table.insert(lines, string.format("%s%s | kills %d, deaths %d | last seen %s",
+                o.name, o.class ~= "" and (" (" .. o.class .. ")") or "", o.kills, o.deaths,
+                o.lastSeen > 0 and date("%Y-%m-%d %H:%M", o.lastSeen) or "never"))
+        end
+    end
+
     table.insert(lines, "")
     table.insert(lines, "Generated by HonorLog addon")
     table.insert(lines, "Date: " .. date("%Y-%m-%d %H:%M"))
@@ -220,41 +327,68 @@ function HonorLog:GenerateCSVExport(scope)
     local lines = {}
 
     -- Header
-    table.insert(lines, "Battleground\tPlayed\tWins\tLosses\tWinrate\tAvg Duration (s)\tHonor\tMarks")
+    table.insert(lines, "Battleground\tPlayed\tWins\tLosses\tDraws\tLeft\tWinrate\tAvg Duration (s)\tHonor\tMarks")
 
     -- BG data
     for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local stats = self:GetBGStats(bgType, scope)
         local derived = self:GetDerivedStats(bgType, scope)
 
-        table.insert(lines, string.format("%s\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d",
-            bgType,
+        table.insert(lines, string.format("%s\t%d\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d",
+            self:GetBGDisplayName(bgType),
             stats.played,
             stats.wins,
             stats.losses,
+            stats.draws or 0,
+            stats.left or 0,
             derived.winrate,
             math.floor(derived.avgDuration),
-            stats.honorLifetime,
-            stats.marksLifetime
+            int(stats.honorLifetime),
+            int(stats.marksLifetime)
         ))
     end
 
-    -- Empty line before history
+    -- World PvP
+    local world = self:GetWorldPvPStats(scope)
     table.insert(lines, "")
-    table.insert(lines, "--- Recent Games History ---")
-    table.insert(lines, "BG\tResult\tDuration (s)\tHonor\tMarks\tTimestamp")
+    table.insert(lines, "--- World PvP ---")
+    table.insert(lines, "Kills\tDeaths\tKilling Blows\tUnknown Kills\tHonor\tHonor (kills)\tHonor (awards)\tHonor (other)")
+    local kill, award = world.honorKill or 0, world.honorAward or 0
+    table.insert(lines, string.format("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d",
+        int(world.kills), int(world.deaths), int(world.killingBlows), int(world.unknownKills),
+        int(world.honor), int(kill), int(award), int(math.max(0, (world.honor or 0) - kill - award))))
 
-    -- History
-    local history = self:GetHistory(scope, 50)
+    -- Every stored game
+    table.insert(lines, "")
+    table.insert(lines, "--- Games History ---")
+    table.insert(lines, "Date\tBattleground\tResult\tJoined In Progress\tDuration (s)\tK\tHK\tD\tDamage\tHealing\tObjectives\tHonor\tMarks\tRank Points")
+    local history = self:GetHistory(scope, 500)
     for _, entry in ipairs(history) do
-        table.insert(lines, string.format("%s\t%s\t%d\t%d\t%d\t%s",
-            self:GetBGDisplayName(entry.bgType),
-            ({ win = "Win", loss = "Loss", draw = "Draw", left = "Left" })[entry.result or (entry.win and "win" or "loss")] or "Loss",
-            entry.duration,
-            entry.honor,
-            entry.marks,
-            date("%Y-%m-%d %H:%M", entry.timestamp)
-        ))
+        table.insert(lines, table.concat({
+            Stamp(entry),
+            RowBGName(self, entry),
+            ResultName(entry),
+            entry.joinedInProgress and "yes" or "no",
+            tostring(int(entry.duration)),
+            entry.kb ~= nil and tostring(int(entry.kb)) or "",
+            entry.hk ~= nil and tostring(int(entry.hk)) or "",
+            entry.deaths ~= nil and tostring(int(entry.deaths)) or "",
+            entry.damage ~= nil and tostring(int(entry.damage)) or "",
+            entry.healing ~= nil and tostring(int(entry.healing)) or "",
+            ObjectivesText(entry.objectives),
+            tostring(int(entry.honor)),
+            tostring(int(entry.marks)),
+            entry.rankPoints ~= nil and tostring(int(entry.rankPoints)) or "",
+        }, "\t"))
+    end
+
+    -- Opponents are kept per character, whatever the scope
+    table.insert(lines, "")
+    table.insert(lines, "--- Opponents (this character) ---")
+    table.insert(lines, "Name\tClass\tKills\tDeaths\tLast Seen")
+    for _, o in ipairs(SortedOpponents(self)) do
+        table.insert(lines, string.format("%s\t%s\t%d\t%d\t%s", o.name, o.class, o.kills, o.deaths,
+            o.lastSeen > 0 and date("%Y-%m-%d %H:%M", o.lastSeen) or ""))
     end
 
     return table.concat(lines, "\n")
