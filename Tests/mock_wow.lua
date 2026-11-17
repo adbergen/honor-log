@@ -412,12 +412,48 @@ C_Item = {
             3, 60, 55, "Armor", "Plate", 1, "INVTYPE_CHEST", 134400
     end,
 }
+-- Item ids in the backpack (bag 0) and worn items by inventory slot; tests change them.
+M.bagContents = {}
+M.equipped = {}
 C_Container = {
-    GetContainerNumSlots = function() return 0 end,
-    GetContainerItemID = function() return nil end,
+    GetContainerNumSlots = function(bag) return bag == 0 and #M.bagContents or 0 end,
+    GetContainerItemID = function(bag, slot) return bag == 0 and M.bagContents[slot] or nil end,
     GetContainerItemInfo = function() return nil end,
 }
-C_MerchantFrame = { GetItemInfo = function() return nil end }
+-- The open vendor. items[i] = { id, name, price, ext (has an extended cost), costs = { { link, count } } }.
+M.merchant = { items = {} }
+C_MerchantFrame = {
+    GetItemInfo = function(i)
+        local it = M.merchant.items[i]
+        if not it then return nil end
+        return { name = it.name, texture = 1, price = it.price or 0, stackCount = 1, numAvailable = -1,
+            isPurchasable = true, isUsable = true, hasExtendedCost = it.ext and true or false }
+    end,
+}
+function GetMerchantNumItems() return #M.merchant.items end
+function GetMerchantItemLink(i)
+    local it = M.merchant.items[i]
+    return it and ("|cff0070dd|Hitem:" .. it.id .. "::::::::60:|h[" .. (it.name or "x") .. "]|h|r") or nil
+end
+function GetMerchantItemCostInfo(i)
+    local it = M.merchant.items[i]
+    return it and it.costs and #it.costs or 0
+end
+function GetMerchantItemCostItem(i, c)
+    local cost = M.merchant.items[i].costs[c]
+    return 1, cost.count, cost.link, cost.name
+end
+MerchantFrame = CreateFrame("Frame", "MerchantFrame")
+MerchantFrame:Hide()
+-- Reputation standing (reaction id, 4 Neutral .. 8 Exalted) by faction id; a missing faction is not met yet.
+M.reputation = {}
+C_Reputation = {
+    GetFactionDataByID = function(id)
+        local reaction = M.reputation[id]
+        if not reaction then return nil end
+        return { factionID = id, name = "Faction " .. id, reaction = reaction, currentStanding = 0 }
+    end,
+}
 Enum = { AddOnRestrictionType = { Combat = 0, Encounter = 1, ChallengeMode = 2, PvPMatch = 3, Map = 4, Chat = 5 },
     PvPRanks = Enum_PvPRanks }
 C_RestrictedActions = {
@@ -429,7 +465,7 @@ C_AddOns = {
     GetAddOnMetadata = function(_, key) return key == "Version" and "2.0.0-test" or "" end,
 }
 
-function GetInventoryItemID() return nil end
+function GetInventoryItemID(_, slot) return M.equipped[slot] end
 function UnitHonor() return 0 end
 function UnitName(unit)
     if unit == nil or unit == "player" then return "Tester" end
@@ -477,7 +513,8 @@ function GetPlayerInfoByGUID(guid)
     return "Warrior", "WARRIOR", "Human", "Human", 2, "Someone", ""
 end
 function GetBuildInfo() return "1.60.1", "70938", "Nov 1 2026", 16001 end
-function GetMoney() return 123456 end
+M.money = 123456 -- copper
+function GetMoney() return M.money end
 function GetTime() return M.now or os.clock() end
 function PlaySound() end
 SOUNDKIT = { IG_MAINMENU_OPTION_CHECKBOX_ON = 856, IG_MAINMENU_OPTION_CHECKBOX_OFF = 857 }

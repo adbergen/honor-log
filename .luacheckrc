@@ -31,7 +31,7 @@ read_globals = {
     "CreateFrame", "UIParent", "GameTooltip", "ShoppingTooltip1", "ShoppingTooltip2", "WorldFrame",
     "GameFontHighlightSmall", "UIErrorsFrame", "RaidBossEmoteFrame", "MerchantFrame", "DressUpFrame", "DEFAULT_CHAT_FRAME",
     "C_Timer", "C_AddOns", "C_Container", "C_CurrencyInfo", "C_Item", "C_PvP", "C_MajorFactions",
-    "C_SeasonInfo", "C_RestrictedActions", "C_DeathRecap", "C_DateAndTime", "C_MerchantFrame", "Enum", "Settings",
+    "C_SeasonInfo", "C_RestrictedActions", "C_DeathRecap", "C_DateAndTime", "C_MerchantFrame", "C_Reputation", "Enum", "Settings",
     "LibStub", "hooksecurefunc", "wipe", "unpack", "bit", "date", "time",
     "issecretvalue", "GetTime", "GetBuildInfo", "GetRealmName", "GetRealZoneText", "GetInstanceInfo",
     "UnitName", "UnitClass", "UnitRace", "UnitFactionGroup", "UnitLevel", "UnitGUID", "GetPlayerInfoByGUID",
@@ -63,7 +63,8 @@ read_globals = {
 files["Tests/"] = {
     globals = {
         "CreateFrame", "hooksecurefunc", "C_Timer", "C_AddOns", "C_PvP", "C_MajorFactions", "C_CurrencyInfo",
-        "C_SeasonInfo", "C_Item", "C_Container", "C_MerchantFrame", "C_RestrictedActions", "Enum",
+        "C_SeasonInfo", "C_Item", "C_Container", "C_MerchantFrame", "C_Reputation", "C_RestrictedActions", "Enum",
+        "MerchantFrame", "GetMerchantNumItems", "GetMerchantItemLink", "GetMerchantItemCostInfo", "GetMerchantItemCostItem",
         "Settings", "SlashCmdList", "LibStub", "UIParent", "Minimap", "GameTooltip", "UIErrorsFrame",
         "DressUpFrame", "issecretvalue", "geterrorhandler", "unpack", "wipe", "bit", "date", "time",
         "GetNumBattlegroundTypes", "GetBattlefieldWinner", "GetNumBattlefieldScores", "GetBattlefieldStatus",
@@ -85,7 +86,3 @@ files["Tests/"] = {
         "HonorLogDB", "HonorLogCharDB", "SLASH_HONORLOG1", "SLASH_HONORLOG2",
     },
 }
-
--- Data/GearDatabase.lua is regenerated in Round 3. Its only remaining warning is
--- a duplicate table key (itemID 24549 listed twice), which that regeneration drops.
-files["Data/GearDatabase.lua"] = { ignore = { "314" } }

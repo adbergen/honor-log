@@ -1,385 +1,183 @@
 -- HonorLog Vendor Scanner
--- Dev tool for scanning PvP vendors to build accurate gear database
--- Usage: /honorlog scan - Scans current vendor
---        /honorlog scan export - Exports scanned data as Lua table
---        /honorlog scan clear - Clears scanned data
+-- Reads the costs a PvP vendor really charges and keeps them in HonorLogDB.scannedGear, where
+-- they override the generated gear database (HonorLog:GetGearItem). Costs are hotfixed from time
+-- to time; a scan is how the addon learns of it and of items the generated data calls retired.
+-- Usage: /honorlog scan          - scan the open vendor
+--        /honorlog scan export   - print what differs from the generated data
+--        /honorlog scan clear    - forget scanned data
+--        /honorlog scan status   - what has been scanned
 
 local ADDON_NAME, HonorLog = ...
 
--- Forever-safe wrappers (defined in Data.lua)
-local GetItemInfo = HonorLog.Compat.GetItemInfo
-local GetMerchantItemInfo = HonorLog.Compat.GetMerchantItemInfo
+local HONOR_CURRENCY = 1792
 
--- Mark item IDs for identifying mark costs
-local MARK_IDS = {
-    [20560] = "AV",   -- Alterac Valley Mark of Honor
-    [20559] = "AB",   -- Arathi Basin Mark of Honor
-    [20558] = "WSG",  -- Warsong Gulch Mark of Honor
-    [29024] = "EotS", -- Eye of the Storm Mark of Honor
-}
-
--- Honor texture patterns (TBC Classic uses textures to identify honor currency)
-local HONOR_TEXTURES = {
-    "PVPCurrency%-Honor",
-    "PVP%-Currency%-Alliance",
-    "PVP%-Currency%-Horde",
-    "Spell_Holy_ChampionsBond",  -- Alternative honor icon
-}
-
--- Arena points texture patterns
-local ARENA_TEXTURES = {
-    "PVPCurrency%-Conquest",
-    "PVP%-ArenaPoints",
-    "Ability_Warrior_RallyingCry",  -- Alternative arena icon
-}
-
--- Slot mapping from inventory type
-local INVTYPE_TO_SLOT = {
-    INVTYPE_HEAD = "HEAD",
-    INVTYPE_NECK = "NECK",
-    INVTYPE_SHOULDER = "SHOULDER",
-    INVTYPE_CLOAK = "BACK",
-    INVTYPE_CHEST = "CHEST",
-    INVTYPE_ROBE = "CHEST",
-    INVTYPE_WRIST = "WRIST",
-    INVTYPE_HAND = "HANDS",
-    INVTYPE_WAIST = "WAIST",
-    INVTYPE_LEGS = "LEGS",
-    INVTYPE_FEET = "FEET",
-    INVTYPE_FINGER = "FINGER",
-    INVTYPE_TRINKET = "TRINKET",
-    INVTYPE_WEAPON = "MAIN_HAND",
-    INVTYPE_WEAPONMAINHAND = "MAIN_HAND",
-    INVTYPE_WEAPONOFFHAND = "OFF_HAND",
-    INVTYPE_HOLDABLE = "OFF_HAND",
-    INVTYPE_SHIELD = "OFF_HAND",
-    INVTYPE_2HWEAPON = "TWO_HAND",
-    INVTYPE_RANGED = "RANGED",
-    INVTYPE_RANGEDRIGHT = "RANGED",
-    INVTYPE_THROWN = "RANGED",
-    INVTYPE_RELIC = "RELIC",
-}
-
--- Class restrictions from subclass
-local CLASS_RESTRICTIONS = {
-    ["Plate"] = { "WARRIOR", "PALADIN" },
-    ["Mail"] = { "HUNTER", "SHAMAN" },
-    ["Leather"] = { "ROGUE", "DRUID" },
-    ["Cloth"] = { "PRIEST", "MAGE", "WARLOCK" },
-}
-
---------------------------------------------------------------------------------
--- SCANNER FUNCTIONS
---------------------------------------------------------------------------------
-
--- Debug mode for troubleshooting
 local SCANNER_DEBUG = false
 
--- Initialize scanner data storage
+local function say(text) print("|cff40d860HonorLog|r " .. text) end
+
 function HonorLog:InitScanner()
-    if not HonorLogDB then HonorLogDB = {} end
-    if not HonorLogDB.scannedGear then
-        HonorLogDB.scannedGear = {}
-    end
-    if not HonorLogDB.scannedVendors then
-        HonorLogDB.scannedVendors = {}
-    end
+    if type(HonorLogDB) ~= "table" then return end
+    HonorLogDB.scannedGear = HonorLogDB.scannedGear or {}
+    HonorLogDB.scannedVendors = HonorLogDB.scannedVendors or {}
 end
 
--- Toggle debug mode
 function HonorLog:ToggleScannerDebug()
     SCANNER_DEBUG = not SCANNER_DEBUG
-    print("|cff40d860HonorLog|r Scanner debug mode: " .. (SCANNER_DEBUG and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+    say("Scanner debug mode: " .. (SCANNER_DEBUG and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 end
 
--- Get item ID from item link
-local function GetItemIDFromLink(link)
-    if not link then return nil end
-    local itemID = link:match("item:(%d+)")
-    return itemID and tonumber(itemID) or nil
+local function IDFromLink(link, kind)
+    if type(link) ~= "string" then return nil end
+    local id = link:match(kind .. ":(%d+)")
+    return id and tonumber(id) or nil
 end
 
--- Get slot from item
-local function GetItemSlot(itemID)
-    local _, _, _, _, _, _, _, _, invType = GetItemInfo(itemID)
-    return INVTYPE_TO_SLOT[invType] or nil
+-- Battleground key for a mark item id (HonorLog.MARK_ITEMS maps the other way).
+local function MarkType(itemID)
+    for bgType, markID in pairs(HonorLog.MARK_ITEMS or {}) do
+        if markID == itemID then return bgType end
+    end
+    return nil
 end
 
--- Detect class restriction from item (simplified - checks name patterns)
-local function DetectClassRestriction(itemName, itemID)
-    -- Check tooltip for class restriction
-    local tooltip = CreateFrame("GameTooltip", "HonorLogScanTooltip", nil, "GameTooltipTemplate")
-    tooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-    tooltip:SetItemByID(itemID)
+-- What one merchant slot costs: honor (currency 1792 among the cost items), marks (the mark items)
+-- and gold (the price, in copper). Returns itemID, cost or nil for a slot with no readable item.
+function HonorLog:ReadMerchantCost(index)
+    local link = GetMerchantItemLink and GetMerchantItemLink(index)
+    local itemID = IDFromLink(link, "item")
+    if not itemID then return nil end
+    local name, _, price, _, _, _, _, hasExtendedCost = HonorLog.Compat.GetMerchantItemInfo(index)
+    local cost = { honor = 0, marks = {}, gold = tonumber(price) or 0, name = name, extended = hasExtendedCost and true or false }
 
-    for i = 1, tooltip:NumLines() do
-        local line = _G["HonorLogScanTooltipTextLeft" .. i]
-        if line then
-            local text = line:GetText()
-            if text then
-                -- Check for class restrictions
-                if text:match("Classes: (.+)") then
-                    local classes = text:match("Classes: (.+)")
-                    -- Parse class list
-                    if classes:match("Warrior") then return "WARRIOR" end
-                    if classes:match("Paladin") then return "PALADIN" end
-                    if classes:match("Hunter") then return "HUNTER" end
-                    if classes:match("Rogue") then return "ROGUE" end
-                    if classes:match("Priest") then return "PRIEST" end
-                    if classes:match("Shaman") then return "SHAMAN" end
-                    if classes:match("Mage") then return "MAGE" end
-                    if classes:match("Warlock") then return "WARLOCK" end
-                    if classes:match("Druid") then return "DRUID" end
-                end
-            end
+    local numCosts = GetMerchantItemCostInfo and GetMerchantItemCostInfo(index) or 0
+    for c = 1, numCosts do
+        local texture, count, costLink, costName = GetMerchantItemCostItem(index, c)
+        count = tonumber(count) or 0
+        if SCANNER_DEBUG then
+            say(string.format("[debug] %s cost %d: texture=%s count=%s link=%s name=%s", tostring(name), c,
+                tostring(texture), tostring(count), tostring(costLink), tostring(costName)))
+        end
+        local currencyID = IDFromLink(costLink, "currency")
+        local costItemID = IDFromLink(costLink, "item")
+        local markType = costItemID and MarkType(costItemID)
+        if markType then
+            cost.marks[markType] = (cost.marks[markType] or 0) + count
+        elseif currencyID == HONOR_CURRENCY or (not currencyID and not costItemID and type(costName) == "string" and costName:lower():find("honor", 1, true)) then
+            cost.honor = cost.honor + count
+        elseif SCANNER_DEBUG then
+            say("[debug] unrecognised cost: " .. tostring(costLink or costName))
         end
     end
-
-    return nil -- Any class
+    return itemID, cost
 end
 
--- Scan the current merchant
 function HonorLog:ScanCurrentVendor()
-    if not MerchantFrame or not MerchantFrame:IsShown() then
-        print("|cff40d860HonorLog|r |cffff6666Error:|r No vendor window open. Talk to a PvP vendor first.")
-        return
+    if not (MerchantFrame and MerchantFrame:IsShown()) then
+        say("|cffff6666Error:|r No vendor window open. Talk to a PvP vendor first.")
+        return 0
     end
-
+    if not (GetMerchantNumItems and GetMerchantItemLink) then
+        say("|cffff6666Error:|r this client has no merchant cost functions.")
+        return 0
+    end
     self:InitScanner()
 
-    local vendorName = UnitName("npc") or "Unknown Vendor"
+    local vendor = UnitName("npc") or "Unknown Vendor"
     local numItems = GetMerchantNumItems()
-    local scannedCount = 0
-    local pvpItemCount = 0
-
-    print("|cff40d860HonorLog|r Scanning vendor: |cffffffff" .. vendorName .. "|r (" .. numItems .. " items)")
-
+    local kept = 0
     for i = 1, numItems do
-        local name, texture, price, quantity, numAvailable, isPurchasable, isUsable, extendedCost = GetMerchantItemInfo(i)
-        local link = GetMerchantItemLink(i)
-        local itemID = GetItemIDFromLink(link)
-
-        if itemID and extendedCost then
-            -- This item has extended cost (honor/marks/arena points)
-            local itemData = {
-                name = name,
-                vendor = vendorName,
-                slot = nil,
-                class = nil,
-                honor = 0,
-                arena = 0,
-                marks = {},
-                gold = price or 0,
+        local itemID, cost = self:ReadMerchantCost(i)
+        -- Keep what the database knows and anything bought with honor or marks (new PvP items).
+        local known = self.GearDB and self.GearDB[itemID]
+        if itemID and (known or cost.honor > 0 or next(cost.marks)) then
+            HonorLogDB.scannedGear[itemID] = {
+                honor = cost.honor, marks = cost.marks, gold = cost.gold,
+                seen = time(), npc = UnitName("npc"),
             }
-
-            -- Get slot info
-            itemData.slot = GetItemSlot(itemID)
-
-            -- Get class restriction
-            itemData.class = DetectClassRestriction(name, itemID)
-
-            -- Get cost breakdown
-            local numCosts = GetMerchantItemCostInfo(i)
-
-            if SCANNER_DEBUG then
-                print("|cff40d860[DEBUG]|r Item: " .. name .. " has " .. numCosts .. " cost types")
-            end
-
-            for c = 1, numCosts do
-                local costTexture, costCount, costLink, costName = GetMerchantItemCostItem(i, c)
-                local textureStr = costTexture and tostring(costTexture) or ""
-
-                if SCANNER_DEBUG then
-                    print(string.format("|cff40d860[DEBUG]|r   Cost %d: texture=%s, count=%s, link=%s, name=%s",
-                        c,
-                        tostring(costTexture),
-                        tostring(costCount),
-                        tostring(costLink),
-                        tostring(costName)
-                    ))
-                end
-
-                -- Check if costLink is a proper item link (contains "item:")
-                local costItemID = GetItemIDFromLink(costLink)
-
-                if costItemID and MARK_IDS[costItemID] then
-                    -- It's an item (mark of honor)
-                    itemData.marks[MARK_IDS[costItemID]] = costCount
-                else
-                    -- It's a currency - try name first, then texture
-                    local identified = false
-
-                    -- Try by name
-                    if costName and costName ~= "" then
-                        local lowerName = costName:lower()
-                        if lowerName:match("honor") then
-                            itemData.honor = costCount
-                            identified = true
-                        elseif lowerName:match("arena") then
-                            itemData.arena = costCount
-                            identified = true
-                        end
-                    end
-
-                    -- Fallback: try by texture pattern
-                    if not identified and textureStr ~= "" then
-                        -- Check honor textures
-                        for _, pattern in ipairs(HONOR_TEXTURES) do
-                            if textureStr:match(pattern) then
-                                itemData.honor = costCount
-                                identified = true
-                                break
-                            end
-                        end
-
-                        -- Check arena textures
-                        if not identified then
-                            for _, pattern in ipairs(ARENA_TEXTURES) do
-                                if textureStr:match(pattern) then
-                                    itemData.arena = costCount
-                                    identified = true
-                                    break
-                                end
-                            end
-                        end
-                    end
-
-                    -- Debug: if still not identified, log it
-                    if not identified and costCount and costCount > 0 then
-                        -- Unknown currency - might be honor/arena with different texture
-                        -- Store as honor if count is large (>100), likely honor
-                        if costCount >= 100 then
-                            itemData.honor = costCount
-                        end
-                    end
-                end
-            end
-
-            -- Store the item
-            HonorLogDB.scannedGear[itemID] = itemData
-            pvpItemCount = pvpItemCount + 1
+            kept = kept + 1
         end
-
-        scannedCount = scannedCount + 1
     end
+    HonorLogDB.scannedVendors[vendor] = { timestamp = time(), itemCount = kept }
 
-    -- Record vendor as scanned
-    HonorLogDB.scannedVendors[vendorName] = {
-        timestamp = time(),
-        itemCount = pvpItemCount,
-    }
-
-    print("|cff40d860HonorLog|r Scan complete: |cffffffff" .. pvpItemCount .. "|r PvP items found (with extended cost)")
-    print("|cff40d860HonorLog|r Use |cffffffff/honorlog scan export|r to output the data")
+    say(string.format("Scanned |cffffffff%s|r: %d PvP items of %d.", vendor, kept, numItems))
+    if self.OnDataUpdated then self:OnDataUpdated() end
+    return kept
 end
 
--- Export scanned data as Lua table
+local function MarksText(marks)
+    local parts = {}
+    for _, bgType in ipairs(HonorLog.BG_ORDER or {}) do
+        if marks and marks[bgType] then parts[#parts + 1] = bgType .. " " .. marks[bgType] end
+    end
+    return #parts > 0 and table.concat(parts, ", ") or "none"
+end
+
+local function SameMarks(a, b)
+    a, b = a or {}, b or {}
+    for k, v in pairs(a) do if b[k] ~= v then return false end end
+    for k, v in pairs(b) do if a[k] ~= v then return false end end
+    return true
+end
+
+-- The differences between what vendors charge and what the generated data says: the input for
+-- fixing tools/gear_rules.py. Returns the number of differing items.
 function HonorLog:ExportScannedData()
     self:InitScanner()
-
-    local data = HonorLogDB.scannedGear
+    local data = HonorLogDB and HonorLogDB.scannedGear
     if not data or not next(data) then
-        print("|cff40d860HonorLog|r |cffff6666No scanned data to export.|r Scan vendors first with /honorlog scan")
-        return
+        say("|cffff6666No scanned data to export.|r Scan a vendor first with /honorlog scan")
+        return 0
     end
+    local ids = {}
+    for itemID in pairs(data) do ids[#ids + 1] = itemID end
+    table.sort(ids)
 
-    -- Count items
-    local count = 0
-    for _ in pairs(data) do count = count + 1 end
-
-    print("|cff40d860HonorLog|r Exporting |cffffffff" .. count .. "|r items...")
-    print("|cff40d860HonorLog|r Copy the output from your chat frame or WoW\\Logs\\")
-    print("------ BEGIN EXPORT ------")
-
-    -- Sort by itemID for consistent output
-    local sortedIDs = {}
-    for itemID in pairs(data) do
-        table.insert(sortedIDs, itemID)
-    end
-    table.sort(sortedIDs)
-
-    -- Output as Lua table
-    for _, itemID in ipairs(sortedIDs) do
-        local item = data[itemID]
-        local marksStr = "nil"
-
-        if next(item.marks) then
-            local markParts = {}
-            for bg, count in pairs(item.marks) do
-                table.insert(markParts, bg .. " = " .. count)
+    say("------ BEGIN EXPORT (scan vs generated data) ------")
+    local differing = 0
+    for _, itemID in ipairs(ids) do
+        local scan, base = data[itemID], self.GearDB and self.GearDB[itemID]
+        local label = (base and base.name) or ("item " .. itemID)
+        if not base then
+            differing = differing + 1
+            print(string.format("[%d] NEW %s: honor %d, marks %s, gold %d", itemID, label, scan.honor or 0, MarksText(scan.marks), scan.gold or 0))
+        else
+            local diffs = {}
+            if (scan.honor or 0) ~= (base.honor or 0) then diffs[#diffs + 1] = string.format("honor %d -> %d", base.honor or 0, scan.honor or 0) end
+            if not SameMarks(scan.marks, base.marks) then diffs[#diffs + 1] = string.format("marks %s -> %s", MarksText(base.marks), MarksText(scan.marks)) end
+            if (scan.gold or 0) ~= (base.gold or 0) then diffs[#diffs + 1] = string.format("gold %d -> %d", base.gold or 0, scan.gold or 0) end
+            if base.legacy then diffs[#diffs + 1] = "stocked (generated data says legacy)" end
+            if #diffs > 0 then
+                differing = differing + 1
+                print(string.format("[%d] %s: %s", itemID, label, table.concat(diffs, "; ")))
             end
-            marksStr = "{ " .. table.concat(markParts, ", ") .. " }"
         end
-
-        local classStr = item.class and ('"' .. item.class .. '"') or "nil"
-        local slotStr = item.slot and ('"' .. item.slot .. '"') or '"UNKNOWN"'
-
-        -- Format: [itemID] = { slot = "SLOT", class = "CLASS", honor = N, arena = N, marks = { BG = N }, season = nil, name = "Name" },
-        local line = string.format(
-            '[%d] = { slot = %s, class = %s, honor = %d, arena = %d, marks = %s, season = nil, name = "%s" },',
-            itemID,
-            slotStr,
-            classStr,
-            item.honor or 0,
-            item.arena or 0,
-            marksStr,
-            item.name:gsub('"', '\\"')
-        )
-        print(line)
     end
-
-    print("------ END EXPORT ------")
-    print("|cff40d860HonorLog|r Export complete. Copy from chat or check WoW\\Logs\\")
+    print(string.format("------ END EXPORT: %d of %d scanned items differ ------", differing, #ids))
+    return differing
 end
 
--- Clear scanned data
 function HonorLog:ClearScannedData()
     self:InitScanner()
     HonorLogDB.scannedGear = {}
     HonorLogDB.scannedVendors = {}
-    print("|cff40d860HonorLog|r Scanned data cleared.")
+    say("Scanned data cleared.")
+    if self.OnDataUpdated then self:OnDataUpdated() end
 end
 
--- Show scan status
 function HonorLog:ShowScanStatus()
     self:InitScanner()
+    local itemCount, vendorCount = 0, 0
+    for _ in pairs(HonorLogDB.scannedGear or {}) do itemCount = itemCount + 1 end
+    for _ in pairs(HonorLogDB.scannedVendors or {}) do vendorCount = vendorCount + 1 end
 
-    local itemCount = 0
-    for _ in pairs(HonorLogDB.scannedGear or {}) do
-        itemCount = itemCount + 1
-    end
-
-    local vendorCount = 0
-    for _ in pairs(HonorLogDB.scannedVendors or {}) do
-        vendorCount = vendorCount + 1
-    end
-
-    print("|cff40d860HonorLog|r Scanner Status:")
+    say("Scanner Status:")
     print("  Items scanned: |cffffffff" .. itemCount .. "|r")
     print("  Vendors visited: |cffffffff" .. vendorCount .. "|r")
-
-    if vendorCount > 0 then
-        print("  Vendors:")
-        for name, info in pairs(HonorLogDB.scannedVendors) do
-            print("    - " .. name .. " (" .. info.itemCount .. " items)")
-        end
+    for name, info in pairs(HonorLogDB.scannedVendors or {}) do
+        print("    - " .. name .. " (" .. info.itemCount .. " items)")
     end
-
-    print("|cff40d860HonorLog|r Commands:")
+    say("Commands:")
     print("  |cffffffff/honorlog scan|r - Scan current vendor")
-    print("  |cffffffff/honorlog scan export|r - Export as Lua table")
+    print("  |cffffffff/honorlog scan export|r - Print differences from the generated data")
     print("  |cffffffff/honorlog scan clear|r - Clear scanned data")
 end
-
---------------------------------------------------------------------------------
--- AUTO-SCAN ON VENDOR OPEN (optional, disabled by default)
---------------------------------------------------------------------------------
-
--- Create scanner event frame
-local scannerFrame = CreateFrame("Frame")
-scannerFrame:RegisterEvent("MERCHANT_SHOW")
-scannerFrame:SetScript("OnEvent", function(self, event)
-    -- Auto-scan is disabled by default
-    -- Uncomment next line to enable auto-scanning PvP vendors
-    -- HonorLog:ScanCurrentVendor()
-end)
