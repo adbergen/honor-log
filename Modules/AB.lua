@@ -32,7 +32,7 @@ end
 function AB:GetCurrentScore()
     -- Parse AB scoreboard for current resources
     -- This would require reading from the BG score frame
-    local numScores = GetNumBattlefieldScores()
+    local numScores = HonorLog.Compat.GetNumBattlefieldScores()
     if numScores > 0 then
         -- AB shows faction scores in specific UI elements
         -- For now, return nil - enhancement for future versions

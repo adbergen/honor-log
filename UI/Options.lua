@@ -354,7 +354,7 @@ function HonorLog:InitializeOptions()
         category.ID = panel.name
         Settings.RegisterAddOnCategory(category)
         self.optionsCategory = category
-    else
+    elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
     end
 end
@@ -362,7 +362,7 @@ end
 function HonorLog:OpenOptions()
     if Settings and Settings.OpenToCategory then
         Settings.OpenToCategory("HonorLog")
-    else
+    elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
         InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
     end

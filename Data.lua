@@ -5,6 +5,57 @@ local ADDON_NAME, HonorLog = ...
 HonorLog = HonorLog or {}
 _G.HonorLog = HonorLog
 
+-- Forever-safe wrappers. WoW Forever's client is retail-shaped: the TBC globals
+-- (GetItemInfo, GetBattlefieldScore, ...) are gone or only exist as optional
+-- deprecation fallbacks, so every call goes through here and degrades to nil.
+local Compat = {}
+HonorLog.Compat = Compat
+
+function Compat.GetItemInfo(...)
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo(...) end
+    if GetItemInfo then return GetItemInfo(...) end
+end
+
+function Compat.GetItemCount(...)
+    if C_Item and C_Item.GetItemCount then return C_Item.GetItemCount(...) end
+    if GetItemCount then return GetItemCount(...) end
+    return 0
+end
+
+function Compat.GetBattlefieldWinner()
+    if GetBattlefieldWinner then return GetBattlefieldWinner() end
+end
+
+function Compat.GetNumBattlefieldScores()
+    if GetNumBattlefieldScores then return GetNumBattlefieldScores() end
+    return 0
+end
+
+-- Returns name, killingBlows, honorableKills, deaths, honorGained, faction.
+-- Old clients had GetBattlefieldScore; Forever only has C_PvP.GetScoreInfo,
+-- which is secret during a match, so a secret row is treated as unreadable.
+function Compat.GetBattlefieldScore(index)
+    if GetBattlefieldScore then return GetBattlefieldScore(index) end
+    if not index or not (C_PvP and C_PvP.GetScoreInfo) then return end
+    local info = C_PvP.GetScoreInfo(index)
+    if type(info) ~= "table" then return end
+    if issecretvalue and issecretvalue(info.honorGained) then return end
+    return info.name, info.killingBlows, info.honorableKills, info.deaths, info.honorGained, info.faction
+end
+
+-- Returns name, texture, price, quantity, numAvailable, isPurchasable, isUsable, hasExtendedCost.
+function Compat.GetMerchantItemInfo(index)
+    if GetMerchantItemInfo then return GetMerchantItemInfo(index) end
+    if not (C_MerchantFrame and C_MerchantFrame.GetItemInfo) then return end
+    local info = C_MerchantFrame.GetItemInfo(index)
+    if not info then return end
+    return info.name, info.texture, info.price, info.stackCount, info.numAvailable,
+        info.isPurchasable, info.isUsable, info.hasExtendedCost
+end
+
+local GetItemInfo = Compat.GetItemInfo
+local GetItemCount = Compat.GetItemCount
+
 -- Default database structure
 local DEFAULTS = {
     global = {
@@ -401,7 +452,7 @@ end
 
 -- Set history limit
 function HonorLog:SetHistoryLimit(limit)
-    limit = math.max(10, math.min(100, limit))
+    limit = math.max(10, math.min(500, limit))
     self.db.char.historyLimit = limit
     self.db.global.historyLimit = limit
 
@@ -613,15 +664,15 @@ CURRENCY APIs - For Gear Goal Tracking
 
 -- Get current honor points
 function HonorLog:GetCurrentHonor()
-    -- Try C_CurrencyInfo API first (TBC Classic Anniversary uses this)
+    -- Try C_CurrencyInfo API first
     if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
-        -- Honor currency ID 1901 is used in TBC Classic Anniversary
-        local info = C_CurrencyInfo.GetCurrencyInfo(1901)
+        -- Honor is currency 1792 on WoW Forever
+        local info = C_CurrencyInfo.GetCurrencyInfo(1792)
         if info and info.quantity and info.quantity > 0 then
             return info.quantity
         end
         -- Try other known honor currency IDs as fallback
-        local currencyIDs = {1792, 392, 43308}
+        local currencyIDs = {1901, 392, 43308}
         for _, currencyID in ipairs(currencyIDs) do
             info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
             if info and info.quantity and info.quantity > 0 then

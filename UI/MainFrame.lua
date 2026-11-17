@@ -3,6 +3,9 @@
 
 local ADDON_NAME, HonorLog = ...
 
+-- Forever-safe wrappers (defined in Data.lua)
+local GetItemInfo = HonorLog.Compat.GetItemInfo
+
 --------------------------------------------------------------------------------
 -- THEME (from shared UI/Theme.lua)
 --------------------------------------------------------------------------------
@@ -734,7 +737,6 @@ local function CreateMainFrame()
     -- Right-click menu - use BOTH OnMouseDown and OnMouseUp for maximum compatibility
     local function HandleRightClick(self, button)
         if button == "RightButton" then
-            print("|cff00ff00[HonorLog]|r Right-click detected on: " .. (self:GetName() or "unnamed frame"))
             HonorLog:ShowContextMenu()
         end
     end
@@ -1570,8 +1572,6 @@ end
 -- Note: We initialize on each show for TBC Classic compatibility
 
 function HonorLog:ShowContextMenu()
-    print("|cff00ff00[HonorLog]|r ShowContextMenu called!")
-
     -- Re-initialize menu each time for TBC Classic compatibility
     UIDropDownMenu_Initialize(menuFrame, InitializeMenu, "MENU")
 
@@ -1587,8 +1587,6 @@ function HonorLog:ShowContextMenu()
 
     -- Toggle the dropdown
     ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
-
-    print("|cff00ff00[HonorLog]|r   Menu toggled at cursor (" .. math.floor(cursorX) .. ", " .. math.floor(cursorY) .. ")")
 end
 
 --------------------------------------------------------------------------------

@@ -3,6 +3,10 @@
 
 local ADDON_NAME, HonorLog = ...
 
+-- Forever-safe wrappers (defined in Data.lua)
+local GetItemInfo = HonorLog.Compat.GetItemInfo
+local GetItemCount = HonorLog.Compat.GetItemCount
+
 --------------------------------------------------------------------------------
 -- ANIMATION IMPORTS (from UI/Animation.lua)
 --------------------------------------------------------------------------------
@@ -262,6 +266,7 @@ local function GetDragFrame()
 end
 
 -- Create drop indicator line
+local dropIndicator
 local function GetDropIndicator(parent)
     if not dropIndicator then
         dropIndicator = CreateFrame("Frame", nil, parent)
@@ -389,7 +394,7 @@ local function CreateGoalCard(parent, index)
 
     -- Ctrl+Click to preview item in dressing room
     card:SetScript("OnMouseUp", function(self, button)
-        if button == "LeftButton" and IsControlKeyDown() and self.itemID then
+        if button == "LeftButton" and IsControlKeyDown() and self.itemID and DressUpItemLink then
             local _, itemLink = GetItemInfo(self.itemID)
             if itemLink then
                 DressUpItemLink(itemLink)
@@ -2670,7 +2675,7 @@ local function CreateGoalPicker()
 
         -- Ctrl+Click to preview item in dressing room
         row:SetScript("OnMouseUp", function(self, button)
-            if button == "LeftButton" and IsControlKeyDown() and self.itemID then
+            if button == "LeftButton" and IsControlKeyDown() and self.itemID and DressUpItemLink then
                 local _, itemLink = GetItemInfo(self.itemID)
                 if itemLink then
                     DressUpItemLink(itemLink)
