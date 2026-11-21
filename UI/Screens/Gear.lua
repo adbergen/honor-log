@@ -94,6 +94,10 @@ local TOTALS_H = 104
 local A_HEIGHT_TOTALS = PANEL_H - A_AREA_TOP - 40 - TOTALS_H - 8
 local A_HEIGHT_PLAIN = PANEL_H - A_AREA_TOP - 40
 
+-- A goal row: icon, then name over status, then the percent over its bar at the right.
+local GOAL_SIDE_W = 44
+local GOAL_TEXT_W = A_AREA_W - 46 - 8 - GOAL_SIDE_W - 6
+
 local function chooseGoal(itemID)
     local s = settings()
     if s then s.windowGoal = itemID end
@@ -111,16 +115,20 @@ local function goalRowCreate(row)
     row.icon:SetPoint("LEFT", row, "LEFT", 8, 0)
     -- above the row's click area, which covers it: two frames at one level have no promised order
     row.icon:SetFrameLevel((num(row.click:GetFrameLevel()) or 0) + 1)
-    row.name = fixedText(row, "value", A_AREA_W - 46 - 8 - 56 - 6)
-    row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -9)
-    row.status = fixedText(row, "grey", A_AREA_W - 46 - 8 - 56 - 6)
-    row.status:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -27)
-    row.percent = fixedText(row, "value", 56)
-    row.percent:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -10)
+    row.name = fixedText(row, "value", GOAL_TEXT_W)
+    row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -6)
+    -- two lines: "Rank 11 locked until week 7 · ready Dec 08" is the point of the row and must not be cut
+    row.status = Kit:Text(row, "grey")
+    row.status:SetWidth(GOAL_TEXT_W)
+    row.status:SetJustifyV("TOP")
+    row.status:SetMaxLines(2)
+    row.status:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -22)
+    row.percent = fixedText(row, "value", GOAL_SIDE_W)
+    row.percent:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -7)
     row.percent:SetJustifyH("RIGHT")
     row.bar = Kit:Bar(row)
-    row.bar:SetSize(56, 8)
-    row.bar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -29)
+    row.bar:SetSize(GOAL_SIDE_W, 8)
+    row.bar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -26)
     row.tick = row:CreateTexture(nil, "ARTWORK")
     row.tick:SetSize(16, 16)
     row.tick:SetPoint("RIGHT", row, "RIGHT", -16, 0)
@@ -167,7 +175,7 @@ end
 local function buildGoalsList(inset)
     local a = { inset = inset }
     local header = Kit:Header(inset, L["Your goals, in order"])
-    header:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -6)
+    header:SetPoint("TOPLEFT", inset, "TOPLEFT", 12 + Kit.PORTRAIT_CLEAR, -6)
     header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -12, -6)
 
     a.area = Kit:ScrollArea(inset)
@@ -268,7 +276,11 @@ local function refreshTotals(a, state)
         return
     end
     t.title:SetText(string.format(L["All %d together"], #state.gps))
-    t.honor:SetText(string.format(L["%s / %s"], commas(T.honorCurrent or 0), commas(T.honorNeeded or 0)))
+    if (num(T.honorNeeded) or 0) > 0 then
+        t.honor:SetText(string.format(L["%s / %s"], commas(T.honorCurrent or 0), commas(T.honorNeeded or 0)))
+    else
+        t.honor:SetText(L["none needed"])
+    end
     local x = 0
     for _, bg in ipairs(HonorLog.BG_ORDER or {}) do
         local w = t.marks[bg]
