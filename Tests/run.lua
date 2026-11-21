@@ -7971,6 +7971,20 @@ local function run()
                 if g.teams and (g.teams[1][1] ~= nil or g.teams[0][1] ~= nil) then rowsSaved = true end
             end
             check(not rowsSaved, "met flow: no saved game holds a per-player row")
+            -- the shape of a saved game is locked: only the fields a game had before this change, and a team
+            -- summary of four totals
+            local KNOWN = { bgType = true, win = true, result = true, duration = true, honor = true, marks = true, timestamp = true,
+                character = true, joinedInProgress = true, kb = true, hk = true, deaths = true, damage = true, healing = true,
+                objectives = true, rankPoints = true, rankState = true, rankCappedDuring = true, honorCapped = true, teams = true,
+                scoreboard = true, rep = true }
+            local TEAM = { players = true, kb = true, hk = true, deaths = true }
+            for i, g in ipairs(HL.db.char.history) do
+                for key in pairs(g) do check(KNOWN[key], "met flow: saved game " .. i .. " has no new field: " .. tostring(key)) end
+                for side, team in pairs(type(g.teams) == "table" and g.teams or {}) do
+                    check(side == 0 or side == 1, "met flow: saved game " .. i .. " has only the two teams")
+                    for key in pairs(team) do check(TEAM[key], "met flow: saved game " .. i .. " team summary has no new field: " .. tostring(key)) end
+                end
+            end
 
             -- a reload in the middle of the wait: the board comes back from bgState.match
             local foe2Before, eventsBefore = Met:Get("Foe2").against, #events
