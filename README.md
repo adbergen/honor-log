@@ -29,8 +29,8 @@ addon menu.
   upgrade; what you can buy today and what the next ranks open. **Add a goal** opens the vendor
   browser: every PvP vendor, its stock for your class or all classes, set filters, and a star on
   each item that adds or removes the goal.
-  - **Level requirement:** a goal whose item needs a higher character level reads "Ready at level
-    55" instead of a date.
+  - **Level requirement:** a goal whose item needs a higher character level shows "Level 35 / 55"
+    and reads "Ready at level 55" instead of a date.
   - **Reputation forecast:** a reputation goal shows your standing with the amounts ("Honored
     4,200 / 12,000"). Every battleground game records the reputation it gave with that
     battleground's faction, and the date comes from your average over your last 20 games. Until a
@@ -52,7 +52,7 @@ addon menu.
 Every vendor and every quest hand-in has a "Show on map" button, and clicking an item's icon does
 the same for the vendor that sells it: the map opens on the spot with a pulsing pin, and an arrow
 on screen points the way with the distance. `/honorlog vendor <item or goal number>` does it from
-the chat line. The quartermasters and the Warsong Gulch, Arathi Basin and Alterac Valley supply
+the chat line, and Alt+Click on a goal in the small frame's goals list does it too. The quartermasters and the Warsong Gulch, Arathi Basin and Alterac Valley supply
 officers are built in; any other vendor is remembered the first time you open it.
 
 ### Pop-up cards

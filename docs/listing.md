@@ -72,8 +72,10 @@ numbers from your own character instead of guessing them.
 
 ### It shows you the way
 
-Every vendor and every hand-in has a "Show on map" button. It opens your map on the spot
-with a pin, and an arrow on your screen points the way with the distance.
+- **Vendor locations.** A goal says who sells the item and where, and "Show on map"
+  opens your map on the vendor with a pin while an arrow on your screen points the way
+  with the distance.
+- **Quest hand-ins.** The same button takes you back to where you handed a quest in.
 
 ### Cards at the moments that matter
 
@@ -103,7 +105,8 @@ Each card can be switched off, never appears during a fight and goes away by its
 
 - **World PvP without the combat log:** kills, killing blows, deaths, honor, and the
   opponents you meet most.
-- **A small tracker frame** for inside a battleground, next to the full window.
+- **A small tracker frame** for inside a battleground, next to the full window: honor
+  today, this week and this session, and honor per hour in battlegrounds.
 - **Export** every saved game, your world PvP and opponents as text or comma-separated
   CSV.
 - **Data Broker and minimap button** for Titan Panel, ChocolateBar and Bazooka. The
