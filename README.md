@@ -10,28 +10,25 @@ is not meant for the TBC client.
 
 ## Features
 
-- **Battlegrounds:** Alterac Valley, Warsong Gulch, Arathi Basin and Darkspear Islands. A new
-  battleground is tracked from its first game.
-- **Measured per game:** honor, marks and rank points come from your own currency, bags and
-  rank, not from fixed guesses. Each game is saved as a win, loss, draw or left early, and a
-  game you joined in progress is flagged.
-- **Scoreboard stats:** killing blows, honorable kills, deaths, damage, healing and
-  objectives, saved once the client lets addons read the scoreboard.
-- **World PvP:** kills, killing blows, deaths, honor (from kills and from awards) and the
-  opponents you meet most, without the combat log.
-- **Honor summary:** today, this week and this session, with a warning before you reach the cap.
-  The stats frame also shows honor per hour, counted over the time you spent in battlegrounds this
-  session.
-- **Honor cap advice:** when the cap is close, or about 20 games away at your own honor per game,
-  and nothing on your goal list can be bought yet because of level, rank or reputation, HonorLog
-  says so and lists up to three items you could buy now (`/honorlog goal advice`).
-- **Rank planner:** the 14 PvP ranks, this week's cap, the season end, and for any rank the
-  games it takes at your pace and the earliest date the cap allows. It records why each game
-  gave the rank points it did, shows your measured points per win and loss for each
-  battleground, flags battlegrounds that give no rank points, and says when character level 40
-  (a player-reported gate on rank 4) is what blocks the next rank.
-- **Gear goals:** about 900 Forever PvP items with honor, marks, gold, rank gates and
-  reputation. Epics show as blue piece plus Seal; goals get a "ready on" date.
+### One window, five screens
+
+Open it with `/honorlog`, the minimap button, a key binding (Key Bindings, AddOns) or the game's
+addon menu.
+
+- **Overview:** your rank and honor, today's games, honor, rank points and marks, what to do next,
+  your next gear goal and your recent games.
+- **Rank plan:** the season charted against the weekly rank cap, with your points and a projection
+  at your pace; the 14 ranks with what each unlocks, shown as the real items; a planner to a target
+  rank (points to go, games at your pace, when the cap opens it, what holds you back); your
+  measured rank points per win and loss for each battleground; and the season's weekly quest.
+  A battleground that gives no rank points is flagged, and so is character level 40 (a
+  player-reported gate on rank 4) when it is what blocks the next rank.
+- **Gear goals:** about 900 Forever PvP items with honor, marks, gold, rank gates, level and
+  reputation. Your goals in order, each with what it still takes and a "ready on" date; the chosen
+  goal in detail, with an epic's two purchases (blue piece plus Seal) or a blue piece's epic
+  upgrade; what you can buy today and what the next ranks open. **Add a goal** opens the vendor
+  browser: every PvP vendor, its stock for your class or all classes, set filters, and a star on
+  each item that adds or removes the goal.
   - **Level requirement:** a goal whose item needs a higher character level shows "Level 35 / 55"
     and reads "Ready at level 55" instead of a date.
   - **Reputation forecast:** a reputation goal shows your standing with the amounts ("Honored
@@ -40,19 +37,55 @@ is not meant for the TBC client.
     game has measured it, the goal asks you to play one and shows no date.
   - **Battleground reputation gear:** the Arathi Basin, Alterac Valley and Warsong Gulch
     reputation items are listed with a "price unconfirmed" tag until a vendor scan has seen them.
-  - **Vendors:** a goal and a picker row say who sells the item and where ("Sold by Samuel Hawke,
-    Refuge Pointe, Arathi Highlands"). Alt+Click opens the map on the vendor with a pulsing pin and a distance arrow, or
-    use `/honorlog vendor <item or goal number>`. Where a vendor's position is not known yet,
-    opening that vendor once lets HonorLog remember it.
-- **Rank planner, measured:** each game saves why it gave the rank points it did, the Rank tab
-  lists your measured points per win and loss for each battleground, and games played at the
-  honor cap no longer pull your honor per game down.
+- **Battlegrounds:** a card for Alterac Valley, Warsong Gulch, Arathi Basin and Darkspear Islands
+  with your record, your last ten results, win rate, honor a game, average length and measured rank
+  points; honor for each of the last seven days; win rate by time of day; and the table of every
+  recorded game, with filters for battleground, result and character or account, and export. A new
+  battleground is tracked from its first game.
+- **Quests:** the PvP quests the game data names for your faction, grouped as ready to hand in, in
+  your log (with objectives), not picked up and done. HonorLog remembers what each quest paid
+  (honor, rank points, marks, money, experience) and where you handed it in. Titles and objectives
+  come from the game, so they are in your language.
+
+### Show on map
+
+Every vendor and every quest hand-in has a "Show on map" button, and clicking an item's icon does
+the same for the vendor that sells it: the map opens on the spot with a pulsing pin, and an arrow
+on screen points the way with the distance. `/honorlog vendor <item or goal number>` does it from
+the chat line, and Alt+Click on a goal in the small frame's goals list does it too. The quartermasters and the Warsong Gulch, Arathi Basin and Alterac Valley supply
+officers are built in; any other vendor is remembered the first time you open it.
+
+### Pop-up cards
+
+A **game report** after each battleground (result, honor against your average, rank points with the
+reason for a zero, marks, your next goal, the honor cap), a **rank-up** card (the new rank, what it
+unlocks, what comes next) and an **honor cap** card (how close the cap is and what to buy first).
+Each can be switched off in the options, waits for the end of a fight and goes away by itself.
+`/honorlog moment report|rank|cap` shows one now.
+
+### Measured, not guessed
+
+- **Per game:** honor, marks and rank points come from your own currency, bags and rank, not from
+  fixed guesses. Each game is saved as a win, loss, draw or left early, with why it gave the rank
+  points it did, and a game you joined in progress is flagged. Games played at the honor cap do not
+  pull your honor per game down.
+- **Scoreboard stats:** killing blows, honorable kills, deaths, damage, healing and objectives,
+  saved once the client lets addons read the scoreboard.
 - **Vendor scan:** reads real vendor prices, automatically (see below).
+- **Honor cap advice:** when the cap is close, or about 20 games away at your own honor per game,
+  and nothing on your goal list can be bought yet because of level, rank or reputation, HonorLog
+  says so and lists up to three items you could buy now (`/honorlog goal advice`).
+
+### Also
+
+- **World PvP:** kills, killing blows, deaths, honor (from kills and from awards) and the
+  opponents you meet most, without the combat log.
+- **The small tracker frame** (`/honorlog mini`): today's stats, honor today, this week and this
+  session, and honor per hour over the time you spent in battlegrounds.
 - **Export:** every saved game, world PvP and opponents, as text or CSV (comma-separated, with
   quoting). `/honorlog export csv` opens the CSV; plain `/honorlog export` uses the Export Format
   option.
-- **Session and scope:** today's stats, per-character or account-wide views, up to 500 games
-  of history.
+- **Scope:** per-character or account-wide views, up to 500 games of history.
 - **LDB and minimap button** for Titan Panel, ChocolateBar, Bazooka and the like.
 
 ## Slash commands
@@ -74,7 +107,8 @@ is not meant for the TBC client.
 | `/honorlog view [character\|account]` | Switch scope |
 | `/honorlog reset [today\|character\|account]` | Reset stats |
 | `/honorlog scan [export\|clear\|status]` | Vendor scan tools |
-| `/honorlog probe [on\|off\|status\|clear]` | Record what PvP data the client exposes |
+| `/honorlog moment report\|rank\|cap` | Show a pop-up card now |
+| `/honorlog probe [on\|off\|status\|clear\|guild\|group\|ui]` | Record what the client exposes to addons |
 | `/honorlog config` | Options |
 | `/honorlog status`, `debug`, `test` | Tracking state, debug prints, fake game |
 | `/honorlog help` | List commands |
