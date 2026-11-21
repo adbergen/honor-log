@@ -1534,6 +1534,7 @@ local function InitializeMenu(frame, level, menuList)
             HonorLog.db.char.history = {}
             if HonorLog.WorldLog then HonorLog.WorldLog:Reset() end
             if HonorLog.Weeks then HonorLog.Weeks:Reset() end
+            if HonorLog.Met then HonorLog.Met:Reset() end
             HonorLog:ResetSession()
             HonorLog:UpdateMainFrame()
             print("|cff40d860HonorLog|r Character stats reset.")
