@@ -22,6 +22,7 @@ local MIDDLE_HEIGHT = 206
 local GOAL_WIDTH = 224
 local ADVICE_ROWS, GAME_ROWS, GAME_ROW_HEIGHT = 4, 6, 25
 local GOAL_ROW_HEIGHT, GOAL_ROWS = 15, 6
+local UNLOCK_ICONS = 5 -- item icons shown for the next rank's unlocks
 local GAME_PAD = 6 -- the games table's left padding, shared by its column titles and its cells
 local ADVICE_LIST_HEIGHT, ADVICE_LINES, ADVICE_GAP = 164, 3, 8
 
@@ -121,6 +122,16 @@ local function buildLeft(root)
     p.gateText:SetJustifyV("TOP")
     p.gate:Hide()
 
+    -- What the next rank unlocks, as item icons (under the gate note when that shows).
+    p.unlockLabel = Kit:Text(pane, "labelSmall")
+    p.unlockLabel:SetJustifyH("CENTER")
+    p.unlockLabel:SetWidth(LEFT_WIDTH - 20)
+    p.unlockIcons = {}
+    for i = 1, UNLOCK_ICONS do
+        p.unlockIcons[i] = Kit:ItemIcon(pane, 28)
+        p.unlockIcons[i]:Hide()
+    end
+
     p.honorLabel = Kit:Text(pane, "label")
     p.honorLabel:SetPoint("BOTTOMLEFT", pane, "BOTTOMLEFT", 14, 56)
     p.honorLabel:SetText(L["Honor Points:"])
@@ -171,6 +182,42 @@ local function refreshLeft(p)
         p.percent:SetText("")
         p.gate:Hide()
     end
+
+    -- The next rank that unlocks something, and what.
+    local items, unlockRank = {}, nil
+    if info then
+        for n = (num(info.rank) or 0) + 1, math.min(num(info.seasonMaxRank) or 14, 14) do
+            local list = safe(HonorLog.GetRankUnlocks, HonorLog, n) or {}
+            if #list > 0 then
+                items, unlockRank = list, n
+                break
+            end
+        end
+    end
+    local shown = math.min(#items, UNLOCK_ICONS)
+    if shown > 0 then
+        local top = p.gate:IsShown() and -392 or -312
+        p.unlockLabel:ClearAllPoints()
+        p.unlockLabel:SetPoint("TOP", p.pane, "TOP", 0, top)
+        p.unlockLabel:SetText(string.format(L["Rank %d unlocks"], unlockRank))
+        p.unlockLabel:Show()
+        local width = shown * 28 + (shown - 1) * 6
+        for i = 1, UNLOCK_ICONS do
+            local icon = p.unlockIcons[i]
+            if i <= shown then
+                icon:SetItem(items[i])
+                icon:ClearAllPoints()
+                icon:SetPoint("TOPLEFT", p.pane, "TOP", -width / 2 + (i - 1) * 34, top - 18)
+                icon:Show()
+            else
+                icon:Hide()
+            end
+        end
+    else
+        p.unlockLabel:Hide()
+        for i = 1, UNLOCK_ICONS do p.unlockIcons[i]:Hide() end
+    end
+    p.unlockRank, p.unlockShown = unlockRank or false, shown
 
     local honor = safe(HonorLog.GetHonorSummary, HonorLog)
     local current, cap = num(honor and honor.current) or 0, num(honor and honor.cap) or 0
@@ -257,7 +304,8 @@ local function refreshTiles(tiles)
         setNote(tiles[3], "")
     elseif m then
         tiles[3].value:SetText("0")
-        color(tiles[3].value, "orange")
+        -- orange only when something is holding the points back; a day without games is just 0
+        color(tiles[3].value, m.rankBlocked and "orange" or "white")
         if m.rankBlocked == "gate" then
             local level = info and info.gate and info.gate.level
                 or (HonorLog.Rank.LEVEL_GATES[1] and HonorLog.Rank.LEVEL_GATES[1].level) or 0

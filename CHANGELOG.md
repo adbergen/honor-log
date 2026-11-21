@@ -87,6 +87,8 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
   (honor, rank points, marks, money), so the rewards of PvP quests can be learned in game.
   `/honorlog probe guild` and `/honorlog probe group` send one hidden test message and report
   whether the game lets copies of HonorLog share data there; nothing is sent without the command.
+  `/honorlog probe ui` records which of Blizzard's templates, art and helper functions the
+  client has.
   It also logs whether a vendor's NPC id and position can be read, and the reputation
   change after each game.
 

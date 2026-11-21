@@ -182,6 +182,12 @@ function methods.CreateTexture(self) return newObject("Texture", self) end
 function methods.CreateMaskTexture(self) return newObject("Texture", self) end
 function methods.SetRotation(self, r) self.__rotation = r; return self end
 function methods.SetAtlas(self, atlas) self.__atlas = atlas; self.__color = nil; self.__texture = nil; return self end
+-- The client hands the name back only for an atlas it has. M.atlasInfoBlind lists atlases the client has but
+-- C_Texture.GetAtlasInfo does not report (seen in game), so only this read finds them.
+function methods.GetAtlas(self)
+    local name = self.__atlas
+    if name and (M.atlasInfoBlind[name] or M.atlasKnown(name)) then return name end
+end
 function methods.GetRotation(self) return self.__rotation end
 function methods.SetAlpha(self, a) self.__alpha = a; return self end
 function methods.GetAlpha(self) return self.__alpha or 1 end
@@ -493,9 +499,14 @@ function GetCurrentArenaSeason() return M.arenaSeason end
 M.atlases = { ["UI-WorldMapArrow"] = true }
 -- M.atlasMode: "default" (the list above), "all" (every atlas exists) or "none" (no atlas exists).
 M.atlasMode = "default"
+M.atlasInfoBlind = {}
+function M.atlasKnown(name)
+    if M.atlasMode == "none" then return false end
+    return M.atlasMode == "all" or M.atlases[name] == true or name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") ~= nil
+end
 C_Texture = { GetAtlasInfo = function(name)
-    if M.atlasMode == "none" then return nil end
-    if M.atlasMode == "all" or M.atlases[name] or name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") then return { width = 64 } end
+    if M.atlasInfoBlind[name] then return nil end
+    if M.atlasKnown(name) then return { width = 64, height = 64 } end
 end }
 local CURRENCIES = {
     [1792] = { name = "Honor", quantity = 8200, maxQuantity = 25000 },

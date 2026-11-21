@@ -11,6 +11,9 @@
 --   /honorlog probe group    whether the client allows it and whether it comes back (group: the
 --                            battleground, raid or party the player is in). Nothing is ever sent
 --                            without one of these two commands.
+--   /honorlog probe ui       record which of Blizzard's templates, atlases, fonts and helper functions
+--                            this client has, and how it names the player (HonorLogDB.probe.ui). The
+--                            readable UI source is incomplete, so the game itself is asked.
 --
 -- While armed it also learns what quests pay (HonorLogDB.probe.quests): no data an
 -- addon can read ahead of time says what a PvP quest rewards, so the offer is read
@@ -660,6 +663,154 @@ function Probe:TestMessaging(which)
     return true
 end
 
+--------------------------------------------------------------------------------
+-- UI audit: what does this client have to build a window from?
+--------------------------------------------------------------------------------
+-- Frames made here live under a hidden parent and stay hidden; nothing is shown or changed.
+
+local UI_ATLASES = {
+    "UI-Character-Info-Honor-Bar", "UI-Character-Info-Honor-Bar-BG-Glow", "UI-Character-Info-Honor-Bar-BG-Horde",
+    "UI-Character-Info-Honor-Bar-BG-Alliance", "UI-Character-Info-Honor-RewardRing", "UI-Character-Info-Honor-LevelBG",
+    "UI-Character-Info-Honor-Icon-Horde", "UI-Character-Info-Honor-Icon-Alliance", "UI-Character-Info-Honor-Icon-1",
+    "UI-Character-Info-Honor-Icon-14", "UI-Character-Info-General-BG", "UI-Character-Info-Stat-BG",
+    "UI-Character-Info-Stat-StoneBG3", "UI-Character-Info-GearSlot", "UI-Character-Info-Title",
+    "common-framedivider", "common-insideframe", "pvpqueue-sidebar-honorbar-background",
+    "pvpqueue-rewardring-black", "Waypoint-MapPin-Untracked", "UI-WorldMapArrow", "_honorsystem-bar-fill",
+    "common-button-tertiary-normal", "ui-hud-minimap-addon-indicator",
+}
+local UI_TEMPLATES = {
+    { "Frame", "PortraitFrameTemplate" }, { "Frame", "PortraitFrameBaseTemplate" }, { "Frame", "InsetFrameTemplate" },
+    { "Frame", "NineSlicePanelTemplate" }, { "Frame", "TooltipBackdropTemplate" }, { "Frame", "WowScrollBoxList" },
+    { "EventFrame", "MinimalScrollBar" }, { "Button", "UIPanelButtonTemplate" }, { "Button", "SharedButtonTemplate" },
+    { "Button", "SharedButtonSmallTemplate" }, { "Button", "PanelTabButtonTemplate" },
+    { "Button", "PanelTopTabButtonTemplate" }, { "Button", "UIPanelCloseButton" },
+    { "Button", "UIPanelCloseButtonDefaultAnchors" }, { "Cooldown", "CooldownFrameTemplate" }, { "Cooldown" },
+    { "StatusBar" }, { "ItemButton" },
+}
+local UI_FONTS = {
+    "GameFontNormal", "GameFontNormalSmall", "GameFontNormalLarge", "GameFontNormalHuge", "GameFontNormalMed2",
+    "GameFontNormalMed3", "GameFontHighlight", "GameFontHighlightSmall", "GameFontHighlightLarge",
+    "GameFontHighlightHuge", "GameFontDisable", "GameFontDisableSmall", "Game15Font_o1",
+}
+local UI_GLOBALS = {
+    "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab", "PanelTemplates_TabResize", "PanelTemplates_SetNumTabs",
+    "PanelTemplates_SetTab", "CooldownFrame_SetDisplayAsPercentage", "SetItemButtonQuality", "ScrollUtil",
+    "CreateScrollBoxListLinearView", "NineSliceUtil", "ITEM_QUALITY_COLORS", "DressUpItemLink", "ChatEdit_InsertLink",
+    "SetPortraitToTexture", "ShowUIPanel", "HideUIPanel", "Item", "MenuUtil", "Settings", "UIDropDownMenu_Initialize",
+    "AddonCompartmentFrame", "WorldMapFrame", "GameTooltip", "UISpecialFrames",
+}
+local UI_MAP_METHODS = { "GetCanvas", "GetCanvasScale", "GetMapID", "SetMapID", "OnMapChanged", "OnCanvasScaleChanged", "OnCanvasSizeChanged" }
+local UI_KEYS_KEPT = 40
+
+-- The string keys a frame carries right after it is made: its template's children and mixin methods.
+local function frameKeys(f)
+    local parts, methods = {}, {}
+    local ok = pcall(function()
+        for k, v in pairs(f) do
+            if type(k) == "string" then
+                if type(v) == "function" then methods[#methods + 1] = k else parts[#parts + 1] = k end
+            end
+        end
+    end)
+    if not ok then return "unreadable", "unreadable" end
+    table.sort(parts)
+    table.sort(methods)
+    while #parts > UI_KEYS_KEPT do parts[#parts] = nil end
+    while #methods > UI_KEYS_KEPT do methods[#methods] = nil end
+    return parts, methods
+end
+
+function Probe:AuditUI()
+    local audit = { t = time(), build = readGlobal("GetBuildInfo") }
+    local holder = CreateFrame("Frame")
+    holder:Hide()
+
+    -- Atlases, asked both ways.
+    local scratch = holder:CreateTexture()
+    audit.atlases = {}
+    local found = 0
+    for _, name in ipairs(UI_ATLASES) do
+        local info = readNs("C_Texture", "GetAtlasInfo", name)
+        local readBack = "unavailable"
+        if type(scratch.GetAtlas) == "function" then
+            local ok, got = pcall(function()
+                scratch:SetAtlas(name)
+                return scratch:GetAtlas()
+            end)
+            if ok then readBack = (got == name) else readBack = "error" end
+        end
+        local rec = { info = type(info) == "table", readBack = readBack }
+        if type(info) == "table" then rec.width, rec.height, rec.file = info.width, info.height, info.file or info.filename end
+        if rec.info or rec.readBack == true then found = found + 1 end
+        audit.atlases[name] = rec
+    end
+
+    -- Templates: does CreateFrame take them, and what does the frame come with?
+    audit.templates = {}
+    local made = 0
+    for _, pair in ipairs(UI_TEMPLATES) do
+        local frameType, template = pair[1], pair[2]
+        local ok, f = pcall(CreateFrame, frameType, nil, holder, template)
+        local rec = { type = frameType, ok = ok and type(f) == "table" }
+        if rec.ok then
+            made = made + 1
+            pcall(f.Hide, f)
+            rec.regions, rec.children = safe(read(f.GetNumRegions, f)), safe(read(f.GetNumChildren, f))
+            rec.width, rec.height = safe(read(f.GetWidth, f)), safe(read(f.GetHeight, f))
+            rec.parts, rec.methods = frameKeys(f)
+        else
+            rec.error = tostring(f):sub(1, 160)
+        end
+        audit.templates[template or (frameType .. " (no template)")] = rec
+    end
+
+    audit.fonts = {}
+    for _, name in ipairs(UI_FONTS) do
+        local font = _G[name]
+        audit.fonts[name] = type(font) == "table" and read(font.GetFont, font) or false
+    end
+    audit.globals = {}
+    for _, name in ipairs(UI_GLOBALS) do audit.globals[name] = type(_G[name]) end
+    audit.tooltipSetItemByID = type(GameTooltip) == "table" and type(GameTooltip.SetItemByID) or "no tooltip"
+
+    audit.worldMap = {}
+    local map = _G.WorldMapFrame
+    if type(map) == "table" then
+        for _, name in ipairs(UI_MAP_METHODS) do audit.worldMap[name] = type(map[name]) end
+        audit.worldMap.ScrollContainerChild = type(map.ScrollContainer) == "table" and type(map.ScrollContainer.Child) or "none"
+    end
+
+    -- How the client names the player (Forever names have two words).
+    audit.names = {
+        UnitName = readGlobal("UnitName", "player"),
+        UnitFullName = readGlobal("UnitFullName", "player"),
+        UnitNameUnmodified = readGlobal("UnitNameUnmodified", "player"),
+        GetUnitName = readGlobal("GetUnitName", "player", true),
+        UnitPVPName = readGlobal("UnitPVPName", "player"),
+        GetRealmName = readGlobal("GetRealmName"),
+        GetNormalizedRealmName = readGlobal("GetNormalizedRealmName"),
+    }
+    audit.screen = {
+        width = readGlobal("GetScreenWidth"), height = readGlobal("GetScreenHeight"),
+        uiParentScale = read(UIParent.GetScale, UIParent), uiParentEffectiveScale = read(UIParent.GetEffectiveScale, UIParent),
+        uiScale = readGlobal("GetCVar", "uiScale"), useUiScale = readGlobal("GetCVar", "useUiScale"),
+    }
+    local window = _G.HonorLogWindow
+    if type(window) == "table" then
+        audit.window = { chrome = window.honorLogChrome, width = read(window.GetWidth, window), height = read(window.GetHeight, window),
+            scale = read(window.GetEffectiveScale, window) }
+    end
+    local kit = HonorLog.Kit
+    if kit then
+        audit.kit = { ringBar = kit:HasAtlas("UI-Character-Info-Honor-Bar"), ringBarOld = kit:HasAtlas("pvpqueue-sidebar-honorbar-background") }
+    end
+
+    db().ui = audit
+    say(string.format("UI audit saved: %d of %d atlases found, %d of %d frame kinds made. /reload so it is written to disk.",
+        found, #UI_ATLASES, made, #UI_TEMPLATES))
+    return audit
+end
+
 -- PARTY_KILL: are the GUIDs secret, in or out of a battleground?
 local function onPartyKill(attacker, target)
     local entry = { t = time(), gt = GetTime(), event = "PARTY_KILL" }
@@ -844,6 +995,8 @@ function Probe:HandleCommand(arg)
         say("Probe log and scoreboard attempts cleared.")
     elseif arg == "guild" or arg == "group" then
         self:TestMessaging(arg)
+    elseif arg == "ui" then
+        self:AuditUI()
     elseif arg == "status" then
         local quests, pvpQuests = 0, 0
         for _, rec in pairs(p.quests or {}) do

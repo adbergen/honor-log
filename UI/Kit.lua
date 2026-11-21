@@ -115,10 +115,26 @@ function Kit:CreateTemplated(frameType, name, parent, ...)
     return CreateFrame(frameType, name, parent), nil
 end
 
+-- Asked two ways, because the first in-game look showed an atlas Blizzard's own PvP tab uses reported as
+-- missing: C_Texture.GetAtlasInfo, then setting it on a scratch texture and reading it back.
+local scratchTexture
 function Kit:HasAtlas(name)
-    if type(name) ~= "string" or not (C_Texture and C_Texture.GetAtlasInfo) then return false end
-    local ok, info = pcall(C_Texture.GetAtlasInfo, name)
-    return ok and info ~= nil
+    if type(name) ~= "string" then return false end
+    if C_Texture and C_Texture.GetAtlasInfo then
+        local ok, info = pcall(C_Texture.GetAtlasInfo, name)
+        if ok and info ~= nil then return true end
+    end
+    if not scratchTexture then
+        local holder = CreateFrame("Frame")
+        holder:Hide()
+        scratchTexture = holder:CreateTexture()
+    end
+    if type(scratchTexture.GetAtlas) ~= "function" then return false end
+    local ok, got = pcall(function()
+        scratchTexture:SetAtlas(name)
+        return scratchTexture:GetAtlas()
+    end)
+    return ok and got == name
 end
 
 -- The atlas when the client has it, else a plain colour. Returns true when the atlas took.
@@ -447,6 +463,7 @@ local RING = {
     horde = "UI-Character-Info-Honor-Bar-BG-Horde",
     alliance = "UI-Character-Info-Honor-Bar-BG-Alliance",
     bar = "UI-Character-Info-Honor-Bar",
+    barOld = "pvpqueue-sidebar-honorbar-background", -- what PVPRankFrame.xml names before its Lua swaps it
     badge = "UI-Character-Info-Honor-RewardRing",
     iconHorde = "UI-Character-Info-Honor-Icon-Horde",
     iconAlliance = "UI-Character-Info-Honor-Icon-Alliance",
@@ -483,7 +500,8 @@ function Kit:Ring(parent, size)
     ring:SetSize(size, size)
     ring.honorLogRank, ring.honorLogProgress = 0, 0
 
-    local full = Kit:HasAtlas(RING.bar)
+    local ringArt = (Kit:HasAtlas(RING.bar) and RING.bar) or (Kit:HasAtlas(RING.barOld) and RING.barOld) or nil
+    local full = ringArt ~= nil
     local cd
     if full then
         cd = tryTemplate("Cooldown", nil, ring, "CooldownFrameTemplate") or tryTemplate("Cooldown", nil, ring)
@@ -514,7 +532,7 @@ function Kit:Ring(parent, size)
         local art = cd:CreateTexture(nil, "BORDER")
         art:SetSize(235 * scale, 209 * scale)
         art:SetPoint("CENTER", ring, "CENTER", 0, -1 * scale)
-        art:SetAtlas(RING.bar)
+        art:SetAtlas(ringArt)
         ring.Art = art
         ring.Icon = cd:CreateTexture(nil, "ARTWORK")
         ring.Icon:SetSize(72 * scale, 84 * scale)
