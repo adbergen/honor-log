@@ -63,7 +63,8 @@ local DB_VERSION = 3
 -- Events with data: HonorLog.RegisterCallback(listener, "HonorLog_GameRecorded", function(event, entry) end).
 -- Names and arguments: HonorLog_GameRecorded (entry), HonorLog_RankUp (newRank, Rank:GetInfo()),
 -- HonorLog_WeekCapReached (info), HonorLog_HonorCapNear (current, cap), HonorLog_GoalAcquired (itemID),
--- HonorLog_QuestPaid (questID), HonorLog_WeekEnded (record), HonorLog_WorldKill (entry), HonorLog_WorldDeath (entry).
+-- HonorLog_QuestPaid (questID), HonorLog_WeekEnded (record), HonorLog_WorldKill (entry), HonorLog_WorldDeath (entry),
+-- HonorLog_GameScoreboard (board = { rows, me, result, bgType, timestamp }, after a game with a readable board is saved).
 HonorLog.callbacks = LibStub("CallbackHandler-1.0"):New(HonorLog)
 
 -- Fire an event to the listeners. A listener that errors never reaches the caller.
@@ -130,6 +131,8 @@ local DEFAULTS = {
         opponents = {},
         -- Every world PvP kill and death, newest first, at most 500 (Modules/WorldLog.lua)
         worldLog = {},
+        -- Players met in battlegrounds: name -> { class, with, withWins, against, againstWins, kbBest, last }, at most 1000 (Modules/Met.lua)
+        met = {},
         -- Measured honor: today (by date), this week (until the weekly reset) and this login session
         honorLog = { day = 0, today = 0, weekEnd = 0, week = 0, session = 0 },
         honorCapWarned = false,

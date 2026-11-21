@@ -51,7 +51,7 @@ local function run()
         "Data/Vendors.lua", "Data/Quests.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
-        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/WorldLog.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/WorldLog.lua", "Modules/Met.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
@@ -238,6 +238,11 @@ local function run()
         }
     end
     local function lastGame() return HL.db.char.history[1] end
+    -- Every HonorLog_GameScoreboard, with how many games were saved when it fired.
+    mock.boards = {}
+    HL.RegisterCallback(mock.boards, "HonorLog_GameScoreboard", function(_, board)
+        mock.boards[#mock.boards + 1] = { board = board, saved = #HL.db.char.history }
+    end)
 
     mock.now = 100000
     mock.deferTimers = true
@@ -317,6 +322,12 @@ local function run()
     check(game.teams[0].players == 2 and game.teams[0].kb == 7 and game.teams[0].hk == 13 and game.teams[0].deaths == 9, "enemy team summary")
     check(game.teams[1][1] == nil and game.teams[0][1] == nil, "team summary has no per-player rows")
     check(game.scoreboard == true and game.joinedInProgress == nil and game.duration == 612, "scoreboard flag, not joined, duration from the event")
+    check(#mock.boards == 1 and mock.boards[1].saved == history0 + 1, "board event: one event for the first game, fired after the game was saved")
+    check(#mock.boards[1].board.rows == 4 and mock.boards[1].board.rows[3].name == "Foe1" and mock.boards[1].board.rows[3].kb == 5 and mock.boards[1].board.rows[3].faction == 0,
+        "board event: every row of the board")
+    check(mock.boards[1].board.me.name == "Tester" and mock.boards[1].board.me.objectives["Flag Captures"] == 2 and mock.boards[1].board.result == "win"
+        and mock.boards[1].board.bgType == "WSG" and type(mock.boards[1].board.timestamp) == "number", "board event: the player's row, the result, the battleground, a time")
+    check(next(game, nil) ~= nil and game.rows == nil and game.board == nil and game.players == nil and game.teams.rows == nil, "board event: the saved game has no per-player rows")
     check(HL.db.char.battlegrounds.WSG.played == played0 + 1 and HL.db.char.battlegrounds.WSG.wins == wins0 + 1, "stats updated")
     check(HL.db.char.session.WSG.honor == sessionHonor0 + 500, "session honor updated")
     leave()
@@ -362,6 +373,7 @@ local function run()
     game = lastGame()
     check(game.bgType == "AB" and game.result == "left" and game.win == false and game.scoreboard == false, "left early")
     check(game.honor == 40 and game.kb == nil, "left game keeps measured honor, has no scoreboard line")
+    check(#mock.boards == 2, "board event: a game left before the end fires nothing")
     local ab = HL.db.char.battlegrounds.AB
     check(ab.left == 1 and ab.wins == 0 and ab.losses == 0 and ab.played == 1, "left counted apart")
     check(HL:GetDerivedStats("AB").winrate == 0, "a left game is not a loss in the win rate")
@@ -377,6 +389,7 @@ local function run()
     check(game.bgType == "AV" and game.result == "draw" and game.scoreboard == true, "draw (winner 255)")
     check(HL.db.char.battlegrounds.AV.draws == 1 and HL.db.char.session.AV.draws == 1, "draw counted apart")
     check(HL:GetDerivedStats("AV").winrate == 0, "a draw is not in the win rate")
+    check(#mock.boards == 3 and mock.boards[3].board.result == "draw" and mock.boards[3].board.bgType == "AV", "board event: a draw fires with the result draw")
     HL:RecordGame("AB", true, 100, 10, 1, { result = "win" })
     check(HL:GetDerivedStats("AB").winrate == 100, "win rate counts wins and losses only: 1 win, 1 left = 100%")
 
@@ -406,6 +419,7 @@ local function run()
     game = lastGame()
     check(#HL.db.char.history == history0 + 1 and game.result == "win" and game.scoreboard == false and game.kb == nil and game.teams == nil,
         "recorded without scoreboard stats")
+    check(#mock.boards == 4, "board event: a board that never became readable fires nothing (events so far: " .. #mock.boards .. ")")
     resetPvP()
     enter("Warsong Gulch", 489)
     mock.pvp.roster, mock.pvp.scoresSecret, mock.pvp.matchComplete = roster(), true, true
@@ -7797,6 +7811,266 @@ local function run()
             mock.zone, mock.subzone = saved.zone, saved.subzone
             mock.map.id, mock.map.x, mock.map.y, mock.map.restricted = saved.map.id, saved.map.x, saved.map.y, saved.map.restricted
             mock.instance, mock.units.target, mock.recap, mock.pvp.sessionHK, clock = saved.instance, saved.target, saved.recap, saved.hk, saved.clock
+            restoreStores(kept)
+        end)()
+        --------------------------------------------------------------------
+        -- Players met: the board event, the store, the readers and the resets
+        --------------------------------------------------------------------
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+            local Met = HL.Met
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            local c = HL.db.char
+            mock.playerName = nil
+            mock.deferTimers, mock.timers = true, {}
+            resetPvP()
+            local secret = mock.newSecret()
+
+            local function brow(name, faction, kb, class)
+                return { name = name, faction = faction, kb = kb or 0, hk = 0, deaths = 0, damage = 0, healing = 0, class = class }
+            end
+            local function fire(result, t, rows, me)
+                HL:Fire("HonorLog_GameScoreboard", { rows = rows, me = me or brow("Tester", 1, 3), result = result, bgType = "WSG", timestamp = t })
+            end
+            check(type(c.met) == "table" and next(c.met) == nil and Met.KEPT == 1000 and Met:GetCount() == 0, "met: a fresh character has an empty store, limit 1000")
+
+            -- a win, a loss, a draw
+            fire("win", 1000, { brow("Tester", 1, 3, "WARRIOR"), brow("Ally", 1, 2, "MAGE"), brow("Foe", 0, 5, "ROGUE") })
+            local ally, foe = Met:Get("Ally"), Met:Get("Foe")
+            check(ally.with == 1 and ally.withWins == 1 and ally.against == 0 and ally.againstWins == 0 and ally.class == "MAGE" and ally.last == 1000, "met: a win with a teammate")
+            check(foe.against == 1 and foe.againstWins == 1 and foe.with == 0 and foe.withWins == 0 and foe.kbBest == 5 and foe.class == "ROGUE", "met: a win against an opponent, their killing blows kept")
+            check(Met:Get("Tester") == nil and Met:GetCount() == 2, "met: the player's own row is not stored")
+            check(ally.kbBest == 0, "met: a teammate's killing blows are not an opponent's best")
+            fire("loss", 2000, { brow("Tester", 1), brow("Ally", 1, 1), brow("Foe", 0, 3) })
+            ally, foe = Met:Get("Ally"), Met:Get("Foe")
+            check(ally.with == 2 and ally.withWins == 1 and foe.against == 2 and foe.againstWins == 1 and foe.kbBest == 5 and foe.last == 2000, "met: a loss counts the game and no win; kbBest only rises")
+            check(ally.class == "MAGE" and foe.class == "ROGUE", "met: a row without a class does not erase it")
+            fire("draw", 3000, { brow("Tester", 1), brow("Ally", 1), brow("Foe", 0, 8, "DRUID") })
+            ally, foe = Met:Get("Ally"), Met:Get("Foe")
+            check(ally.with == 3 and ally.withWins == 1 and foe.against == 3 and foe.againstWins == 1 and foe.kbBest == 8 and foe.class == "DRUID", "met: a draw counts the game with no win; kbBest rises; the class is the newest")
+            fire("left", 4000, { brow("Tester", 1), brow("Ally", 1), brow("Foe", 0, 9), brow("Stranger", 0, 1) })
+            check(Met:GetCount() == 2 and Met:Get("Ally").with == 3 and Met:Get("Foe").kbBest == 8 and Met:Get("Stranger") == nil, "met: a game left records nothing")
+            fire("forfeit", 4000, { brow("Tester", 1), brow("Stranger", 0, 1) })
+            check(Met:Get("Stranger") == nil, "met: an unknown result records nothing")
+
+            -- the player's own row, with and without a realm suffix
+            fire("win", 5000, { brow("Tester-Realm", 1, 1), brow("Tester", 1, 1), brow("Testerson", 1, 1), brow("Other-Realm", 0, 1) })
+            check(Met:Get("Tester-Realm") == nil and Met:Get("Tester") == nil and Met:Get("Testerson") ~= nil and Met:Get("Other-Realm").against == 1,
+                "met: the player's row is skipped with or without a realm suffix, a longer name is not the player")
+            fire("win", 5001, { brow("Tester", 1, 1), brow("Mine", 1, 1) }, brow("Tester-Realm", 1, 3))
+            fire("win", 5002, { brow("Tester-Realm", 1, 1), brow("Mine", 1, 1) }, brow("Tester", 1, 3))
+            check(Met:Get("Tester") == nil and Met:Get("Tester-Realm") == nil and Met:Get("Mine").with == 2, "met: the board's own row is skipped as well")
+
+            -- secret or malformed values are left out
+            local before = Met:GetCount()
+            local junk = { brow("Sec", 0, secret, "PRIEST"), { name = secret, faction = 0, kb = 1 }, { name = "NoFaction", kb = 1 }, { name = "TwoFaction", faction = 2 },
+                { name = 7, faction = 0 }, "text", secret, { name = "", faction = 0 }, { name = "SecretFaction", faction = secret }, brow("Ok", 0, "many", secret) }
+            check(pcall(fire, "win", 6000, junk), "met: a board with bad rows does not raise")
+            local sec = Met:Get("Sec")
+            check(sec and sec.against == 1 and sec.kbBest == 0 and sec.class == "PRIEST", "met: a secret killing-blow count is left out, the game still counts")
+            check(Met:Get("Ok").against == 1 and Met:Get("Ok").kbBest == 0 and Met:Get("Ok").class == nil, "met: a killing-blow count that is not a number and a secret class are left out")
+            check(Met:GetCount() == before + 2 and Met:Get("NoFaction") == nil and Met:Get("TwoFaction") == nil and Met:Get("") == nil and Met:Get("SecretFaction") == nil,
+                "met: rows without a usable name or team are skipped")
+            check(pcall(fire, "win", 6001, nil) and pcall(fire, "win", 6001, "x") and pcall(fire, "win", 6001, { brow("A", 0) }, secret) and pcall(fire, "win", 6001, { brow("A", 0) }, { name = "Tester" })
+                and pcall(fire, secret, 6001, { brow("A", 0) }) and Met:Get("A") == nil,
+                "met: a board without rows, without the player's row, or with a secret result raises nothing and stores nothing")
+            fire("win", nil, { brow("NoTime", 0) })
+            fire("win", secret, { brow("SecretTime", 0) })
+            check(type(Met:Get("NoTime").last) == "number" and type(Met:Get("SecretTime").last) == "number" and not issecretvalue(Met:Get("SecretTime").last), "met: a board without a time, or with a secret one, is stamped with the current time")
+            check(pcall(Met.OnScoreboard, Met, secret) and pcall(Met.OnScoreboard, Met, nil), "met: a secret or missing board raises nothing")
+
+            -- the limit: the one seen longest ago goes, never one from the game being recorded
+            c.met = {}
+            local first, second = { brow("Tester", 1) }, {}
+            for i = 1, 500 do first[#first + 1] = brow("P" .. i, 0) end
+            for i = 501, 1000 do second[#second + 1] = brow("P" .. i, 0) end
+            second[#second + 1] = brow("Tester", 1)
+            fire("win", 100, first)
+            fire("win", 200, second)
+            check(Met:GetCount() == 1000, "met: a thousand players are kept")
+            fire("win", 300, { brow("Tester", 1), brow("NewA", 0), brow("P3", 0) })
+            check(Met:GetCount() == 1000 and Met:Get("P1") == nil and Met:Get("NewA") ~= nil and Met:Get("P3").last == 300 and Met:Get("P2") ~= nil,
+                "met: the player seen longest ago is dropped (the earliest name among equals)")
+            fire("win", 400, { brow("Tester", 1), brow("NewB", 0), brow("P2", 0) })
+            check(Met:GetCount() == 1000 and Met:Get("P2").last == 400 and Met:Get("P10") == nil and Met:Get("NewB") ~= nil, "met: a player in the current game is never the one dropped")
+            local many = { brow("Tester", 1) }
+            for i = 1, 30 do many[#many + 1] = brow("Q" .. i, 0) end
+            fire("win", 500, many)
+            local gone = 0
+            for i = 1, 500 do if Met:Get("P" .. i) == nil then gone = gone + 1 end end
+            check(Met:GetCount() == 1000 and gone == 32 and Met:Get("Q30") ~= nil and Met:Get("P600") ~= nil, "met: thirty new players drop thirty of the oldest (" .. gone .. " gone)")
+            c.met = {}
+
+            -- the flow: the event after the game is saved, with every row
+            local events, savedAtEvent = {}, {}
+            local listener = {}
+            HL.RegisterCallback(listener, "HonorLog_GameScoreboard", function(_, board)
+                events[#events + 1] = board
+                savedAtEvent[#savedAtEvent + 1] = #HL.db.char.history
+            end)
+            local function play(winner, ros)
+                resetPvP()
+                enter("Warsong Gulch", 489)
+                mock.advance(100)
+                mock.pvp.roster, mock.pvp.matchComplete = ros, true
+                mock.fireEvent("PVP_MATCH_COMPLETE", winner, 300)
+                mock.advance(25)
+                leave()
+            end
+            local games0 = #c.history
+            play(1, roster())
+            check(#events == 1 and savedAtEvent[1] == games0 + 1 and #c.history == games0 + 1, "met flow: one event for the game, after it was saved")
+            check(#events[1].rows == 4 and events[1].result == "win" and events[1].bgType == "WSG" and type(events[1].timestamp) == "number" and events[1].me.name == "Tester" and events[1].me.kb == 3,
+                "met flow: the event carries every row, the player's own, the result, the battleground and a time")
+            local a2, f1 = Met:Get("Ally2"), Met:Get("Foe1")
+            check(a2.with == 1 and a2.withWins == 1 and f1.against == 1 and f1.againstWins == 1 and f1.kbBest == 5 and Met:Get("Foe2").kbBest == 2 and Met:Get("Tester") == nil and Met:GetCount() == 3,
+                "met flow: the game's board is in the store")
+            play(0, roster())
+            check(#events == 2 and events[2].result == "loss" and Met:Get("Ally2").with == 2 and Met:Get("Ally2").withWins == 1 and Met:Get("Foe1").against == 2 and Met:Get("Foe1").againstWins == 1,
+                "met flow: a lost game counts without a win")
+            -- left before the end, and a board that never became readable
+            resetPvP()
+            enter("Warsong Gulch", 489)
+            mock.advance(50)
+            leave()
+            local gamesLeft = #c.history
+            check(#events == 2 and c.history[1].result == "left" and Met:Get("Ally2").with == 2, "met flow: a game left before the end fires nothing")
+            resetPvP()
+            enter("Warsong Gulch", 489)
+            mock.advance(60)
+            mock.pvp.roster, mock.pvp.scoresSecret, mock.pvp.matchComplete = roster(), true, true
+            mock.fireEvent("PVP_MATCH_COMPLETE", 1, 300)
+            mock.advance(25)
+            leave()
+            check(#c.history == gamesLeft + 1 and c.history[1].scoreboard == false and #events == 2 and Met:Get("Ally2").with == 2, "met flow: a board that was never readable fires nothing")
+
+            -- a listener that raises changes nothing in the saved game and is reported once
+            local function essence(g)
+                return table.concat({ tostring(g.result), tostring(g.honor), tostring(g.marks), tostring(g.kb), tostring(g.hk), tostring(g.deaths), tostring(g.damage),
+                    tostring(g.healing), tostring(g.duration), tostring(g.scoreboard), tostring(g.rankPoints), tostring(g.teams[1].players), tostring(g.teams[0].kb) }, "|")
+            end
+            play(1, roster())
+            local plain = essence(c.history[1])
+            local secureBefore = #mock.secureErrors
+            local thrower = {}
+            HL.RegisterCallback(thrower, "HonorLog_GameScoreboard", function() error("listener broke") end)
+            local nGames = #c.history
+            play(1, roster())
+            check(#c.history == nGames + 1 and essence(c.history[1]) == plain, "met flow: a listener that raises leaves the saved game as it was")
+            check(#mock.secureErrors == secureBefore + 1 and #mock.handledErrors == errorsBefore and Met:Get("Ally2").with == 4, "met flow: the failure is reported once and the store still got the game")
+            HL.UnregisterCallback(thrower, "HonorLog_GameScoreboard")
+            for i = #mock.secureErrors, secureBefore + 1, -1 do mock.secureErrors[i] = nil end
+            local rowsSaved = false
+            for _, g in ipairs(c.history) do
+                for k, v in pairs(g) do
+                    if k == "rows" or k == "players" or k == "board" then rowsSaved = true end
+                    if type(v) == "table" and type(v[1]) == "table" and v[1].name then rowsSaved = true end
+                end
+                if g.teams and (g.teams[1][1] ~= nil or g.teams[0][1] ~= nil) then rowsSaved = true end
+            end
+            check(not rowsSaved, "met flow: no saved game holds a per-player row")
+
+            -- a reload in the middle of the wait: the board comes back from bgState.match
+            local foe2Before, eventsBefore = Met:Get("Foe2").against, #events
+            resetPvP()
+            enter("Warsong Gulch", 489)
+            mock.advance(100)
+            mock.pvp.roster, mock.pvp.matchComplete = roster(), true
+            mock.fireEvent("PVP_MATCH_COMPLETE", 1, 300)
+            local waiting = c.bgState
+            check(waiting.isInBG and waiting.match.sbState == "accepted" and #waiting.match.sb.rows == 4, "met flow: the board waits in bgState.match, rows and all")
+            local copy = HL.Util.DeepCopy(waiting.match)
+            c.bgState = { isInBG = true, currentBG = copy.bgType, match = copy }
+            mock.timers = {}
+            local gamesBeforeReload = #c.history
+            HL:RestoreBGState()
+            mock.advance(25)
+            check(#c.history == gamesBeforeReload + 1 and #events == eventsBefore + 1 and #events[#events].rows == 4 and Met:Get("Foe2").against == foe2Before + 1,
+                "met flow: a reload before the game is recorded still gives the event and the records")
+            leave()
+            check(c.bgState.isInBG == false, "met flow: the board is gone from bgState once the game is over")
+            HL.UnregisterCallback(listener, "HonorLog_GameScoreboard")
+
+            -- an error inside the module is reported once and never raised
+            local reported = #mock.handledErrors
+            local boom = setmetatable({}, { __index = function() error("row broke") end })
+            check(pcall(HL.Fire, HL, "HonorLog_GameScoreboard", { rows = { boom }, me = brow("Tester", 1), result = "win", timestamp = 1 }) and #mock.handledErrors == reported + 1,
+                "met: a failure inside the module is reported once and not raised")
+            mock.handledErrors[#mock.handledErrors] = nil
+
+            -- the readers
+            c.met = {
+                alice = { class = "MAGE", with = 5, withWins = 4, against = 0, againstWins = 0, kbBest = 0, last = 10 },
+                bob = { with = 5, withWins = 4, against = 4, againstWins = 0, kbBest = 7, last = 20 },
+                carl = { with = 6, withWins = 4, against = 0, againstWins = 0, kbBest = 0, last = 30 },
+                dan = { with = 10, withWins = 8, against = 3, againstWins = 1, kbBest = 9, last = 40 },
+                eve = { with = 2, withWins = 2, against = 3, againstWins = 1, kbBest = 9, last = 50 },
+                x = { with = 0, withWins = 0, against = 4, againstWins = 0, kbBest = 2, last = 60 },
+                y = { with = 0, withWins = 0, against = 6, againstWins = 0, kbBest = 9, last = 70 },
+                zed = { with = 0, withWins = 0, against = 3, againstWins = 1, kbBest = 12, last = 80 },
+                zack = { with = 0, withWins = 0, against = 3, againstWins = 1, kbBest = 1, last = 90 },
+                q = { with = 0, withWins = 0, against = 2, againstWins = 0, kbBest = 4, last = 95 },
+                broken = "text", [5] = { with = 9 },
+            }
+            local function names(rows) local t = {} for i, r in ipairs(rows) do t[i] = r.name end return table.concat(t, ",") end
+            check(names(Met:GetList("allies")) == "dan,alice,bob,carl", "readers: allies by win rate, then games, then name; three games at least: " .. names(Met:GetList("allies")))
+            check(names(Met:GetList("allies", nil, 2)) == "eve,dan,alice,bob,carl", "readers: allies with minGames 2 adds the pair that played twice")
+            check(names(Met:GetList("allies", 20, 6)) == "dan,carl", "readers: allies with minGames 6")
+            check(names(Met:GetList("rivals")) == "y,bob,x,dan,eve,zack,zed", "readers: rivals by the lowest win rate, then games, then name: " .. names(Met:GetList("rivals")))
+            check(names(Met:GetList("rivals", 20, 4)) == "y,bob,x" and names(Met:GetList("rivals", 20, 2)):sub(1, 3) == "y,b" and select(2, names(Met:GetList("rivals", 20, 2)):gsub(",", ",")) == 7, "readers: rivals with minGames 4 and 2")
+            check(names(Met:GetList("killers")) == "zed,y,dan,eve,bob,q,x,zack", "readers: killers by killing blows, then games against, then name: " .. names(Met:GetList("killers")))
+            check(names(Met:GetList("killers", 20, 4)) == "y,bob,x" and names(Met:GetList("killers", 20, 3)) == "zed,y,dan,eve,bob,x,zack", "readers: killers with minGames 4 and 3")
+            local r1 = Met:GetList("allies")[1]
+            check(r1.name == "dan" and r1.class == nil and r1.games == 10 and r1.wins == 8 and r1.rate == 0.8 and r1.kbBest == 9 and r1.last == 40, "readers: a row has name, class, games, wins, rate, kbBest, last")
+            local k1 = Met:GetList("killers")[1]
+            check(k1.name == "zed" and k1.games == 3 and k1.wins == 1 and k1.kbBest == 12 and math.abs(k1.rate - 1 / 3) < 1e-9, "readers: killers count the games against")
+            local rv = Met:GetList("rivals")[1]
+            check(rv.name == "y" and rv.games == 6 and rv.wins == 0 and rv.rate == 0, "readers: rivals count the games against, rate is the player's wins")
+            check(Met:GetList("allies")[2].class == "MAGE", "readers: the class is passed on")
+            check(#Met:GetList("allies", 2) == 2 and #Met:GetList("allies", 0) == 0 and #Met:GetList("allies", -3) == 0 and #Met:GetList("allies", "x") == 4 and #Met:GetList("allies", 2.9) == 2, "readers: the limit")
+            check(#Met:GetList("nonsense") == 0 and #Met:GetList() == 0 and #Met:GetList(secret) == 0, "readers: an unknown kind is empty")
+            check(Met:Get("alice").with == 5 and Met:Get("nobody") == nil and Met:Get(nil) == nil and Met:Get(5) == nil and Met:Get(secret) == nil, "readers: Get gives a known record and nil for others")
+            local copyRec = Met:Get("alice")
+            copyRec.with = 99
+            check(c.met.alice.with == 5, "readers: Get gives a copy")
+            check(Met:GetCount() == 10, "readers: GetCount counts the usable records")
+            local big = {}
+            for i = 1, 25 do big["k" .. i] = { against = 1, againstWins = 0, kbBest = i } end
+            c.met = big
+            check(#Met:GetList("killers") == 20 and Met:GetList("killers")[1].name == "k25" and #Met:GetList("killers", 25) == 25, "readers: the default limit is 20")
+            c.met = {}
+            check(#Met:GetList("allies") == 0 and #Met:GetList("rivals") == 0 and #Met:GetList("killers") == 0 and Met:GetCount() == 0, "readers: an empty store gives empty lists")
+
+            -- the resets
+            local function entry(text)
+                local list = {}
+                mock.ddCollect = list
+                _G.HonorLogContextMenu.__ddInit(_G.HonorLogContextMenu, 2, "RESET_STATS")
+                mock.ddCollect = nil
+                for _, info in ipairs(list) do if info.text == text then return info end end
+                error("no menu entry " .. text)
+            end
+            HL:ShowContextMenu()
+            local function seed() c.met = { alice = { with = 1, withWins = 1, against = 0, againstWins = 0, kbBest = 0, last = 1 } } end
+            seed()
+            SlashCmdList.HONORLOG("reset account")
+            check(Met:GetCount() == 1, "resets: /honorlog reset account leaves the players met")
+            SlashCmdList.HONORLOG("reset character")
+            check(Met:GetCount() == 0 and type(c.met) == "table", "resets: /honorlog reset character empties them")
+            seed()
+            entry("Account Stats").func()
+            check(Met:GetCount() == 1, "resets: the menu's account entry leaves them")
+            entry("Character Stats").func()
+            check(Met:GetCount() == 0, "resets: the menu's character entry empties them")
+            local db = HL.db
+            HL.db = nil
+            check(pcall(Met.Reset, Met) and pcall(Met.OnScoreboard, Met, { rows = {}, me = brow("Tester", 1), result = "win" }) and #Met:GetList("allies") == 0 and Met:GetCount() == 0 and Met:Get("a") == nil,
+                "met: with no saved data everything does nothing")
+            HL.db = db
+
+            check(#mock.handledErrors == errorsBefore, "met section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
             restoreStores(kept)
         end)()
         setGlobal("time", realTime)

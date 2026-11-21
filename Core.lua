@@ -577,7 +577,7 @@ local function SamePlayer(rowName, myName)
     return rowName == myName or rowName:match("^([^-]+)-") == myName
 end
 
--- Read the whole board. Returns { n, me, teams } only when every row is readable.
+-- Read the whole board. Returns { n, me, teams, rows } only when every row is readable.
 local function ReadScoreboard()
     local n = num(GetNumBattlefieldScores())
     if not n or n < 1 then return nil end
@@ -608,7 +608,7 @@ local function ReadScoreboard()
         end
     end
     if not me then return nil end
-    return { n = n, me = me, teams = teams }
+    return { n = n, me = me, teams = teams, rows = rows }
 end
 
 local function RequestScores()
@@ -790,6 +790,10 @@ FinalizeMatch = function(reason)
         if zeroLine then HonorLog:Say(zeroLine) end
     end
     SaveBGState()
+    -- Last, so nothing above depends on a listener. Only a game that was saved and had a readable board.
+    if ok and m.sb and m.sb.rows then
+        HonorLog:Fire("HonorLog_GameScoreboard", { rows = m.sb.rows, me = m.sb.me, result = result, bgType = bgType, timestamp = time() })
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -1208,6 +1212,7 @@ function HonorLog:HandleSlashCommand(msg)
             self.db.char.history = {}
             if self.WorldLog then self.WorldLog:Reset() end
             if self.Weeks then self.Weeks:Reset() end
+            if self.Met then self.Met:Reset() end
             self:ResetSession()
             if self.UpdateMainFrame then
                 self:UpdateMainFrame()

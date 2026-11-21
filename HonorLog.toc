@@ -39,6 +39,7 @@ Modules\Quests.lua
 Modules\Characters.lua
 Modules\Weeks.lua
 Modules\WorldLog.lua
+Modules\Met.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 
