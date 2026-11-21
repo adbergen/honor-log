@@ -3,12 +3,18 @@
 -- show them side by side. Each character writes only its own record; this module never reads another
 -- character's saved variables.
 --
--- A record: { name, class (token), faction, level, rank, rankPoints (the running total), capped (the weekly
--- rank cap is reached), capUntil (the time of the weekly reset the cap holds until), honor,
+-- A record: { name, guid, class (token), faction, level, rank, rankPoints (the running total), capped (the
+-- weekly rank cap is reached), capUntil (the time of the weekly reset the cap holds until), honor,
 -- marks = { [bg] = n }, nextGoal (item id of the first goal), goalPercent, games, wins, lastSeen }.
 -- Each value is written only when the client or the saved data gives it; one it does not give (or gives as a
 -- secret) keeps what was stored before. A record with no lastSeen was never snapshotted: it is a stub that
 -- holds only a name (the save migration and the login make those).
+--
+-- One character, one record. The key is the name and the realm, and on Forever the realm is not steady: the
+-- client named one in some sessions and gave an empty string in others (both seen in game, November 2026),
+-- and builds before 2.0 keyed a two-word name by its first word. So a snapshot folds in every other record
+-- of the same character: one with this character's GUID whatever its key says (the newest is kept), and a
+-- stub under an earlier form of this character's key.
 --
 -- When it snapshots: on entering the world, five seconds later (rank data arrives late), after each recorded
 -- game, on a rank-up, and at logout. Handlers run under pcall and report to the error handler; nothing
@@ -16,6 +22,7 @@
 --
 -- Client functions and events used (Forever API documentation, build 1.60.1.71037, none flagged
 -- HasRestrictions): events PLAYER_ENTERING_WORLD, PLAYER_LOGOUT; UnitClass, UnitFactionGroup, UnitLevel,
+-- UnitGUID (it can come back secret while unit identity is restricted: the fold by GUID then waits),
 -- GetUnitName / UnitName (through Util.unitName), GetRealmName, C_Timer.After; the reads Quests.ReadState
 -- and Rank:GetInfo make (C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions, C_DateAndTime,
 -- C_SeasonInfo, C_Item.GetItemCount, GetMoney). Every answer goes through Util.num / Util.str first.
@@ -50,13 +57,44 @@ local function accountStore()
     return global.characters
 end
 
--- The record of this character, made as a stub when there is none.
-local function ownRecord(store, key)
-    local rec = store[key]
-    if type(rec) ~= "table" then
-        rec = { name = key }
-        store[key] = rec
+local function playerGUID()
+    local guid = str(call(UnitGUID, "player"))
+    return guid and guid ~= "" and guid or nil
+end
+
+-- Whether `key` is an earlier form of the key of the character called `name`: the name or its first word,
+-- alone or followed by a realm.
+local function earlierKey(key, name)
+    if type(name) ~= "string" or name == "" then return false end
+    for _, base in ipairs({ name, name:match("^(%S+)") }) do
+        if key == base or key:sub(1, #base + 1) == base .. "-" then return true end
     end
+    return false
+end
+
+-- A record that holds only a name: the bare `true` 2.0 wrote, or a table never snapshotted.
+local function isStub(rec)
+    return rec == true or (type(rec) == "table" and num(rec.lastSeen) == nil and rec.guid == nil)
+end
+
+-- The record of this character under `key`, made as a stub when there is none, after folding in its
+-- records under other keys (see "One character, one record" above).
+local function ownRecord(store, key)
+    local rec = type(store[key]) == "table" and store[key] or nil
+    local guid, name = playerGUID(), Util.unitName("player")
+    for other, r in pairs(store) do
+        if other ~= key and type(other) == "string" then
+            if guid and type(r) == "table" and r.guid == guid then
+                if not rec or (num(r.lastSeen) or 0) > (num(rec.lastSeen) or 0) then rec = r end
+                store[other] = nil
+            elseif isStub(r) and earlierKey(other, name) then
+                store[other] = nil
+            end
+        end
+    end
+    rec = rec or { name = key }
+    if guid then rec.guid = guid end
+    store[key] = rec
     return rec
 end
 
