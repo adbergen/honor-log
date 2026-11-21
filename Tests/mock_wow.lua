@@ -53,6 +53,8 @@ FrameMT.__index = function(_, key)
     -- Internal "__" storage fields must read as nil when unset, not as noop —
     -- otherwise getters like `self.__height or 0` see a truthy function.
     if type(key) == "string" and key:sub(1, 2) == "__" then return nil end
+    -- A client without Frame:CreateLine: M.noCreateLine makes the method read as missing.
+    if key == "CreateLine" and M.noCreateLine then return nil end
     if methods[key] then return methods[key] end
     -- Template child keys (parentKey): created on first use, like the client's.
     if CHILD_KEYS[key] then
@@ -179,6 +181,12 @@ function methods.UnregisterEvent(self, e) self.__events[e] = nil; return self en
 function methods.RegisterForClicks() return end
 
 function methods.CreateTexture(self) return newObject("Texture", self) end
+-- Lines (Frame:CreateLine): the end points, thickness and colour are remembered so a test can read the drawing.
+function methods.CreateLine(self) return newObject("Line", self) end
+function methods.SetStartPoint(self, point, rel, x, y) self.__start = { point, rel, x or 0, y or 0 }; return self end
+function methods.SetEndPoint(self, point, rel, x, y) self.__end = { point, rel, x or 0, y or 0 }; return self end
+function methods.SetThickness(self, t) self.__thickness = t; return self end
+function methods.GetThickness(self) return self.__thickness end
 function methods.CreateMaskTexture(self) return newObject("Texture", self) end
 function methods.SetRotation(self, r) self.__rotation = r; return self end
 function methods.SetAtlas(self, atlas) self.__atlas = atlas; self.__color = nil; self.__texture = nil; return self end
@@ -322,6 +330,13 @@ for _, e in ipairs({
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
+
+-- Quests: titles the client knows and quests flagged completed.
+M.questTitles, M.questsDone = {}, {}
+C_QuestLog = {
+    GetTitleForQuestID = function(id) return M.questTitles[id] end,
+    IsQuestFlaggedCompleted = function(id) return M.questsDone[id] == true end,
+}
 
 -- Secret values: a table registered here makes issecretvalue() true. Touching
 -- one (comparison, arithmetic, indexing) errors, like the client does.

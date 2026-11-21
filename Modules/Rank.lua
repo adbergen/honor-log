@@ -290,6 +290,86 @@ function Rank:GetRankTable(info, pace)
     return out
 end
 
+-- What the season chart draws: { weeks (GetSeasonSchedule), maxTotal (rank 14's cumulative points),
+-- currentWeek, currentTotal, actual = { { week, total } } (end-of-week totals from the week log, oldest
+-- first, ending with the current week's running total), projected = { { week, total } } (from the current
+-- week on: each week's END total at the player's pace, never above that week's cap total; empty when the
+-- pace is unknown or gives no points), gateLevel (the level a blocking gate needs, else nil) }.
+-- A blocking gate keeps the projection flat: HonorLog cannot know when the level will come. All tables are
+-- empty without rank data.
+function Rank:GetSeasonSeries(info, pace)
+    info = info or self:GetInfo()
+    local out = { weeks = {}, maxTotal = 0, actual = {}, projected = {} }
+    if not info then return out end
+    pace = pace or self:GetPace()
+    out.weeks = self:GetSeasonSchedule(info)
+    out.maxTotal = self:TotalForRank(MAX_RANK)
+    out.currentWeek, out.currentTotal = info.weekNumber, info.totalPoints
+
+    local log = db() and db().char and db().char.rankWeeks or {}
+    local past = {}
+    for w, e in pairs(log) do
+        if type(w) == "number" and w < info.weekNumber and type(e) == "table" and num(e.endTotal) then
+            past[#past + 1] = w
+        end
+    end
+    table.sort(past)
+    for _, w in ipairs(past) do out.actual[#out.actual + 1] = { week = w, total = log[w].endTotal } end
+    out.actual[#out.actual + 1] = { week = info.weekNumber, total = info.totalPoints }
+
+    local gate = info.gate
+    if gate and gate.blocking then out.gateLevel = gate.level end
+
+    local perWeek = 0
+    if pace and not pace.noPoints and (num(pace.pointsPerGame) or 0) > 0 and (num(pace.gamesPerDay) or 0) > 0 then
+        perWeek = pace.gamesPerDay * 7 * pace.pointsPerGame
+    end
+    if perWeek <= 0 then return out end
+
+    local running = info.totalPoints
+    local left = (info.secondsToWeeklyReset or 0) > 0 and math.min(1, info.secondsToWeeklyReset / (7 * DAY)) or 1
+    for _, row in ipairs(out.weeks) do
+        if row.week >= info.weekNumber then
+            if not out.gateLevel then
+                local gain = row.week == info.weekNumber and perWeek * left or perWeek
+                running = math.max(running, math.min(running + gain, row.capTotal))
+            end
+            out.projected[#out.projected + 1] = { week = row.week, total = running }
+        end
+    end
+    return out
+end
+
+local WEEKLY_QUEST_FIRST, WEEKLY_QUEST_WEEKS = 96912, 10
+
+-- The season's weekly quest ("Field of Honor: Week N", ids 96912 to 96921 for weeks 1 to 10) for the current
+-- week: { week, questID, title, measured (rank points a hand-in of any of the ten quests gave, from the
+-- probe's store; else nil), done (flagged completed, when the client says; else nil) }. nil outside weeks 1-10.
+function Rank:GetWeeklyQuest(info)
+    info = info or self:GetInfo()
+    local week = info and num(info.weekNumber)
+    if not week or week < 1 or week > WEEKLY_QUEST_WEEKS then return nil end
+    local questID = WEEKLY_QUEST_FIRST + week - 1
+    local title = C_QuestLog and C_QuestLog.GetTitleForQuestID and str(call(C_QuestLog.GetTitleForQuestID, questID))
+    if not title or title == "" then title = string.format(L["Field of Honor: Week %d"], week) end
+
+    local store = type(HonorLogDB) == "table" and type(HonorLogDB.probe) == "table" and HonorLogDB.probe.quests
+    local measured, newest = nil, -1
+    for id = WEEKLY_QUEST_FIRST, WEEKLY_QUEST_FIRST + WEEKLY_QUEST_WEEKS - 1 do
+        local last = type(store) == "table" and type(store[id]) == "table" and store[id].last
+        local points = type(last) == "table" and num(last.rank)
+        if points and points > 0 then
+            -- this week's own quest wins; else the most recent hand-in of any of them
+            local stamp = id == questID and math.huge or (num(last.t) or 0)
+            if stamp > newest then measured, newest = points, stamp end
+        end
+    end
+
+    local done = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and call(C_QuestLog.IsQuestFlaggedCompleted, questID)
+    if isSecret(done) or type(done) ~= "boolean" then done = nil end
+    return { week = week, questID = questID, title = title, measured = measured, done = done }
+end
+
 --------------------------------------------------------------------------------
 -- Pace, measured from the games HonorLog recorded
 --------------------------------------------------------------------------------
