@@ -339,6 +339,12 @@ C_PvP = {
 -- Errors routed to the client's error handler (libraries do this) are recorded
 -- here instead of raised, so a test can look at them.
 M.handledErrors = {}
+-- The client's securecallfunction runs a callback and reports its error without raising it (CallbackHandler uses it).
+M.secureErrors = {}
+function securecallfunction(fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then M.secureErrors[#M.secureErrors + 1] = tostring(err) end
+end
 function geterrorhandler() return function(e) M.handledErrors[#M.handledErrors + 1] = tostring(e) end end
 function GetNumBattlegroundTypes() return 3 end
 function GetBattlefieldWinner() return M.pvp.bfWinner end

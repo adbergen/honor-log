@@ -823,6 +823,7 @@ function HonorLog:CheckHonorCap()
             local text = string.format("Honor cap: %s of %s (%d%%). Spend honor before it is wasted.",
                 tostring(quantity), tostring(cap), math.floor(quantity / cap * 100))
             HonorLog:Announce(text)
+            HonorLog:Fire("HonorLog_HonorCapNear", quantity, cap)
         end
     else
         char.honorCapWarned = false

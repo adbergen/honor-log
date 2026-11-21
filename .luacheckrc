@@ -82,7 +82,7 @@ files["Tests/"] = {
         "UnitIsFeignDeath", "GetPlayerInfoByGUID", "RequestBattlefieldScoreData",
         "UIDropDownMenu_CreateInfo", "UIDropDownMenu_AddButton", "UIDropDownMenu_Initialize",
         "UIDropDownMenu_SetSelectedValue", "UIDropDownMenu_SetText", "UIDropDownMenu_SetWidth",
-        "ToggleDropDownMenu", "CloseDropDownMenus", "print",
+        "ToggleDropDownMenu", "CloseDropDownMenus", "print", "securecallfunction",
         "strmatch", "strfind", "strsub", "strlen", "strlower", "strupper", "strrep", "strbyte", "strchar",
         "strtrim", "format", "gsub", "gmatch", "tinsert", "tremove", "sort", "floor", "ceil", "abs", "min", "max",
         "HonorLogDB", "HonorLogCharDB", "SLASH_HONORLOG1", "SLASH_HONORLOG2",

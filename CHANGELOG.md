@@ -6,6 +6,12 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **Data layer for the new window** (nothing visible yet): today's numbers, advice, the season's
+  week-by-week cap schedule, a table of the 14 ranks with what each unlocks, why each game paid what it
+  did, vendor lists with each vendor's stock and sets, per-battleground summaries, honor by day, win rate
+  by time of day, and events other addons can listen to (`HonorLog_GameRecorded`, `HonorLog_RankUp`,
+  `HonorLog_WeekCapReached`, `HonorLog_HonorCapNear`, `HonorLog_GoalAcquired`). Arathi Basin and Warsong
+  Gulch now use one colour everywhere.
 - **Forever battlegrounds:** Alterac Valley, Warsong Gulch, Arathi Basin and the new
   Darkspear Islands, with their own colours and mark icons. A battleground Forever
   adds later is tracked from its first game.
