@@ -2406,6 +2406,72 @@ local function run()
         SlashCmdList.HONORLOG("probe status")
         check(table.concat(printed, "\n", printedBeforeStatus + 1):find("quests seen: 300 (1 paid honor, rank points or marks)", 1, true), "probe status counts the quests")
 
+        -- Message tests: one hidden addon message per command, never without one.
+        do
+            local chat = mock.chat
+            local function lastTest() local m = HonorLogDB.probe.messaging; return m and m[#m] end
+            local function said(text, from) return table.concat(printed, "\n", from + 1):find(text, 1, true) ~= nil end
+            check(#chat.sent == 0, "probe: nothing was ever sent before a message test is asked for")
+            chat.inGuild = false
+            local at = #printed
+            SlashCmdList.HONORLOG("probe guild")
+            check(#chat.sent == 0 and lastTest() == nil and said("You are not in a guild", at), "probe guild: no guild, nothing sent")
+            chat.inGuild = true
+            mock.deferTimers = true
+            at = #printed
+            SlashCmdList.HONORLOG("probe guild")
+            check(#chat.sent == 1 and chat.sent[1].prefix == "HonorLogProbe" and chat.sent[1].chatType == "GUILD" and chat.sent[1].text:find("^ping %d+$") and chat.registered.HonorLogProbe,
+                "probe guild: one message, prefix registered, a payload with nothing about the player")
+            SlashCmdList.HONORLOG("probe guild")
+            check(#chat.sent == 1 and said("still waiting", at), "probe guild: a second test waits for the first")
+            mock.flushTimers()
+            local r = lastTest()
+            check(r and r.channel == "GUILD" and r.sent == 0 and r.echoed == true and r.textReadable == true and r.senderReadable == true and r.listening == true,
+                "probe guild: the echo is recorded")
+            check(said("sent and received back", at), "probe guild: the result line says sharing works")
+            check(pcall(mock.fireEvent, "CHAT_MSG_ADDON", "HonorLogProbe", "late", "GUILD", "X") and #HonorLogDB.probe.messaging == 1, "probe guild: the listener is gone after the wait")
+            -- refused by the client
+            chat.sendResult = 4
+            at = #printed
+            SlashCmdList.HONORLOG("probe guild")
+            mock.flushTimers()
+            check(lastTest().sent == 4 and lastTest().echoed == false and said("refused it (result: 4)", at), "probe guild: a refusal is recorded with its result")
+            -- accepted, but nothing comes back
+            chat.sendResult, chat.echo = 0, false
+            at = #printed
+            SlashCmdList.HONORLOG("probe guild")
+            mock.flushTimers()
+            check(lastTest().sent == 0 and lastTest().echoed == false and said("nothing came back", at), "probe guild: accepted without an echo")
+            -- a secret sender never raises
+            chat.echo, chat.secretSender = true, true
+            check(pcall(SlashCmdList.HONORLOG, "probe guild"), "probe guild: a secret sender raises nothing")
+            mock.flushTimers()
+            check(lastTest().echoed == true and lastTest().senderReadable == false, "probe guild: a secret sender is recorded as unreadable")
+            chat.secretSender = false
+            -- the group channel follows the kind of group
+            at = #printed
+            SlashCmdList.HONORLOG("probe group")
+            check(said("You are not in a group", at), "probe group: no group, nothing sent")
+            local sentBefore = #chat.sent
+            for _, pair in ipairs({ { "instance", "INSTANCE_CHAT" }, { "raid", "RAID" }, { "party", "PARTY" } }) do
+                chat.group = pair[1]
+                SlashCmdList.HONORLOG("probe group")
+                mock.flushTimers()
+                check(chat.sent[#chat.sent].chatType == pair[2] and lastTest().channel == pair[2], "probe group: " .. pair[1] .. " uses " .. pair[2])
+            end
+            check(#chat.sent == sentBefore + 3, "probe group: one message per command")
+            chat.group = nil
+            for _ = 1, 25 do
+                SlashCmdList.HONORLOG("probe guild")
+                mock.flushTimers()
+            end
+            check(#HonorLogDB.probe.messaging == 20, "probe: at most 20 message tests are kept")
+            at = #printed
+            SlashCmdList.HONORLOG("probe status")
+            check(said("message tests: 20", at), "probe status counts the message tests")
+            mock.deferTimers = false
+        end
+
         SlashCmdList.HONORLOG("probe off")
         slash("probe off")
         mock.quest = { id = 555, title = "Seen while off" }

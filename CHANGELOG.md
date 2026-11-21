@@ -85,6 +85,8 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 - `/honorlog probe`, a diagnostic that records which PvP data the client gives addons.
   While it is on it also notes what each quest offers and what a hand-in really changed
   (honor, rank points, marks, money), so the rewards of PvP quests can be learned in game.
+  `/honorlog probe guild` and `/honorlog probe group` send one hidden test message and report
+  whether the game lets copies of HonorLog share data there; nothing is sent without the command.
   It also logs whether a vendor's NPC id and position can be read, and the reputation
   change after each game.
 
