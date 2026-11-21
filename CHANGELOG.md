@@ -10,6 +10,10 @@
 - **A record per reset week**, kept for 26 weeks: games and results, honor, marks, rank points gained, the
   best game and world kills and deaths. The first time it runs it also builds the earlier weeks from the games
   you have saved. Nothing shows it yet; a later screen turns it into a weekly recap.
+- **A log of your world PvP kills and deaths**, the last 500: when, who, their class and rank, the honor a kill
+  gave and where it happened. It also adds up today, the places you fight, your totals and your history with one
+  opponent. Nothing shows it yet; a later World PvP screen draws it. It stays on your computer, and resetting a
+  character's stats empties it (and the weekly records).
 
 ### Changed
 - The saved data moves to version 3. The change only adds data, so going back to 2.0 keeps working and loses

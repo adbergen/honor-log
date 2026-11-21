@@ -1021,7 +1021,8 @@ local function ResolveKill(step, msg, enemy)
     local name = (msg and msg.name) or (enemy and enemy.name) or (party and party.name)
     local class = (enemy and enemy.class) or (name and ClassForName(name)) or (party and party.class)
     if name then credited[name] = GetTime() end
-    HonorLog:RecordWorldKill(name, class, party ~= nil)
+    local detail = msg and { rank = msg.rank, honor = msg.honor } or nil
+    HonorLog:RecordWorldKill(name, class, party ~= nil, detail)
     dbg("World kill:", tostring(name), "killing blow:", tostring(party ~= nil))
 end
 
@@ -1116,7 +1117,8 @@ local function RecapKiller()
     for _, e in ipairs(list) do
         if e.guid and e.guid ~= me and e.guid:find("^Player") then
             local _, class = call(GetPlayerInfoByGUID, e.guid)
-            return { name = e.name or "Unknown", class = str(class) }, true
+            -- no stand-in name: a killer the recap does not name is counted as a death with no opponent
+            return { name = e.name, class = str(class) }, true
         end
     end
     return nil, #list > 0
@@ -1127,7 +1129,7 @@ local function ReadDeath(token, attempt)
     local killer, hadEvents = RecapKiller()
     if killer then
         HonorLog:RecordWorldDeath(killer.name, killer.class)
-        dbg("World death by", killer.name)
+        dbg("World death by", tostring(killer.name))
     elseif not hadEvents and attempt < 2 then
         C_Timer.After(2, function() ReadDeath(token, attempt + 1) end) -- the recap can lag the death
     else
@@ -1204,6 +1206,8 @@ function HonorLog:HandleSlashCommand(msg)
             self.db.char.worldPvP = self.NewWorldStats()
             self.db.char.opponents = {}
             self.db.char.history = {}
+            if self.WorldLog then self.WorldLog:Reset() end
+            if self.Weeks then self.Weeks:Reset() end
             self:ResetSession()
             if self.UpdateMainFrame then
                 self:UpdateMainFrame()

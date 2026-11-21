@@ -128,6 +128,8 @@ local DEFAULTS = {
         weeks = {},
         -- Opponents met in world PvP: name -> { class, kills, deaths, lastSeen }, capped at 500
         opponents = {},
+        -- Every world PvP kill and death, newest first, at most 500 (Modules/WorldLog.lua)
+        worldLog = {},
         -- Measured honor: today (by date), this week (until the weekly reset) and this login session
         honorLog = { day = 0, today = 0, weekEnd = 0, week = 0, session = 0 },
         honorCapWarned = false,
@@ -859,8 +861,10 @@ function HonorLog:GetTopOpponents(limit)
 end
 
 -- Record a world kill (outside battlegrounds). name is nil for a kill nobody
--- could be named for ("unknown").
-function HonorLog:RecordWorldKill(name, class, killingBlow)
+-- could be named for ("unknown"). detail = { rank, honor } from the kill message that was paired with the
+-- kill, or nothing. Fires HonorLog_WorldKill(entry) with entry = { name, class, kb, rank, honor }, each only
+-- when known (kb only when true).
+function HonorLog:RecordWorldKill(name, class, killingBlow, detail)
     for _, w in ipairs(WorldTargets(self)) do
         w.kills = w.kills + 1
         if not name then w.unknownKills = (w.unknownKills or 0) + 1 end
@@ -868,15 +872,21 @@ function HonorLog:RecordWorldKill(name, class, killingBlow)
     end
     if name then self:NoteOpponent(name, class, "kill") end
     if self.OnDataUpdated then self:OnDataUpdated() end
+    local entry = { name = name, class = class, kb = killingBlow and true or nil }
+    if type(detail) == "table" then entry.rank, entry.honor = detail.rank, detail.honor end
+    self:Fire("HonorLog_WorldKill", entry)
 end
 
--- Record a world death (killed by an enemy player outside battlegrounds)
+-- Record a world death (killed by an enemy player outside battlegrounds). Fires HonorLog_WorldDeath(entry)
+-- with entry = { name, class }, each only when known. A killer the death recap could not name counts as a
+-- death and joins no opponent's tally.
 function HonorLog:RecordWorldDeath(name, class)
     for _, w in ipairs(WorldTargets(self)) do
         w.deaths = w.deaths + 1
     end
     if name then self:NoteOpponent(name, class, "death") end
     if self.OnDataUpdated then self:OnDataUpdated() end
+    self:Fire("HonorLog_WorldDeath", { name = name, class = class })
 end
 
 -- Record honor earned outside battlegrounds (measured from the currency).

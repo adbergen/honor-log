@@ -16,7 +16,8 @@
 --
 -- Filling it: the recorded game (HonorLog_GameRecorded), every honor gain (a post-hook on
 -- HonorLog.AddHonorGain, the way UI/Window.lua hooks OnDataUpdated), a rank-up, and the world-PvP kill and
--- death events (HonorLog_WorldKill, HonorLog_WorldDeath; nothing fires those two yet). Each runs under
+-- death events (HonorLog_WorldKill, HonorLog_WorldDeath, fired by Data.lua's RecordWorldKill and
+-- RecordWorldDeath). Weeks:Reset() empties the store on a character reset. Each runs under
 -- pcall and reports to the error handler.
 --
 -- Past weeks, once: the first time the current week has a real finish, it is rebuilt from the saved games
@@ -321,6 +322,14 @@ function Weeks:Current()
     return (current(true))
 end
 Weeks.GetCurrent = Weeks.Current
+
+-- A character's reset: no weeks, and the one-time fill counts as done (no saved games are left to rebuild from).
+function Weeks:Reset()
+    local c = char()
+    if not c then return end
+    c.weeks, c.weeksFilled = {}, true
+    confirmFor, confirmed = nil, nil
+end
 
 --------------------------------------------------------------------------------
 -- Filling it as things happen
