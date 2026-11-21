@@ -232,7 +232,18 @@ function Rank:CapRankForWeek(w, info)
     if clientCap <= 0 then return seasonMax end -- the client names no cap
     if w <= info.weekNumber then
         if w == info.weekNumber then return math.min(clientCap, seasonMax) end
-        return math.min(info.prevWeekCapRank > 0 and info.prevWeekCapRank or clientCap, seasonMax)
+        local past = info.prevWeekCapRank > 0 and info.prevWeekCapRank or clientCap
+        -- The client names only this week's cap and last week's. Weeks before that take the schedule's cap
+        -- when the schedule holds the client's own cap, and never more than last week's.
+        if w < info.weekNumber - 1 then
+            for k, cap in ipairs(CAP_BY_WEEK) do
+                if cap == clientCap then
+                    past = math.min(past, CAP_BY_WEEK[math.max(1, k - (info.weekNumber - w))])
+                    break
+                end
+            end
+        end
+        return math.min(past, seasonMax)
     end
     local offset = 0
     for k, cap in ipairs(CAP_BY_WEEK) do

@@ -2075,7 +2075,7 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
         ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow, repRow)
     if result.readyLimitedBy == "norep" and repRow then
         local bgName = repRow.repBG and self:GetBGDisplayName(repRow.repBG) or L["battleground"]
-        result.readyText = string.format(L["play a %s game to measure reputation"], bgName)
+        result.readyText = string.format(L["play %s once to measure reputation"], bgName)
     end
     if levelRow and levelRow.known and not levelRow.met then
         result.readyDate, result.readyLimitedBy = nil, "level"

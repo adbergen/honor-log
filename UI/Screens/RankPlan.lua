@@ -224,16 +224,17 @@ local function buildTable(bottom)
 
         -- a small round badge with the rank number
         row.badge = CreateFrame("Frame", nil, row)
-        row.badge:SetSize(18, 18)
-        row.badge:SetPoint("LEFT", row, "LEFT", COL.badge, 0)
-        local ground = row.badge:CreateTexture(nil, "BACKGROUND")
-        ground:SetAllPoints(row.badge)
-        ground:SetColorTexture(0.1, 0.1, 0.1, 1)
+        row.badge:SetSize(20, 20)
+        row.badge:SetPoint("LEFT", row, "LEFT", COL.badge - 1, 0)
         if Kit:HasAtlas(badgeRing) then
+            Kit:RoundGround(row.badge)
             local ring = row.badge:CreateTexture(nil, "ARTWORK")
             ring:SetAllPoints(row.badge)
             ring:SetAtlas(badgeRing)
         else
+            local ground = row.badge:CreateTexture(nil, "BACKGROUND")
+            ground:SetAllPoints(row.badge)
+            ground:SetColorTexture(0.1, 0.1, 0.1, 1)
             Kit:Edges(row.badge, 0.85, 0.66, 0.23, 1)
         end
         row.badge.number = Kit:Text(row.badge, "labelSmall")
@@ -273,6 +274,12 @@ local function buildTable(bottom)
         local tone = state == "reached" and "grey" or "white"
         row.wash:SetShown(state == "current")
         row.badge.number:SetText(tostring(entry.rank))
+        -- two digits do not fit the ring at the size one digit has
+        local number = row.badge.number
+        pcall(function()
+            local file, _, flags = number:GetFont()
+            if type(file) == "string" then number:SetFont(file, entry.rank >= 10 and 8 or 10, flags) end
+        end)
         row.title:SetText(str(entry.title) or "")
         color(row.title, tone)
         row.points:SetText(commas(entry.total or 0))
@@ -542,7 +549,7 @@ local function buildPerGame(side)
     local header = Kit:Header(inset, L["Rank points per game"])
     header:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -6)
     header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -12, -6)
-    for _, h in ipairs({ { L["Battleground"], 12 }, { L["Win"], 112 }, { L["Loss"], 152 } }) do
+    for _, h in ipairs({ { L["Battleground"], 12 }, { L["Win"], 122 }, { L["Loss"], 158 } }) do
         local fs = Kit:Text(inset, "labelSmall")
         fs:SetPoint("TOPLEFT", inset, "TOPLEFT", h[2], -24)
         fs:SetText(h[1])
@@ -556,12 +563,12 @@ local function buildPerGame(side)
     g.rows = Kit:Rows(list, GAME_ROW_HEIGHT, function(row)
         row.name = Kit:Text(row, "value")
         row.name:SetPoint("LEFT", row, "LEFT", 12, 0)
-        row.name:SetWidth(96)
+        row.name:SetWidth(106)
         row.name:SetWordWrap(false)
         row.win = Kit:Text(row, "value")
-        row.win:SetPoint("LEFT", row, "LEFT", 112, 0)
+        row.win:SetPoint("LEFT", row, "LEFT", 122, 0)
         row.loss = Kit:Text(row, "value")
-        row.loss:SetPoint("LEFT", row, "LEFT", 152, 0)
+        row.loss:SetPoint("LEFT", row, "LEFT", 158, 0)
     end, function(row, entry)
         local function points(v) return v and tostring(math.floor(v + 0.5)) or "-" end
         row.name:SetText(str(entry.name) or "")
