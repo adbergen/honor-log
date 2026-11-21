@@ -30,7 +30,8 @@ local TICK = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local GOAL_ROW_H, DIVIDER_H = 50, 22
 local TAKES_ROW_H = 26
 local MAX_TAKES, MAX_PARTS = 8, 2
-local BUY_ROW_H, BUY_LIMIT = 34, 4
+-- a row whose item name needs two lines is taller, so no name is cut
+local BUY_ROW_H, BUY_ROW_TALL, BUY_LIMIT = 34, 48, 4
 
 local GearScreen = {}
 HonorLog.GearScreen = GearScreen
@@ -299,7 +300,15 @@ local function refreshTotals(a, state)
             w.count:Hide()
         end
     end
+    -- gold and the sentence move up when no marks are needed, so the box has no empty line
     local goldNeed = num(T.goldNeeded) or 0
+    local goldY = x > 0 and -57 or -39
+    t.goldLabel:ClearAllPoints()
+    t.goldLabel:SetPoint("TOPLEFT", t.wrap, "TOPLEFT", 10, goldY)
+    t.gold:ClearAllPoints()
+    t.gold:SetPoint("TOPLEFT", t.wrap, "TOPLEFT", 52, goldY)
+    t.short:ClearAllPoints()
+    t.short:SetPoint("TOPLEFT", t.wrap, "TOPLEFT", 10, goldNeed > 0 and goldY - 17 or goldY)
     t.goldLabel:SetShown(goldNeed > 0)
     t.gold:SetShown(goldNeed > 0)
     t.gold:SetText(string.format(L["%s / %s"], HonorLog:GoldShort(T.goldCurrent or 0), HonorLog:GoldShort(goldNeed)))
@@ -753,11 +762,14 @@ local function buildEntry(parent)
     local e = CreateFrame("Frame", nil, parent)
     e:SetSize(C_INNER, BUY_ROW_H)
     e.icon = Kit:ItemIcon(e, 24)
-    e.icon:SetPoint("LEFT", e, "LEFT", 0, 0)
-    e.name = fixedText(e, "value", C_INNER - 30)
+    e.icon:SetPoint("TOPLEFT", e, "TOPLEFT", 0, -5)
+    e.name = Kit:Text(e, "value")
     e.name:SetPoint("TOPLEFT", e, "TOPLEFT", 30, -3)
+    e.name:SetWidth(C_INNER - 30)
+    e.name:SetWordWrap(true)
+    e.name:SetMaxLines(2)
+    e.name:SetJustifyV("TOP")
     e.cost = fixedText(e, "grey", C_INNER - 30)
-    e.cost:SetPoint("TOPLEFT", e, "TOPLEFT", 30, -19)
     e:Hide()
     return e
 end
@@ -787,11 +799,18 @@ local function buildRight(inset)
     return c
 end
 
+-- Fills a row and returns its height: the cost sits under a one-line or a two-line name.
 local function fillEntry(e, itemID, name, item)
     e.icon:SetItem(itemID)
     e.name:SetText(Kit:QualityHex(e.icon.honorLogQuality) .. (str(name) or "") .. "|r")
     e.cost:SetText(item and costText(item) or "-")
+    local tall = (num(e.name:GetStringHeight()) or 0) > 18
+    local height = tall and BUY_ROW_TALL or BUY_ROW_H
+    e.cost:ClearAllPoints()
+    e.cost:SetPoint("TOPLEFT", e, "TOPLEFT", 30, tall and -33 or -19)
+    e:SetHeight(height)
     e:Show()
+    return height
 end
 
 local function refreshRight(c, state)
@@ -806,13 +825,19 @@ local function refreshRight(c, state)
         h:SetPoint("TOPRIGHT", c.inset, "TOPRIGHT", -12, -y)
         h:Show()
     end
-    local function entry(itemID, name, item, y)
+    -- Places the next row at y and returns its height, or 0 when it would pass `limit` (or no row is left).
+    local function entry(itemID, name, item, y, limit)
+        local e = c.entries[used + 1]
+        if not e then return 0 end
+        local height = fillEntry(e, itemID, name, item)
+        if limit and y + height > limit then
+            e:Hide()
+            return 0
+        end
         used = used + 1
-        local e = c.entries[used]
-        if not e then return end
         e:ClearAllPoints()
         e:SetPoint("TOPLEFT", c.inset, "TOPLEFT", 12, -y)
-        fillEntry(e, itemID, name, item)
+        return height
     end
 
     local y = 6
@@ -827,8 +852,7 @@ local function refreshRight(c, state)
     end
     for i = 1, math.min(#buyable, BUY_LIMIT) do
         local it = buyable[i]
-        entry(it.itemID, it.name, it, y)
-        y = y + BUY_ROW_H
+        y = y + entry(it.itemID, it.name, it, y)
     end
 
     local advice = safe(HonorLog.GetHonorCapAdvice, HonorLog, state.gps)
@@ -838,7 +862,9 @@ local function refreshRight(c, state)
         c.advice:ClearAllPoints()
         c.advice:SetPoint("TOPLEFT", c.inset, "TOPLEFT", 12, -(y + 4))
         c.advice:SetText((text:gsub("^%l", string.upper)))
-        y = y + 4 + 52
+        -- as tall as its text (one to four lines), so the lists below keep the room it does not use
+        local height = math.ceil(num(c.advice:GetStringHeight()) or 0)
+        y = y + 4 + math.max(13, math.min(52, height)) + 4
     end
 
     -- the next rank that opens something, and the next such rank after it, while there is room
@@ -850,17 +876,18 @@ local function refreshRight(c, state)
         if sections >= 2 then break end
         local items = safe(HonorLog.GetRankUnlocks, HonorLog, n) or {}
         if #items > 0 then
-            local room = math.floor((C_LIMIT - y - 8 - 24) / BUY_ROW_H)
-            if room < 1 then break end
+            -- a section starts only where its header and one row of either height still fit
+            if C_LIMIT - y - 8 - 24 < BUY_ROW_TALL then break end
             sections = sections + 1
             y = y + 8
             header(1 + sections, string.format(L["Rank %d opens"], n), y)
             y = y + 24
-            for i = 1, math.min(#items, BUY_LIMIT, room) do
+            for i = 1, math.min(#items, BUY_LIMIT) do
                 local id = items[i]
                 local item = safe(HonorLog.GetGearItem, HonorLog, id)
-                entry(id, item and item.name or HonorLog:GetGearName(id), item, y)
-                y = y + BUY_ROW_H
+                local height = entry(id, item and item.name or HonorLog:GetGearName(id), item, y, C_LIMIT)
+                if height == 0 then break end
+                y = y + height
             end
         end
     end
