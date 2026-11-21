@@ -3263,9 +3263,30 @@ local function run()
         end)
         check(_G.BINDING_HEADER_HONORLOG == "HonorLog" and _G.BINDING_NAME_HONORLOG_TOGGLE == "Open or close HonorLog", "binding names are set")
         local bindings = io.open(ROOT .. "/Bindings.xml"):read("*a")
-        check(bindings:find('name="HONORLOG_TOGGLE"', 1, true) and bindings:find('category="BINDING_HEADER_HONORLOG"', 1, true)
-            and bindings:find("HonorLog_ToggleWindow()", 1, true), "Bindings.xml names the binding and calls the toggle")
+        check(bindings:find('name="HONORLOG_TOGGLE"', 1, true) and bindings:find('header="HONORLOG"', 1, true)
+            and bindings:find('category="ADDONS"', 1, true) and bindings:find("HonorLog_ToggleWindow()", 1, true),
+            "Bindings.xml names the binding under the AddOns category with HonorLog's header and calls the toggle")
         check(not io.open(ROOT .. "/HonorLog.toc"):read("*a"):find("Bindings.xml", 1, true), "the toc does not list Bindings.xml")
+
+        -- A template that comes back as a bare frame (a client that only logs a missing template) counts as missing.
+        do
+            local Kit = HL.Kit
+            local holder = CreateFrame("Frame", nil, UIParent)
+            mock.hollowTemplates = { InsetFrameTemplate = true, UIPanelButtonTemplate = true, PanelTabButtonTemplate = true,
+                PortraitFrameTemplate = true, PortraitFrameBaseTemplate = true }
+            check(Kit:Inset(holder).honorLogTemplate == false, "kit: a hollow inset template is drawn plain")
+            check(Kit:Button(holder, "B", "red").honorLogTemplate == false, "kit: a hollow button template is drawn plain")
+            local hollowWindow = Kit:Window("HonorLogHollowTestWindow", 300, 200)
+            check(hollowWindow.honorLogChrome == false and hollowWindow.Content ~= nil and hollowWindow.CloseButton ~= nil, "kit: hollow window templates fall back to the plain window")
+            hollowWindow:SetTitleText("T")
+            check(hollowWindow:GetTitleText() == "T", "kit: the plain window still takes a title")
+            mock.hollowTemplates = {}
+            check(Kit:Inset(holder).honorLogTemplate == "InsetFrameTemplate", "kit: with its regions the inset template takes")
+            -- The window's content has its own ground, and the title bar texts sit on the drag strip.
+            local win = Kit:Window("HonorLogGroundTestWindow", 300, 200)
+            check(win.Content.honorLogBg ~= nil and win.honorLogDrag ~= nil, "kit: the content has a background and the window a drag strip")
+        end
+        check(HL.Window.leftText:GetParent() == HL.Window.frame.honorLogDrag and HL.Window.rightText:GetParent() == HL.Window.frame.honorLogDrag, "window: the title bar texts sit on the drag strip, above the frame art")
         local tocText = io.open(ROOT .. "/HonorLog.toc"):read("*a")
         check(tocText:find("## AddonCompartmentFunc: HonorLog_OnAddonCompartmentClick", 1, true) and tocText:find("## IconTexture: ", 1, true), "toc names the addon menu function and icon")
         SlashCmdList.HONORLOG("mini")
@@ -3503,6 +3524,18 @@ local function run()
         } end
         ov:Refresh()
         check(a.rows.count == 3 and not a.empty:IsShown(), "overview: three advice rows")
+        do
+            local f1, f2 = a.rows.frames[1], a.rows.frames[2]
+            local _, _, _, _, y1 = f1:GetPoint(1)
+            local _, _, _, _, y2 = f2:GetPoint(1)
+            check(y1 == 0 and f1:GetHeight() >= 18 and y2 == -(f1:GetHeight() + 8), "overview: advice rows stack under one another, each as tall as its text")
+            local long = string.rep("word ", 60)
+            a.rows:SetData({ { head = long }, { head = long }, { head = long }, { head = long }, { head = long } })
+            check(f1:GetHeight() == 36 and a.rows.count == 3 and not a.rows.frames[4]:IsShown(), "overview: a long advice line wraps to three lines at most, and a row that would run past the box is left out")
+            a.rows:SetData({})
+            check(a.rows.count == 0 and not f1:IsShown(), "overview: no advice hides every row")
+            HL.Window:RefreshCurrent()
+        end
         local r1, r2, r3 = a.rows.frames[1], a.rows.frames[2], a.rows.frames[3]
         check(r1.text:GetText() == "Honor is near the cap. |cffa8a297Spend it.|r" or r1.text:GetText():find("^Honor is near the cap%. |cff%x+Spend it%.|r$"), "overview: head then grey body: " .. tostring(r1.text:GetText()))
         check(r1.item:IsShown() and r1.item.honorLogItemID == vendorItem and not r1.mark:IsShown(), "overview: an advice row with an item shows its icon")

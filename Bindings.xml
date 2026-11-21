@@ -1,5 +1,5 @@
 <Bindings>
-	<Binding name="HONORLOG_TOGGLE" category="BINDING_HEADER_HONORLOG">
+	<Binding name="HONORLOG_TOGGLE" header="HONORLOG" category="ADDONS">
 		HonorLog_ToggleWindow()
 	</Binding>
 </Bindings>

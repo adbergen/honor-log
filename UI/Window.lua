@@ -155,9 +155,11 @@ function Window:Create()
         if not listed then table.insert(UISpecialFrames, FRAME_NAME) end
     end
 
-    self.leftText = Kit:Text(frame, "grey")
+    -- On the drag strip, which sits above the template's title bar art.
+    local bar = frame.honorLogDrag or frame
+    self.leftText = Kit:Text(bar, "grey")
     self.leftText:SetPoint("TOPLEFT", frame, "TOPLEFT", 68, -7)
-    self.rightText = Kit:Text(frame, "grey")
+    self.rightText = Kit:Text(bar, "grey")
     self.rightText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -30, -7)
     self.rightText:SetJustifyH("RIGHT")
 
@@ -218,7 +220,9 @@ function HonorLog_OnAddonCompartmentClick() Window:Toggle() end
 for _, event in ipairs({ "HonorLog_GameRecorded", "HonorLog_RankUp", "HonorLog_GoalAcquired" }) do
     HonorLog.RegisterCallback(Window, event, function() Window:OnDataChanged() end)
 end
-hooksecurefunc(HonorLog, "OnDataUpdated", function()
-    local ok, err = pcall(Window.OnDataChanged, Window)
-    if not ok then report(err) end
-end)
+if type(HonorLog.OnDataUpdated) == "function" then
+    hooksecurefunc(HonorLog, "OnDataUpdated", function()
+        local ok, err = pcall(Window.OnDataChanged, Window)
+        if not ok then report(err) end
+    end)
+end

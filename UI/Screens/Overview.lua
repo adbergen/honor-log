@@ -22,6 +22,8 @@ local MIDDLE_HEIGHT = 206
 local GOAL_WIDTH = 224
 local ADVICE_ROWS, GAME_ROWS, GAME_ROW_HEIGHT = 4, 6, 25
 local GOAL_ROW_HEIGHT, GOAL_ROWS = 15, 6
+local GAME_PAD = 6 -- the games table's left padding, shared by its column titles and its cells
+local ADVICE_LIST_HEIGHT, ADVICE_LINES, ADVICE_GAP = 164, 3, 8
 
 local READY, NOT_READY = "Interface\\RaidFrame\\ReadyCheck-Ready", "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local WARNING = "Interface\\DialogFrame\\DialogAlertIcon"
@@ -306,15 +308,21 @@ local function buildAdvice(col)
     header:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -9)
     header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -14, -9)
 
+    local listWidth = COLUMN_WIDTH - GOAL_WIDTH - 8 - 28
     local list = CreateFrame("Frame", nil, inset)
     list:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -34)
-    list:SetSize(COLUMN_WIDTH - GOAL_WIDTH - 8 - 28, ADVICE_ROWS * 40)
+    list:SetSize(listWidth, ADVICE_LIST_HEIGHT)
 
     local a = { inset = inset }
     a.empty = Kit:Text(inset, "grey")
     a.empty:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -38)
     a.empty:SetText(L["Nothing pressing. Keep playing."])
-    a.rows = Kit:Rows(list, 40, function(row)
+
+    -- Rows are as tall as their text (up to three lines), stacked; a row that would run past the box is
+    -- left out, the most pressing advice being first.
+    local rows = { frames = {}, count = 0 }
+    local function makeRow()
+        local row = CreateFrame("Frame", nil, list)
         row.bullet = row:CreateTexture(nil, "ARTWORK")
         row.bullet:SetSize(7, 7)
         row.bullet:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -5)
@@ -322,30 +330,56 @@ local function buildAdvice(col)
         row.bullet:SetRotation(math.pi / 4)
         row.text = Kit:Text(row, "value")
         row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 16, 0)
-        row.text:SetPoint("TOPRIGHT", row, "TOPRIGHT", -26, 0)
+        row.text:SetWidth(listWidth - 16 - 26)
         row.text:SetWordWrap(true)
-        row.text:SetMaxLines(2)
+        row.text:SetMaxLines(ADVICE_LINES)
         row.text:SetJustifyV("TOP")
         row.item = Kit:ItemIcon(row, 18)
         row.item:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
         row.mark = Kit:MarkIcon(row, 18)
         row.mark:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
-    end, function(row, entry)
-        local head, body = str(entry.head) or "", str(entry.body)
-        row.text:SetText(body and (head .. " " .. Kit:Hex("grey") .. body .. "|r") or head)
-        if entry.itemID then
-            row.item:SetItem(entry.itemID)
-            row.item:Show()
-            row.mark:Hide()
-        elseif entry.bgType then
-            row.mark:SetBattleground(entry.bgType)
-            row.mark:Show()
-            row.item:Hide()
-        else
-            row.item:Hide()
-            row.mark:Hide()
+        return row
+    end
+    function rows:SetData(entries)
+        entries = entries or {}
+        local y, shown = 0, 0
+        for i = 1, math.max(#entries, #self.frames) do
+            local entry, row = entries[i], self.frames[i]
+            local placed = false
+            if entry and i <= ADVICE_ROWS then
+                if not row then
+                    row = makeRow()
+                    self.frames[i] = row
+                end
+                local head, body = str(entry.head) or "", str(entry.body)
+                row.text:SetText(body and (head .. " " .. Kit:Hex("grey") .. body .. "|r") or head)
+                local height = math.max(18, math.ceil(num(row.text:GetStringHeight()) or 14))
+                if shown == 0 or y + height <= ADVICE_LIST_HEIGHT then
+                    row:ClearAllPoints()
+                    row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -y)
+                    row:SetPoint("TOPRIGHT", list, "TOPRIGHT", 0, -y)
+                    row:SetHeight(height)
+                    if entry.itemID then
+                        row.item:SetItem(entry.itemID)
+                        row.item:Show()
+                        row.mark:Hide()
+                    elseif entry.bgType then
+                        row.mark:SetBattleground(entry.bgType)
+                        row.mark:Show()
+                        row.item:Hide()
+                    else
+                        row.item:Hide()
+                        row.mark:Hide()
+                    end
+                    row:Show()
+                    y, shown, placed = y + height + ADVICE_GAP, shown + 1, true
+                end
+            end
+            if row and not placed then row:Hide() end
         end
-    end)
+        self.count = shown
+    end
+    a.rows = rows
     return a
 end
 
@@ -495,7 +529,7 @@ local RESULT_WORD = { win = L["Win"], loss = L["Loss"], draw = L["Draw"], left =
 
 local function cell(row, col, style)
     local f = CreateFrame("Frame", nil, row)
-    f:SetPoint("LEFT", row, "LEFT", col.x, 0)
+    f:SetPoint("LEFT", row, "LEFT", col.x + GAME_PAD, 0)
     f:SetSize(col.w, GAME_ROW_HEIGHT)
     f.text = Kit:Text(f, style or "value")
     f.text:SetPoint("LEFT", f, "LEFT", 0, 0)
@@ -513,7 +547,7 @@ local function buildGames(col)
     header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -14, -8)
     for _, c in ipairs(COLUMNS) do
         local fs = Kit:Text(inset, "labelSmall")
-        fs:SetPoint("TOPLEFT", inset, "TOPLEFT", 8 + c.x, -30)
+        fs:SetPoint("TOPLEFT", inset, "TOPLEFT", c.x + GAME_PAD, -30)
         fs:SetText(c.title)
     end
     local list = CreateFrame("Frame", nil, inset)

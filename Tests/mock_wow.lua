@@ -74,7 +74,7 @@ function methods.GetNumRegions(self) return self.__nregions or 0 end
 function methods.GetNumChildren(self) return #self.__children end
 function methods.GetWidth(self) return self.__width or 0 end
 function methods.GetHeight(self) return self.__height or 0 end
-function methods.SetWidth(self, w) self.__width = w; return self end
+function methods.SetWidth(self, w) self.__width = w; self.__wrapWidth = w; return self end
 function methods.SetHeight(self, h) self.__height = h; return self end
 function methods.SetSize(self, w, h) self.__width, self.__height = w, h; return self end
 function methods.GetNumPoints() return 0 end
@@ -90,6 +90,16 @@ function methods.GetPoint(self, i)
     local p = self.__points and self.__points[i or 1]
     if p then return p[1], p[2], p[3], p[4], p[5] end
     return "CENTER", nil, "CENTER", 0, 0
+end
+-- A wrapped text is as tall as its lines: six pixels a character across the set width, twelve a line.
+function methods.SetMaxLines(self, n) self.__maxLines = n; return self end
+function methods.GetStringHeight(self)
+    local text = tostring(self.__text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    -- the width the text was told to wrap at (SetText overwrites __width with the string's own width)
+    local width = (self.__wrapWidth and self.__wrapWidth > 0) and self.__wrapWidth or 300
+    local lines = math.max(1, math.ceil(#text * 6 / width))
+    if self.__maxLines then lines = math.min(lines, self.__maxLines) end
+    return lines * 12
 end
 function methods.GetScale(self) return self.__scale or 1 end
 function methods.SetScale(self, v) self.__scale = v; return self end
@@ -145,7 +155,6 @@ function methods.SetText(self, txt)
 end
 function methods.GetText(self) return self.__text end
 function methods.GetStringWidth(self) return self.__width or (#tostring(self.__text or "") * 6) end
-function methods.GetStringHeight() return 12 end
 
 function methods.SetScript(self, name, fn) self.__scripts[name] = fn; return self end
 function methods.GetScript(self, name) return self.__scripts[name] end
@@ -187,6 +196,7 @@ function methods.SetScrollChild(self, c) self.__scrollchild = c; return self end
 -- CreateFrame raise the way the client does for an unknown one. A few templates give the frame the children
 -- and methods the real ones have (M.templateInit), so the full window is built the way it is in the game.
 M.missingTemplates = {}
+M.hollowTemplates = {}
 M.templateInit = {
     PortraitFrameTemplate = function(f)
         rawset(f, "CloseButton", newObject("Button", f))
@@ -209,7 +219,12 @@ function CreateFrame(objType, name, parent, template)
     local f = newObject(objType or "Frame", parent, name)
     if template then
         for t in tostring(template):gmatch("[^,%s]+") do
-            if M.templateInit[t] then M.templateInit[t](f) end
+            -- A real template brings regions and children; M.hollowTemplates lists ones that come back empty,
+            -- the way a client that only logs a missing template would hand them over.
+            if not M.hollowTemplates[t] then
+                if M.templateInit[t] then M.templateInit[t](f) end
+                f.__nregions = (f.__nregions or 0) + 1
+            end
         end
         f.__template = template
     end

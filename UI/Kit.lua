@@ -79,9 +79,22 @@ end
 -- Templates and atlases
 --------------------------------------------------------------------------------
 
+-- A client that only logs a missing template still hands back a frame, with none of the template in it.
+-- A frame that came out of a template with no region and no child did not get one.
+local function hollow(frame)
+    local regions = frame.GetNumRegions and num(frame:GetNumRegions())
+    local children = frame.GetNumChildren and num(frame:GetNumChildren())
+    return regions == 0 and children == 0
+end
+
 local function tryTemplate(frameType, name, parent, template)
     local ok, frame = pcall(CreateFrame, frameType, name, parent, template)
-    if ok and type(frame) == "table" then return frame end
+    if not (ok and type(frame) == "table") then return nil end
+    if template and hollow(frame) then
+        frame:Hide()
+        return nil
+    end
+    return frame
 end
 
 -- One template, or nil when the client rejects it.
@@ -150,22 +163,6 @@ end
 --------------------------------------------------------------------------------
 
 local PORTRAIT_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-
--- A plain close button with a drawn cross.
-local function plainCloseButton(parent)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(22, 22)
-    fill(b, 0.16, 0.06, 0.05, 1)
-    Kit:Edges(b, 0.45, 0.42, 0.38, 1)
-    local hl = b:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints(b)
-    hl:SetColorTexture(1, 1, 1, 0.12)
-    local x = Kit:Text(b, "label")
-    x:SetPoint("CENTER", 0, 0)
-    x:SetText("X")
-    b:SetScript("OnClick", function() parent:Hide() end)
-    return b
-end
 
 -- The outer frame. Whichever way it is drawn it offers SetTitleText, SetPortraitTexture, Content (a frame
 -- inset from the chrome) and CloseButton. honorLogChrome names what drew it: "PortraitFrameTemplate",
@@ -256,12 +253,14 @@ function Kit:Window(name, width, height)
         end
     end
 
-    -- The title area drags the window; the close button stays clear of it.
+    -- The title area drags the window; the close button stays clear of it. It sits above the template's
+    -- own title bar art (Blizzard's border and title pieces are child frames with high levels), so text
+    -- parented to it (frame.honorLogDrag) is not hidden behind that art.
     local drag = CreateFrame("Frame", nil, frame)
     drag:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     drag:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -26, 0)
     drag:SetHeight(24)
-    drag:SetFrameLevel(frame:GetFrameLevel() + 5)
+    drag:SetFrameLevel(frame:GetFrameLevel() + 600)
     drag:EnableMouse(true)
     drag:RegisterForDrag("LeftButton")
     drag:SetScript("OnDragStart", function() frame:StartMoving() end)
@@ -274,6 +273,9 @@ function Kit:Window(name, width, height)
     local content = CreateFrame("Frame", nil, frame)
     content:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -24)
     content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 6)
+    -- Its own dark ground: PortraitFrameBaseTemplate draws no background (the Character window adds its
+    -- own), and the screens only paint their panes and boxes.
+    content.honorLogBg = fill(content, 0.07, 0.065, 0.06, 1)
     frame.Content = content
     return frame
 end
@@ -345,7 +347,11 @@ function Kit:Tabs(window, onSelect)
         button.honorLogSelected = selected
         if button.honorLogTemplate then
             local api = selected and PanelTemplates_SelectTab or PanelTemplates_DeselectTab
-            if api then pcall(api, button) end
+            if api then
+                pcall(api, button)
+            else
+                pcall(selected and button.LockHighlight or button.UnlockHighlight, button)
+            end
         else
             button:SetHeight(selected and 30 or 26)
             if selected then
