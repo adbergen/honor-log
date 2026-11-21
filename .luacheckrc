@@ -24,6 +24,8 @@ ignore = {
 globals = {
     "HonorLogDB", "HonorLogCharDB",
     "SLASH_HONORLOG1", "SLASH_HONORLOG2", "SlashCmdList",
+    "HonorLogWindow", "HonorLog_ToggleWindow", "HonorLog_OnAddonCompartmentClick",
+    "BINDING_HEADER_HONORLOG", "BINDING_NAME_HONORLOG_TOGGLE",
 }
 
 -- WoW API the addon reads.
@@ -59,6 +61,9 @@ read_globals = {
     "COMBATLOG_OBJECT_REACTION_HOSTILE",
     "GetMerchantNumItems", "GetMerchantItemInfo", "GetMerchantItemLink", "GetMerchantItemCostInfo",
     "GetMerchantItemCostItem", "GameTooltip_ShowCompareItem",
+    -- the full window (UI/Kit.lua): every one is behind an existence check
+    "UISpecialFrames", "ChatEdit_InsertLink", "ITEM_QUALITY_COLORS", "CooldownFrame_SetDisplayAsPercentage",
+    "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab", "PanelTemplates_TabResize", "geterrorhandler",
 }
 
 -- The headless test harness deliberately defines stand-ins for WoW globals.
@@ -76,7 +81,7 @@ files["Tests/"] = {
         "GetMoney", "GetTime", "PlaySound", "SOUNDKIT", "IsShiftKeyDown", "IsControlKeyDown",
         "GetCursorPosition", "SetCursor", "ResetCursor", "BreakUpLargeNumbers", "CreateColor", "ChatTypeInfo",
         "C_Texture", "GetText", "UnitSex", "GetCurrentArenaSeason", "PVP_RANK_0_NAME",
-        "PVP_RANK_REWARDS_VENDOR_HORDE", "PVP_RANK_REWARDS_VENDOR_ALLIANCE",
+        "PVP_RANK_REWARDS_VENDOR_HORDE", "PVP_RANK_REWARDS_VENDOR_ALLIANCE", "UISpecialFrames",
         "COMBATLOG_HONORGAIN", "COMBATLOG_HONORGAIN_NO_RANK", "COMBATLOG_HONORAWARD",
         "C_DateAndTime", "C_DeathRecap", "UnitExists", "UnitIsPlayer", "UnitIsEnemy", "UnitIsDeadOrGhost",
         "UnitIsFeignDeath", "GetPlayerInfoByGUID", "RequestBattlefieldScoreData",

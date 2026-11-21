@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="HONORLOG_TOGGLE" header="HONORLOG" category="ADDONS">
+		HonorLog_ToggleWindow()
+	</Binding>
+</Bindings>

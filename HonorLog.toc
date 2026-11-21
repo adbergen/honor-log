@@ -5,6 +5,8 @@
 ## Version: 2.0.0-dev
 ## SavedVariables: HonorLogDB
 ## SavedVariablesPerCharacter: HonorLogCharDB
+## IconTexture: Interface\Icons\Spell_Holy_ChampionsBond
+## AddonCompartmentFunc: HonorLog_OnAddonCompartmentClick
 
 ## OptionalDeps: LibStub, LibDataBroker-1.1, CallbackHandler-1.0, LibDBIcon-1.0
 
@@ -46,3 +48,6 @@ UI\MainFrame.lua
 UI\GoalsPanel.lua
 UI\Options.lua
 UI\Export.lua
+UI\Kit.lua
+UI\Window.lua
+UI\Screens\Overview.lua

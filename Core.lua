@@ -1183,6 +1183,8 @@ function HonorLog:HandleSlashCommand(msg)
     cmd = cmd:lower()
 
     if cmd == "" or cmd == "toggle" then
+        if self.Window then self.Window:Toggle() else self:ToggleMainFrame() end
+    elseif cmd == "mini" then
         self:ToggleMainFrame()
     elseif cmd == "stats" then
         self:PrintStats(arg)
@@ -1614,7 +1616,8 @@ end
 
 function HonorLog:PrintHelp()
     print("|cff00ff00HonorLog Commands:|r (also: /hl)")
-    print("  |cffffffff/honorlog|r - Toggle stats frame")
+    print("  |cffffffff/honorlog|r - Open or close the HonorLog window")
+    print("  |cffffffff/honorlog mini|r - Show or hide the small tracker frame")
     print("  |cffffffff/honorlog stats [bg]|r - Print stats summary")
     print("  |cffffffff/honorlog reset today|r - Reset today's stats")
     print("  |cffffffff/honorlog reset character|r - Reset character stats")
@@ -1722,6 +1725,8 @@ function HonorLog:InitializeLDB()
             if button == "LeftButton" then
                 if IsShiftKeyDown() then
                     self:PrintStats()
+                elseif self.Window then
+                    self.Window:Toggle()
                 else
                     self:ToggleMainFrame()
                 end

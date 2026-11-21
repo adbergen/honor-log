@@ -91,7 +91,8 @@ WoW Forever (client 1.60.1) only.
 
 | Command | Result |
 | --- | --- |
-| `/honorlog` | Show or hide the stats frame |
+| `/honorlog` | Open or close the HonorLog window |
+| `/honorlog mini` | Show or hide the small tracker frame |
 | `/honorlog rank [n]` | Rank summary, or the plan to rank n |
 | `/honorlog goal` | Open the gear goals |
 | `/honorlog vendor [item or goal number]` | Show the vendor that sells an item on the map (`clear` removes the pins) |
