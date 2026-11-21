@@ -141,6 +141,7 @@ function methods.RegisterForClicks() return end
 function methods.CreateTexture(self) return newObject("Texture", self) end
 function methods.CreateMaskTexture(self) return newObject("Texture", self) end
 function methods.SetRotation(self, r) self.__rotation = r; return self end
+function methods.SetAtlas(self, atlas) self.__atlas = atlas; return self end
 function methods.GetRotation(self) return self.__rotation end
 function methods.SetAlpha(self, a) self.__alpha = a; return self end
 function methods.GetAlpha(self) return self.__alpha or 1 end
@@ -184,7 +185,15 @@ C_Timer = {
             fn()
         end
     end,
+    -- Tickers never fire by themselves; a test runs one with M.tickers[i].fn().
+    NewTicker = function(interval, fn)
+        local t = { interval = interval, fn = fn, cancelled = false }
+        function t.Cancel(self) self.cancelled = true end
+        M.tickers[#M.tickers + 1] = t
+        return t
+    end,
 }
+M.tickers = {}
 function M.advance(dt)
     local target = (M.now or 0) + dt
     while true do
@@ -389,7 +398,11 @@ function UnitSex() return 2 end
 M.arenaSeason = 2
 function GetCurrentArenaSeason() return M.arenaSeason end
 -- Atlases the texture mock knows; SetAtlas on an unknown one would show nothing on the client.
-C_Texture = { GetAtlasInfo = function(name) if name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") then return { width = 64 } end end }
+-- Atlases the client knows besides the rank icons: M.atlases[name] = true.
+M.atlases = { ["UI-WorldMapArrow"] = true }
+C_Texture = { GetAtlasInfo = function(name)
+    if M.atlases[name] or name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") then return { width = 64 } end
+end }
 local CURRENCIES = {
     [1792] = { name = "Honor", quantity = 8200, maxQuantity = 25000 },
     [3468] = { name = "PvP Rank Points", quantity = 120, maxQuantity = 0 },
@@ -539,7 +552,7 @@ end
 
 -- Player state the map arrow reads.
 M.combat, M.inInstance = false, false
-M.unitPosition = { 100, 200, 0, 0 } -- first return, second return, height, instance (UnitPosition order)
+M.unitPosition = { 100, 200, 0, 0 } -- x (north), y (west), height, instance, as UnitPosition returns them
 M.facing = 0
 M.bindings = { TOGGLEWORLDMAP = "M" }
 function InCombatLockdown() return M.combat end

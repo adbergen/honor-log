@@ -1983,29 +1983,57 @@ local function run()
         ShowUIPanel(WorldMapFrame)
         check(mock.worldMap.mapID == 1, "…and only once")
 
-        -- The arrow: distance, arrival, instances, secret and missing reads. UnitPosition's first return is
-        -- the north-south axis, which C_Map's vector calls x.
+        -- Combat with the map already open: the open map switches to the pin, nothing is deferred.
+        mock.combat = true
+        before = #printed
+        check(HL:ShowVendorOnMap(v) == true and mock.worldMap.mapID == 1453 and MP:GetJumpKey() == nil, "combat with the map open: it switches to the pin")
+        check(table.concat(printed, "\n", before + 1):find("Marked Captain Dirgehammer - Stormwind City on the map.", 1, true), "…and the usual line is printed")
+        mock.combat = false
+
+        -- While the map is open with a pin, a ticker redraws it; it stops when the map closes.
+        local ticker = MP:GetMapTicker()
+        check(ticker ~= nil and not ticker.cancelled, "an open map with a pin has a redraw ticker")
+        mock.worldMap.mapID = 99 -- changed behind the hooks' back
+        ticker.fn()
+        check(not MP:GetPin(12777).button:IsShown(), "the ticker hides the pin when the map changed without a notification")
+        mock.worldMap.mapID = 1453
+        ticker.fn()
+        check(MP:GetPin(12777).button:IsShown(), "…and shows it again on its own map")
+        WorldMapFrame:Hide()
+        ticker.fn()
+        check(ticker.cancelled and MP:GetMapTicker() == nil, "the ticker stops when the map closes")
+
+        -- The arrow: distance, arrival, instances, secret and missing reads. World axes: x grows to the north and
+        -- y to the west, in that order from both UnitPosition and C_Map's vector.
         local arrowFrame = MP:GetArrow()
         check(arrowFrame:GetScript("OnUpdate") ~= nil, "with a target the arrow has an OnUpdate")
+        check(arrowFrame.honorLogTexture.__atlas == "UI-WorldMapArrow", "the arrow uses the world map's own player arrow")
         mock.worldPos[1453] = { 0, 1000, 2000 }
-        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 0 } -- first return = y-ish, second = x-ish: swapped on purpose
+        mock.unitPosition = { 1000 - 30, 2000 - 40, 0, 0 } -- 30 south and 40 east of the target
         mock.facing = 0
         MP:GetPin(12777).world = nil
         MP:UpdateArrow()
         check(MP.arrowInfo.state == "ready" and near(MP.arrowInfo.distance, 50, 1e-6) and MP.arrowInfo.text == "50 yds", "the arrow reports 50 yards for a 30/40 offset")
         check(arrowFrame.honorLogDistance:GetText() == "50 yds" and arrowFrame.honorLogName:GetText() == "Captain Dirgehammer", "the arrow shows the name and the distance")
         check(arrowFrame.honorLogTexture:GetRotation() ~= nil, "the arrow graphic is rotated")
-        mock.unitPosition = { 2000, 1000 - 10, 0, 0 }
+        mock.unitPosition = { 1000 - 10, 2000, 0, 0 }
         MP:UpdateArrow()
-        check(near(arrowFrame.honorLogTexture:GetRotation(), 0, 1e-6), "a target straight ahead: no rotation")
-        mock.unitPosition = { 2000 - 10, 1000, 0, 0 }
+        check(near(arrowFrame.honorLogTexture:GetRotation(), 0, 1e-6), "facing north with the target due north: no rotation")
+        mock.unitPosition = { 1000, 2000 - 10, 0, 0 }
         MP:UpdateArrow()
-        check(near(math.abs(arrowFrame.honorLogTexture:GetRotation()), math.pi / 2, 1e-6), "a target to the side: a quarter turn")
+        check(near(arrowFrame.honorLogTexture:GetRotation(), math.pi / 2, 1e-6), "facing north with the target due west: a quarter turn to the left")
+        mock.facing = math.pi / 2
+        MP:UpdateArrow()
+        check(near(arrowFrame.honorLogTexture:GetRotation(), 0, 1e-6), "facing west with the target due west: straight ahead")
+        mock.unitPosition = { 1000 - 10, 2000, 0, 0 }
+        MP:UpdateArrow()
+        check(near(arrowFrame.honorLogTexture:GetRotation(), -math.pi / 2, 1e-6), "facing west with the target due north: a quarter turn to the right")
+        mock.facing = 0
         -- Another continent: no rotation, "In <map>".
-        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 530 }
+        mock.unitPosition = { 1000 - 30, 2000 - 40, 0, 530 }
         MP:UpdateArrow()
         check(MP.arrowInfo.state == "far" and arrowFrame.honorLogDistance:GetText() == "In Stormwind City", "another continent: the target's map name")
-        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 0 }
+        mock.unitPosition = { 1000 - 30, 2000 - 40, 0, 0 }
         -- Secret or missing reads never raise, and just hide the graphic.
         mock.positionSecret = true
         check(pcall(MP.UpdateArrow, MP) and MP.arrowInfo.state == "unknown", "a secret position: no error, the graphic is hidden")
@@ -2026,7 +2054,7 @@ local function run()
         MP:UpdateArrow()
         check(arrowFrame:GetAlpha() == 1 and MP.arrowInfo.state == "ready", "…and returns outside")
         -- The throttled OnUpdate: ticks under 0.1 s do nothing.
-        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 0 }
+        mock.unitPosition = { 1000 - 30, 2000 - 40, 0, 0 }
         MP.arrowInfo.text = "stale"
         arrowFrame:GetScript("OnUpdate")(arrowFrame, 0.05)
         check(MP.arrowInfo.text == "stale", "OnUpdate is throttled")
@@ -2041,7 +2069,7 @@ local function run()
         check(MP:Count() == 1 and not arrowFrame:IsShown() and arrowFrame:GetScript("OnUpdate") == nil, "right-click on the arrow: arrow gone, pin kept, no OnUpdate")
         -- Arrival.
         check(HL:ShowVendorOnMap(v) == true and arrowFrame:GetScript("OnUpdate") ~= nil, "showing the place again brings the arrow back")
-        mock.unitPosition = { 2000 - 3, 1000 - 4, 0, 0 }
+        mock.unitPosition = { 1000 - 4, 2000 - 3, 0, 0 }
         MP:UpdateArrow()
         check(MP.arrowInfo.state == "arrived" and not arrowFrame:IsShown() and arrowFrame:GetScript("OnUpdate") == nil and MP:Count() == 1, "within 8 yards the arrow goes away and the pin stays")
 

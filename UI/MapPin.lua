@@ -25,8 +25,11 @@ local ARROW_TICK = 0.1
 local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local DEFAULT_ICON = "Interface\\Icons\\INV_Misc_Coin_02"
-local ARROW_TEXTURE = "Interface\\Minimap\\ROTATING-MINIMAPARROW"
-local PIN_SIZE = 28
+-- The world map's own player arrow: it points north at rotation 0 and turns counterclockwise.
+local ARROW_ATLAS = "UI-WorldMapArrow"
+local ARROW_TEXTURE = "Interface\\Minimap\\MinimapArrow" -- when the atlas is missing
+local MAP_TICK = 0.25
+local PIN_SIZE = 30
 
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 
@@ -36,6 +39,7 @@ local targetKey = nil    -- the pin the arrow points at
 local jumpKey = nil      -- a pin whose map the world map should switch to the next time it opens
 local hooked = false
 local merchantFrame = nil
+local mapTicker = nil
 local arrow = nil
 
 -- What the last arrow update decided; the test reads it.
@@ -79,13 +83,14 @@ local function SetShownMap(map)
     if wm and map then call(wm.SetMapID, wm, map) end
 end
 
--- Shows the map on `map`, out of combat only. `stillWanted` (optional) is asked before the
+-- Shows the map on `map`; returns false when it is closed and combat keeps it closed. `stillWanted` (optional) is asked before the
 -- repeats, so a pin removed in the meantime is left alone.
 function MapPin:OpenMap(map, stillWanted)
-    if inCombat() then return false end
     local wm = MapFrame()
     if not wm then return false end
     if not call(wm.IsShown, wm) then
+        -- Opening the map is blocked in combat; switching a map that is already open is not.
+        if inCombat() then return false end
         call(ShowUIPanel, wm)
         if not call(wm.IsShown, wm) then call(wm.Show, wm) end
     end
@@ -123,7 +128,19 @@ local function ProjectOnto(pin, shownMap)
     return minX + pin.x / 100 * (maxX - minX), minY + pin.y / 100 * (maxY - minY)
 end
 
-local function MaskedTexture(button, layer, sublevel, size)
+-- A round, tinted disc: the client's circle texture itself. No mask, because a mask does not
+-- follow a Scale animation and would clip the ripple.
+local function Disc(button, layer, sublevel, size, r, g, b, a)
+    local tex = button:CreateTexture(nil, layer, nil, sublevel)
+    tex:SetSize(size, size)
+    tex:SetPoint("CENTER")
+    tex:SetTexture(MASK)
+    tex:SetVertexColor(r, g, b, a)
+    return tex
+end
+
+-- The icon is square art, so it gets a round mask; it never animates.
+local function RoundIcon(button, layer, sublevel, size)
     local tex = button:CreateTexture(nil, layer, nil, sublevel)
     tex:SetSize(size, size)
     tex:SetPoint("CENTER")
@@ -153,9 +170,7 @@ local function CreatePinButton(canvas)
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     -- A soft ring that ripples outward in a loop.
-    local ripple = MaskedTexture(button, "BACKGROUND", 0, PIN_SIZE)
-    ripple:SetTexture(FLAT)
-    ripple:SetVertexColor(r, g, b, 0.7)
+    local ripple = Disc(button, "BACKGROUND", 0, PIN_SIZE, r, g, b, 0.7)
     local group = ripple:CreateAnimationGroup()
     group:SetLooping("REPEAT")
     local grow = group:CreateAnimation("Scale")
@@ -171,13 +186,9 @@ local function CreatePinButton(canvas)
     button.honorLogPulse = group
 
     -- The gold ring, the dark disc and the icon, all round.
-    local ring = MaskedTexture(button, "BACKGROUND", 1, PIN_SIZE)
-    ring:SetTexture(FLAT)
-    ring:SetVertexColor(r, g, b, 1)
-    local disc = MaskedTexture(button, "ARTWORK", 0, PIN_SIZE - 5)
-    disc:SetTexture(FLAT)
-    disc:SetVertexColor(0.05, 0.04, 0.03, 0.95)
-    local icon = MaskedTexture(button, "ARTWORK", 1, PIN_SIZE - 9)
+    Disc(button, "BACKGROUND", 1, PIN_SIZE, r, g, b, 1)
+    Disc(button, "ARTWORK", 0, PIN_SIZE - 5, 0.05, 0.04, 0.03, 1)
+    local icon = RoundIcon(button, "ARTWORK", 1, PIN_SIZE - 9)
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     button.honorLogIcon = icon
 
@@ -218,6 +229,7 @@ function MapPin:Refresh()
     local wm = MapFrame()
     if not wm then return end
     local canvas = call(wm.GetCanvas, wm)
+    if type(canvas) ~= "table" and type(wm.ScrollContainer) == "table" then canvas = wm.ScrollContainer.Child end
     if type(canvas) ~= "table" or isSecret(canvas) then return end
     local shownMap = Util.num(call(wm.GetMapID, wm))
     local scale = CanvasScale(wm, canvas)
@@ -258,10 +270,31 @@ function MapPin:Hook()
             if pin then SetShownMap(pin.map) end
         end
         MapPin:Refresh()
+        MapPin:WatchMap()
     end)
-    if type(wm.OnMapChanged) == "function" then
-        call(hooksecurefunc, wm, "OnMapChanged", function() MapPin:Refresh() end)
+    for _, method in ipairs({ "OnMapChanged", "OnCanvasScaleChanged", "OnCanvasSizeChanged" }) do
+        if type(wm[method]) == "function" then
+            call(hooksecurefunc, wm, method, function() MapPin:Refresh() end)
+        end
     end
+end
+
+-- While the map is open with pins on it, redraw them a few times a second: the hooks above are
+-- the map's own notifications, and this keeps the pins right on a client that lacks one of them.
+-- It stops by itself when the map closes or the last pin goes.
+function MapPin:WatchMap()
+    if mapTicker or not next(pins) or not (C_Timer and C_Timer.NewTicker) then return end
+    local wm = MapFrame()
+    if not (wm and call(wm.IsShown, wm)) then return end
+    mapTicker = C_Timer.NewTicker(MAP_TICK, function()
+        local frame = MapFrame()
+        if not (frame and call(frame.IsShown, frame)) or not next(pins) then
+            if mapTicker then mapTicker:Cancel() end
+            mapTicker = nil
+            return
+        end
+        MapPin:Refresh()
+    end)
 end
 
 --------------------------------------------------------------------------------
@@ -289,12 +322,10 @@ local function StopArrow()
 end
 
 local function JumpToPin(pin)
-    if inCombat() then
+    if not MapPin:OpenMap(pin.map, function() return pins[pin.key] == pin end) and inCombat() then
         jumpKey = pin.key
         MapPin:SayCombat()
-        return
     end
-    MapPin:OpenMap(pin.map, function() return pins[pin.key] == pin end)
 end
 
 local function CreateArrow()
@@ -327,8 +358,12 @@ local function CreateArrow()
     frame.honorLogTexture = frame:CreateTexture(nil, "ARTWORK")
     frame.honorLogTexture:SetSize(30, 30)
     frame.honorLogTexture:SetPoint("LEFT", 8, 0)
-    frame.honorLogTexture:SetTexture(ARROW_TEXTURE)
-    frame.honorLogTexture:SetVertexColor(r, g, b, 1)
+    local hasAtlas = C_Texture and C_Texture.GetAtlasInfo and call(C_Texture.GetAtlasInfo, ARROW_ATLAS)
+    if hasAtlas then
+        frame.honorLogTexture:SetAtlas(ARROW_ATLAS)
+    else
+        frame.honorLogTexture:SetTexture(ARROW_TEXTURE)
+    end
 
     frame.honorLogName = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.honorLogName:SetPoint("TOPLEFT", 46, -8)
@@ -355,13 +390,14 @@ local function CreateArrow()
 end
 
 -- The player's and the target's world positions, or nil for a tick that cannot read them.
--- UnitPosition answers (north-south, east-west, height, instance); the first two are swapped
--- against the vector C_Map gives, so they are named by the C_Map convention here.
+-- Both are in the game's world axes: x grows to the north and y to the west. UnitPosition
+-- answers (x, y, height, instance) and C_Map.GetWorldPosFromMapPos a vector (x, y) in that same
+-- order (the API documentation names them positionX, positionY), so nothing is swapped.
 local function PlayerWorldPosition()
-    local a, b, _, instance = call(UnitPosition, "player")
-    a, b, instance = Util.num(a), Util.num(b), Util.num(instance)
-    if not (a and b) then return nil end
-    return b, a, instance
+    local x, y, _, instance = call(UnitPosition, "player")
+    x, y, instance = Util.num(x), Util.num(y), Util.num(instance)
+    if not (x and y) then return nil end
+    return x, y, instance
 end
 
 local function TargetWorldPosition(pin)
@@ -434,7 +470,8 @@ function MapPin:UpdateArrow()
         arrow.honorLogTexture:Hide()
         return
     end
-    -- x grows to the north and y to the west; the facing is counterclockwise from north.
+    -- dx is how far north the target is and dy how far west, so atan2(dy, dx) is its bearing
+    -- counterclockwise from north, the same sense as the facing and as SetRotation.
     local rotation = atan2(dy, dx) - facing
     info.rotation = rotation
     arrow.honorLogTexture:Show()
@@ -515,15 +552,16 @@ function HonorLog:ShowPlaceOnMap(place)
     MapPin:Hook()
     StartArrow(key)
 
-    if inCombat() then
+    local opened = MapPin:OpenMap(map, function() return pins[key] == pin end)
+    if not opened and inCombat() then
         jumpKey = key
         MapPin:SayCombat()
     else
-        MapPin:OpenMap(map, function() return pins[key] == pin end)
         local mapName = MapPin.MapName(map)
         self:Say(string.format(L["Marked %s on the map."], mapName and (name .. " - " .. mapName) or name))
     end
     MapPin:Refresh()
+    MapPin:WatchMap()
     return true
 end
 
@@ -558,3 +596,4 @@ function MapPin:GetPin(key) return pins[key] end
 function MapPin:GetArrow() return arrow end
 function MapPin:GetTarget() return targetKey end
 function MapPin:GetJumpKey() return jumpKey end
+function MapPin:GetMapTicker() return mapTicker end
