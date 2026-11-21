@@ -31,6 +31,18 @@ function Util.str(v)
     return v
 end
 
+-- A unit's whole name, or nil. On Forever a name has two words and UnitName hands them back as two values
+-- ("Liquid", "Elements"; seen in game 2026-11-21), so UnitName alone gives half a name. The client's own
+-- GetUnitName joins them; without it the two values are joined here.
+function Util.unitName(unit)
+    local full = GetUnitName and Util.str(Util.call(GetUnitName, unit, true)) or nil
+    if full and full ~= "" then return full end
+    local first, second = Util.call(UnitName, unit)
+    first, second = Util.str(first), Util.str(second)
+    if first and second and second ~= "" then return first .. " " .. second end
+    return first
+end
+
 -- pcall(fn, ...) returning the results, or nothing when the call errors.
 function Util.call(fn, ...)
     if type(fn) ~= "function" then return end

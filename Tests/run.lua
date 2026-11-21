@@ -3873,6 +3873,37 @@ local function run()
             check(table.concat(printed, "\n", at + 1):find("UI audit saved", 1, true), "probe ui: says it is saved")
         end
 
+        -- Whole names (seen in game 2026-11-21: UnitName("player") gave "Liquid", "Elements" and an empty realm).
+        do
+            local Util = HL.Util
+            check(Util.unitName("player") == "Tester" and HL:GetCharacterKey() == "Tester-TestRealm", "names: a one-word name and a named realm, as before")
+            mock.twoWordNames, mock.playerName, mock.realm = true, "Liquid Elements", ""
+            local first, last = UnitName("player")
+            check(first == "Liquid" and last == "Elements" and Util.unitName("player") == "Liquid Elements", "names: two values from UnitName make one whole name")
+            local realGet = GetUnitName
+            GetUnitName = nil
+            check(Util.unitName("player") == "Liquid Elements", "names: joined here when the client has no GetUnitName")
+            GetUnitName = realGet
+            check(HL:GetCharacterKey() == "Liquid Elements", "names: an empty realm is left out of the character key")
+            Window:Show("overview")
+            Window:UpdateTitleBar()
+            check(Window.leftText:GetText():find("^Liquid Elements \194\183 Level"), "window: the title bar shows the whole name: " .. tostring(Window.leftText:GetText()))
+            mock.units.npc = { name = "Brave Stonehide" }
+            check(Util.unitName("npc") == "Brave Stonehide" and Util.unitName("nobody") == nil, "names: other units get their whole name, a missing unit nil")
+            mock.units.npc = nil
+            mock.twoWordNames, mock.playerName, mock.realm = false, nil, nil
+            Window:UpdateTitleBar()
+
+            -- No rank yet: the ring shows the faction emblem without an empty number badge.
+            mock.atlasMode = "all"
+            local ring = HL.Kit:Ring(CreateFrame("Frame", nil, UIParent), 150)
+            ring:SetRank(0, "Horde")
+            check(ring.honorLogFull == true and not ring.Badge:IsShown(), "kit: no badge on the ring at rank 0")
+            ring:SetRank(3, "Horde")
+            check(ring.Badge:IsShown() and ring.Badge.Label:GetText() == "3", "kit: the badge shows from rank 1 on")
+            mock.atlasMode = "default"
+        end
+
         -- put everything back
         mock.runShowScripts = false
         Window:Hide()

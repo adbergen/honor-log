@@ -352,8 +352,7 @@ function HonorLog:InitializeDB()
     HonorLogCharDB.lastGameTime = currentGameTime
 
     -- Track this character
-    local charKey = UnitName("player") .. "-" .. GetRealmName()
-    HonorLogDB.characters[charKey] = true
+    HonorLogDB.characters[self:GetCharacterKey()] = true
 
     self.db = {
         global = HonorLogDB,
@@ -488,7 +487,7 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
         honor = honor,
         marks = marks,
         timestamp = time(),
-        character = UnitName("player"),
+        character = Util.unitName("player"),
         joinedInProgress = extra.joinedInProgress or nil,
         kb = extra.kb, hk = extra.hk, deaths = extra.deaths,
         damage = extra.damage, healing = extra.healing,
@@ -523,6 +522,13 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
     end
 
     self:Fire("HonorLog_GameRecorded", historyEntry)
+end
+
+-- The key a character is filed under: the whole name, and the realm only when the client names one
+-- (Forever returns an empty realm name).
+function HonorLog:GetCharacterKey()
+    local name, realm = Util.unitName("player") or "Unknown", Util.str(Util.call(GetRealmName))
+    return (realm and realm ~= "") and (name .. "-" .. realm) or name
 end
 
 -- Reset session stats

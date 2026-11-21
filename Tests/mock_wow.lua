@@ -600,10 +600,27 @@ C_AddOns = {
 
 function GetInventoryItemID(_, slot) return M.equipped[slot] end
 function UnitHonor() return 0 end
+-- M.twoWordNames: the Forever way, seen in game: a name has two words, UnitName returns them as two values
+-- and the client's GetUnitName joins them. M.playerName and M.realm override the defaults.
+M.twoWordNames = false
 function UnitName(unit)
-    if unit == nil or unit == "player" then return "Tester" end
-    local u = M.units[unit]
-    return u and u.name or nil
+    local name
+    if unit == nil or unit == "player" then
+        name = M.playerName or "Tester"
+    else
+        local u = M.units[unit]
+        name = u and u.name or nil
+    end
+    if name and M.twoWordNames then
+        local first, last = name:match("^(%S+)%s+(.+)$")
+        if first then return first, last end
+    end
+    return name
+end
+function GetUnitName(unit)
+    local first, last = UnitName(unit)
+    if first and last then return first .. " " .. last end
+    return first
 end
 function UnitFactionGroup() return M.faction, M.faction end
 M.level = 60 -- tests change it
@@ -620,7 +637,7 @@ function UnitGUID(unit)
     if unit == "npc" then return M.npcGuidSecret and M.newSecret() or M.npcGuid end
     return "Player-1-1"
 end
-function GetRealmName() return "TestRealm" end
+function GetRealmName() return M.realm or "TestRealm" end
 M.zone, M.subzone = "Stormwind City", ""
 function GetRealZoneText() return M.zone end
 function GetSubZoneText() return M.subzone end

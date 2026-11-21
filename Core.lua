@@ -583,8 +583,7 @@ local function ReadScoreboard()
     if not n or n < 1 then return nil end
     local columns = StatColumnNames()
     local myGUID = call(UnitGUID, "player")
-    local myName = call(UnitName, "player")
-    if isSecret(myName) then myName = nil end
+    local myName = Util.unitName("player")
 
     local rows, teams = {}, { [0] = { players = 0, kb = 0, hk = 0, deaths = 0 }, [1] = { players = 0, kb = 0, hk = 0, deaths = 0 } }
     for i = 1, n do
@@ -972,8 +971,8 @@ local function VisibleEnemies()
     local seen, list = {}, {}
     for _, unit in ipairs(UNITS) do
         if call(UnitExists, unit) == true and call(UnitIsPlayer, unit) == true and call(UnitIsEnemy, "player", unit) == true then
-            local name = call(UnitName, unit)
-            if str(name) and not seen[name] then
+            local name = Util.unitName(unit)
+            if name and not seen[name] then
                 seen[name] = true
                 local dead = call(UnitIsDeadOrGhost, unit) == true
                 if dead and call(UnitIsFeignDeath, unit) == true then dead = false end -- hunters
