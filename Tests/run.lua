@@ -55,7 +55,7 @@ local function run()
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3308,14 +3308,14 @@ local function run()
         local probeRefreshes
         local function registerProbe()
             probeRefreshes = 0
-            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 4, create = function(parent)
+            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 5, create = function(parent)
                 local f = CreateFrame("Frame", nil, parent)
                 function f:Refresh() probeRefreshes = probeRefreshes + 1 end
                 return f
             end })
         end
         registerProbe()
-        check(#Window.screens == 4 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 5 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -3745,8 +3745,11 @@ local function run()
             Window:Show("gear")
             HL.GearScreen:Open("vendors")
             HL.GearScreen:Open("goals")
+            Window:Show("battlegrounds")
             Window:Show("overview")
-            local n, gearClicks = 0, 0
+            local S3 = HL.db.settings
+            local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode }
+            local n, gearClicks, bgClicks = 0, 0, 0
             -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
             -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
@@ -3773,11 +3776,20 @@ local function run()
                             p, hops = p.__parent, hops + 1
                         end
                     end
+                    if Window.frames.battlegrounds then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.battlegrounds then bgClicks = bgClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if not Window:IsShown() then Window:Show() end -- the close button closed it
                 end
             end
             check(n > 20, label .. "integration clicked " .. n .. " controls")
             check(gearClicks > 25, label .. "integration clicked " .. gearClicks .. " controls on the Gear goals screen")
+            check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
+            S3.windowBattleground, S3.windowResult, S3.viewMode = savedBg.bg, savedBg.result, savedBg.view
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
             HL.GearScreen.mode = "goals"
             Window:Hide()
@@ -5093,6 +5105,462 @@ local function run()
             mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
             mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 5, 3, 2
             Gear.mode, Gear.request = "goals", nil
+            Window:Hide()
+        end)()
+
+        -- ═══ Battlegrounds: the kit's Stack, FixedText and Sequence, and the fourth screen ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Vend, BG = HL.Kit, HL.GearVendors, HL.BattlegroundsScreen
+            local S = HonorLogDB.settings
+            local db = HL.db
+            local save = { history = db.char.history, ghistory = db.global.history, model = HL.GetBattlegroundModel, days = HL.GetHonorByDay,
+                hours = HL.GetWinRateByHour, rankText = HL.DescribeRankPoints, honorText = HL.DescribeHonor, tab = S.windowTab,
+                bg = S.windowBattleground, result = S.windowResult, view = S.viewMode,
+                count = C_Item.GetItemCount, currency = C_CurrencyInfo.GetCurrencyInfo, money = _G.GetMoney }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipLines()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return t
+            end
+            local function tipText() return table.concat(tipLines(), "\n") end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local function hasLabel(chart, key, text)
+                local list = chart.honorLogLabels[key] or {}
+                for i = 1, chart.honorLogLabelsUsed[key] or 0 do
+                    if list[i]:GetText() == text then return true end
+                end
+                return false
+            end
+            S.windowBattleground, S.windowResult, S.viewMode = "all", "all", "character"
+
+            -- ── Kit:FixedText and Kit:Stack: the Gear screens' pieces, now in the kit ──
+            local holder = CreateFrame("Frame", nil, UIParent)
+            local fixed = Kit:FixedText(holder, "value", 120)
+            check(fixed.__wrapWidth == 120 and Vend.fixedText(holder, "grey", 50).__wrapWidth == 50, "kit: FixedText is a one-line text of a set width, and the Gear screens use it")
+            local made, updated = 0, 0
+            local function stackMakers(rowHeight)
+                return { a = { create = function() made = made + 1 end, update = function() updated = updated + 1 end } }, rowHeight
+            end
+            local makers = stackMakers()
+            local kitStack, vendStack = Kit:Stack(holder, makers), Vend.Stack(holder, makers)
+            local entries = { { kind = "a", height = 20 }, { kind = "a", height = 30 } }
+            check(kitStack:SetData(entries) == 50 and vendStack:SetData(entries) == 50 and kitStack.count == 2 and #kitStack.pools.a == 2 and made == 4 and updated == 4,
+                "kit: Stack lays rows out and returns their height; the Gear screens' Stack is the same")
+            kitStack:SetData({ { kind = "a", height = 20 } })
+            check(kitStack.count == 1 and not kitStack.pools.a[2]:IsShown() and kitStack.pools.a[1]:IsShown() and made == 4, "kit: Stack hides the rows it no longer needs and makes none twice")
+
+            -- ── Kit:Sequence ──
+            local seq = Kit:Sequence(holder, 10)
+            check(#seq.honorLogSquares == 10 and seq.honorLogShown == 0 and not seq.honorLogSquares[1]:IsShown(), "sequence: ten squares, none shown before results")
+            seq:SetResults({ "W", "L", "D", "X" })
+            local sq = seq.honorLogSquares
+            check(seq.honorLogShown == 4 and sq[1]:IsShown() and sq[4]:IsShown() and not sq[5]:IsShown() and not sq[10]:IsShown(), "sequence: four results show four squares, the rest are hidden")
+            check(sq[1].honorLogLetter:GetText() == "W" and sq[2].honorLogLetter:GetText() == "L" and sq[3].honorLogLetter:GetText() == "D" and sq[4].honorLogLetter:GetText() == "X", "sequence: each square carries its letter, oldest at the left")
+            check(same(textColor(sq[1].honorLogLetter), Kit.COLORS.green) and same(textColor(sq[2].honorLogLetter), Kit.COLORS.red)
+                and same(textColor(sq[3].honorLogLetter), Kit.COLORS.grey) and same(textColor(sq[4].honorLogLetter), Kit.COLORS.orange), "sequence: green, red, grey and orange")
+            check(sq[1].honorLogTint.__color and sq[1].honorLogTint.__color[2] > sq[1].honorLogTint.__color[1] and sq[2].honorLogTint.__color[1] > sq[2].honorLogTint.__color[2], "sequence: the square is tinted in its colour")
+            local framesBefore2 = #mock.frames
+            for _ = 1, 10 do seq:SetResults({ "W", "L", "D", "X", "W", "W" }) end
+            check(#mock.frames == framesBefore2 and seq.honorLogShown == 6, "sequence: nothing is made after the first build")
+            seq:SetResults({ "L", "L", "W", "W", "W", "W", "W", "W", "W", "W", "D", "X" })
+            check(seq.honorLogShown == 10 and sq[1].honorLogLetter:GetText() == "W" and sq[10].honorLogLetter:GetText() == "X", "sequence: more results than squares keep the newest")
+            seq:SetResults({ "W", "?", "L" })
+            check(seq.honorLogShown == 2 and sq[2].honorLogLetter:GetText() == "L", "sequence: a letter that is not a result is skipped")
+            seq:SetResults(nil)
+            check(seq.honorLogShown == 0 and not sq[1]:IsShown(), "sequence: nothing hides every square")
+            seq.__scripts.OnEnter(seq)
+            check(tipText():find("W win, L loss, D draw, X left early", 1, true) and mock.tip.owner == seq, "sequence: the tooltip says what the letters mean")
+            seq.__scripts.OnLeave(seq)
+            check(not mock.tip.shown, "sequence: the tooltip goes away")
+
+            -- ── the number and date helpers ──
+            check(BG.Short(0) == "0" and BG.Short(999) == "999" and BG.Short(1234) == "1.2k" and BG.Short(1000) == "1k" and BG.Short(184000) == "184k"
+                and BG.Short(1200000) == "1.2m" and BG.Short(12500000) == "12m" and BG.Short(nil) == "-" and BG.Short("x") == "-", "numbers: shortened as 184k and 1.2m, a missing one is a dash")
+            local nowT = date("*t", time())
+            local function at(daysBack, hour, min) return time({ year = nowT.year, month = nowT.month, day = nowT.day - daysBack, hour = hour, min = min }) end
+            check(BG.When(at(0, 21, 14)) == "Today 21:14" and BG.When(at(1, 18, 2)) == "Yesterday 18:02", "when: Today and Yesterday with the time")
+            check(BG.When(at(5, 21, 14)) == date("%b %d ", at(5, 21, 14)) .. "21:14" and BG.When(nil) == "-", "when: another day is the date and the time, a missing one a dash")
+
+            -- ── the screen, over stubbed models ──
+            local models = {
+                AV = { bgType = "AV", name = "Alterac Valley", played = 31, wins = 17, losses = 12, draws = 1, left = 1, winRate = 58.6, honorPerGame = 1234.4,
+                    avgDuration = 1352, sequence = { "W", "L", "W", "D", "X", "W", "W", "L", "W", "W" }, pointsPerWin = 52.4, pointsPerLoss = 18, marksHeld = 12 },
+                WSG = { bgType = "WSG", name = "Warsong Gulch", played = 9, wins = 5, losses = 2, draws = 0, left = 2, winRate = 71.4, honorPerGame = 400,
+                    avgDuration = 600, sequence = { "W", "W", "L", "X", "X" }, pointsPerWin = 40, marksHeld = 0 },
+                AB = { bgType = "AB", name = "Arathi Basin", played = 2, wins = 0, losses = 0, draws = 2, left = 0, sequence = { "D", "D" }, marksHeld = 3 },
+                DI = { bgType = "DI", name = "Darkspear Islands", played = 0, wins = 0, losses = 0, draws = 0, left = 0, sequence = {}, marksHeld = 7 },
+            }
+            local lastScope, modelCalls = nil, 0
+            HL.GetBattlegroundModel = function(_, bg, sc) lastScope = sc modelCalls = modelCalls + 1 return models[bg] end
+            local today = HL.Window and HL:GetDayKey()
+            local dayList
+            local function setDays(honors)
+                dayList = {}
+                local labels = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Today" }
+                for i = 1, 7 do dayList[i] = { dayKey = tostring(i), label = labels[i], honor = honors[i] } end
+            end
+            setDays({ 0, 120, 0, 3400, 500, 0, 1200 })
+            HL.GetHonorByDay = function() return dayList end
+            local hourList
+            local function setHours(spec)
+                hourList = {}
+                local labels = { "Night", "Morning", "Afternoon", "Evening" }
+                for i = 1, 4 do
+                    local played, wins = spec[i][1], spec[i][2]
+                    hourList[i] = { key = "k" .. i, label = labels[i], played = played, wins = wins, winRate = played > 0 and wins / played * 100 or nil }
+                end
+            end
+            setHours({ { 6, 2 }, { 10, 7 }, { 4, 4 }, { 0, 0 } })
+            local hoursScope
+            HL.GetWinRateByHour = function(_, sc) hoursScope = sc return hourList end
+            db.char.history, db.global.history = {}, {}
+
+            local errorsBefore = #mock.handledErrors
+            Window:Show("battlegrounds")
+            check(#mock.handledErrors == errorsBefore, "battlegrounds: it builds and draws without an error: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            local scr = Window.frames.battlegrounds
+            local P = scr.honorLogParts
+            check(scr and Window.current == "battlegrounds" and S.windowTab == "battlegrounds" and Window:GetScreen("battlegrounds").title == "Battlegrounds" and Window:GetScreen("battlegrounds").order == 4,
+                "tabs: Battlegrounds is a screen of its own with order 4")
+            check(Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.tabs.list[4].honorLogKey == "battlegrounds" and Window.tabs.list[3].honorLogKey == "gear",
+                "tabs: Battlegrounds comes after Gear goals")
+            check(S.windowBattleground == "all" and S.windowResult == "all", "settings: both filters default to all")
+
+            -- cards
+            local cards = P.cards
+            check(#cards == #HL.BG_ORDER and cards[1].bgType == "AV" and cards[4].bgType == "DI" and cards[1].root:GetWidth() == 211 and cards[1].root:GetHeight() == 132, "cards: one per battleground, side by side at equal widths")
+            local av = cards[1]
+            check(av.name:GetText() == "Alterac Valley" and av.name.__wrapWidth == 125 and av.mark.honorLogBG == "AV" and av.mark:GetWidth() == 20, "cards: the head has the battleground's mark and its name in a fixed width")
+            check(av.heldText:GetText() == "12" and av.heldText.__wrapWidth == 36, "cards: the marks held")
+            av.held.__scripts.OnEnter(av.held)
+            check(tipText() == "In your bags", "cards: the marks tooltip: " .. tipText())
+            check(av.record:GetText() == "17 - 12" and av.record:IsShown() and not av.none:IsShown(), "cards: the record, large")
+            check(av.extras.honorLogStyle == "grey" and av.extras:GetText() == "1 draw, 1 left" and av.extras.__wrapWidth == 99, "cards: draws and games left early in grey after it")
+            check(av.seq.honorLogShown == 10 and av.seq.honorLogSquares[1].honorLogLetter:GetText() == "W" and av.seq.honorLogSquares[5].honorLogLetter:GetText() == "X", "cards: the last results as a sequence")
+            check(av.lines[1].label:GetText() == "Win rate" and av.lines[1].value:GetText() == "59%" and av.lines[2].label:GetText() == "Honor a game" and av.lines[2].value:GetText() == "1,234"
+                and av.lines[3].label:GetText() == "Average length" and av.lines[3].value:GetText() == HL:FormatDuration(1352), "cards: win rate, honor a game, average length")
+            check(av.rank:GetText() == "Rank points: 52 a win, 18 a loss" and av.rank.honorLogStyle == "grey", "cards: rank points both measured: " .. tostring(av.rank:GetText()))
+            check(av.lines[1].value.__wrapWidth == 91 and av.lines[1].label.__wrapWidth == 100 and av.rank.__wrapWidth == 191, "cards: fixed widths that fit a 211 px card")
+            local wsg, ab, di = cards[2], cards[3], cards[4]
+            check(wsg.record:GetText() == "5 - 2" and wsg.extras:GetText() == "2 left" and wsg.rank:GetText() == "Rank points: 40 a win, not measured", "cards: left games alone, one side of the rank points measured: " .. tostring(wsg.rank:GetText()))
+            check(ab.record:GetText() == "0 - 0" and ab.extras:GetText() == "2 draws" and ab.lines[1].value:GetText() == "-" and ab.lines[2].value:GetText() == "-" and ab.lines[3].value:GetText() == "-"
+                and same(textColor(ab.lines[1].value), Kit.COLORS.grey) and ab.rank:GetText() == "Rank points not measured yet", "cards: no decided game gives dashes, no rank points 'not measured yet'")
+            check(not di.record:IsShown() and not di.seq:IsShown() and not di.rank:IsShown() and not di.lines[1].value:IsShown() and not di.extras:IsShown() and di.none:IsShown() and di.none:GetText() == "No games yet."
+                and di.name:GetText() == "Darkspear Islands" and di.heldText:GetText() == "7", "cards: a battleground with no games has its head and 'No games yet.'")
+            models.WSG.pointsPerWin, models.WSG.pointsPerLoss = nil, 18.4
+            Window:RefreshCurrent()
+            check(wsg.rank:GetText() == "Rank points: not measured, 18 a loss", "cards: only the loss side measured: " .. tostring(wsg.rank:GetText()))
+            models.WSG.pointsPerWin, models.WSG.pointsPerLoss = 40, nil
+            check(lastScope == "character" and modelCalls >= 4, "cards: the models are read for the saved scope")
+
+            -- a click filters the table
+            check(not av.wash:IsShown() and not av.edges[1]:IsShown(), "cards: no card is chosen to begin with")
+            av.button.__scripts.OnEnter(av.button)
+            check(tipLines()[1] == "Alterac Valley" and tipLines()[2] == "Click to show only these games", "cards: the tooltip says what a click does: " .. tipText())
+            click(wsg.button)
+            check(S.windowBattleground == "WSG" and wsg.wash:IsShown() and wsg.edges[1]:IsShown() and wsg.edges[4]:IsShown() and not av.wash:IsShown() and not av.edges[2]:IsShown(), "cards: a click chooses the battleground, with a gold edge and a wash")
+            check(P.games.bgChips.honorLogChosen == "WSG", "cards: the games table's battleground chip follows")
+            click(wsg.button)
+            check(S.windowBattleground == "all" and not wsg.wash:IsShown() and not wsg.edges[1]:IsShown() and P.games.bgChips.honorLogChosen == "all", "cards: a second click clears the filter")
+            click(av.button)
+            click(wsg.button)
+            check(S.windowBattleground == "WSG" and not av.wash:IsShown(), "cards: a click on another card switches to it")
+            click(wsg.button)
+
+            -- honor by day
+            local days = P.days
+            local chart = days.chart
+            check(chart.honorLogRectsUsed == 8, "days: a baseline and seven bars: " .. chart.honorLogRectsUsed)
+            local bars = {}
+            for i = 1, 7 do bars[i] = chart.honorLogRects[i + 1] end
+            check(bars[1].__height == 1 and bars[3].__height == 1 and bars[6].__height == 1 and bars[4].__height == 56 and bars[2].__height > 1 and bars[2].__height < bars[5].__height and bars[5].__height < bars[4].__height,
+                "days: a zero day is a 1 px line, the biggest bar is full height and the others follow in proportion")
+            check(same(bars[7].__color, { 1, 0.82, 0 }) and bars[4].__color[1] == 0.55 and bars[4].__color[3] == 0.1 and bars[1].__color[1] == 0.55, "days: today's bar is gold, the others a dimmer gold")
+            check(bars[1].__points[1][4] < bars[2].__points[1][4] and bars[6].__points[1][4] < bars[7].__points[1][4], "days: the oldest day is at the left")
+            check(hasLabel(chart, "grey/grey", "Mon") and hasLabel(chart, "grey/grey", "Thu") and hasLabel(chart, "grey/gold", "Today"), "days: the day's label under each bar, today's in gold")
+            check(hasLabel(chart, "grey/grey", "3,400") and hasLabel(chart, "grey/grey", "120") and hasLabel(chart, "grey/grey", "500") and hasLabel(chart, "grey/gold", "1,200"), "days: the amount above each bar that is not zero")
+            check(chart.honorLogLabelsUsed["grey/grey"] == 6 + 3 and chart.honorLogLabelsUsed["grey/gold"] == 2, "days: no amount for a zero day (" .. tostring(chart.honorLogLabelsUsed["grey/grey"]) .. ")")
+            check(days.total:GetText() == "7 days: 5,220 honor" and days.total:IsShown() and not days.empty:IsShown() and days.header.Label:GetText() == "Honor by day", "days: the header's total: " .. tostring(days.total:GetText()))
+            local framesN, rectsN, labelsN = #mock.frames, #chart.honorLogRects, 0
+            for _, list in pairs(chart.honorLogLabels) do labelsN = labelsN + #list end
+            for _ = 1, 10 do Window:RefreshCurrent() end
+            local labelsAfter = 0
+            for _, list in pairs(chart.honorLogLabels) do labelsAfter = labelsAfter + #list end
+            check(#mock.frames == framesN and #chart.honorLogRects == rectsN and labelsAfter == labelsN and chart.honorLogRectsUsed == 8, "days: ten refreshes make no more bars, labels or frames")
+            setDays({ 0, 0, 0, 0, 0, 0, 0 })
+            Window:RefreshCurrent()
+            check(days.empty:IsShown() and days.empty:GetText() == "No honor in the last 7 days." and not days.total:IsShown() and chart.honorLogRectsUsed == 0 and days.empty.honorLogStyle == "grey", "days: no honor at all is a grey sentence")
+            setDays({ 0, 0, 0, 0, 0, 0, 40 })
+            Window:RefreshCurrent()
+            check(not days.empty:IsShown() and chart.honorLogRects[8].__height == 56 and days.total:GetText() == "7 days: 40 honor", "days: only today's honor still draws the chart")
+            setDays({ 0, 120, 0, 3400, 500, 0, 1200 })
+
+            -- best hours
+            local hours = P.hours
+            local function hourRow(i) local r = hours.rows[i] return r.label:GetText(), r.percent:GetText(), r.games:GetText(), r.best:IsShown() end
+            check(hours.header.Label:GetText() == "Your best hours" and hoursScope == "character", "hours: the header, read for the saved scope")
+            local l1, p1, g1, b1 = hourRow(1)
+            local l2, p2, g2, b2 = hourRow(2)
+            local l3, p3, g3, b3 = hourRow(3)
+            local l4, p4, g4, b4 = hourRow(4)
+            check(l1 == "Night" and p1 == "33%" and g1 == "6 games" and not b1 and l2 == "Morning" and p2 == "70%" and g2 == "10 games" and b2, "hours: label, percent, games, and the best word on the best bucket")
+            check(p3 == "100%" and not b3 and l4 == "Evening" and p4 == "-" and g4 == "0 games" and not b4, "hours: a bucket under 5 decided games is never best, an empty one is a dash")
+            check(hours.rows[2].bar.honorLogFraction == 0.7 and hours.rows[4].bar.honorLogFraction == 0 and hours.rows[2].best:GetText() == "best" and hours.rows[2].best.honorLogStyle == "label"
+                and same(textColor(hours.rows[4].percent), Kit.COLORS.grey), "hours: the bar is the win rate, 'best' is gold, a dash is grey")
+            check(hours.foot:IsShown() and hours.foot:GetText() == "Win rate by when you played, 20 games." and not hours.few:IsShown() and hours.rows[1]:IsShown(), "hours: the foot says how many games it rests on")
+            setHours({ { 3, 2 }, { 2, 0 }, { 0, 0 }, { 0, 0 } })
+            Window:RefreshCurrent()
+            local _, _, _, bb1 = hourRow(1)
+            local _, _, _, bb2 = hourRow(2)
+            check(hours.rows[1]:IsShown() and hours.foot:GetText() == "Win rate by when you played, 5 games." and not bb1 and not bb2, "hours: five decided games show the rows, but no bucket is best below 5")
+            setHours({ { 5, 1 }, { 5, 4 }, { 5, 4 }, { 0, 0 } })
+            Window:RefreshCurrent()
+            local _, _, _, cb1 = hourRow(1)
+            local _, _, _, cb2 = hourRow(2)
+            local _, _, _, cb3 = hourRow(3)
+            check(not cb1 and cb2 and not cb3, "hours: a tie goes to the earlier bucket, with 5 games it can be best")
+            setHours({ { 1, 1 }, { 2, 1 }, { 1, 0 }, { 0, 0 } })
+            Window:RefreshCurrent()
+            check(not hours.rows[1]:IsShown() and not hours.rows[2]:IsShown() and not hours.foot:IsShown() and hours.few:IsShown() and hours.few:GetText() == "Play a few more games to see your best hours.", "hours: under 5 decided games it asks for a few more")
+            setHours({ { 1, 1 }, { 4, 2 }, { 0, 0 }, { 0, 0 } })
+            Window:RefreshCurrent()
+            check(hours.rows[1].games:GetText() == "1 game", "hours: one game is '1 game'")
+            setHours({ { 6, 2 }, { 10, 7 }, { 4, 4 }, { 0, 0 } })
+            Window:RefreshCurrent()
+
+            -- the games table: columns of a full record and a bare one
+            local G = P.games
+            local function game(extra)
+                local g = { bgType = "AV", result = "win", win = true, duration = 1352, honor = 450, marks = 3, rankPoints = 100, rankState = "earned", timestamp = at(0, 21, 14),
+                    kb = 5, hk = 20, deaths = 2, damage = 184000, healing = 1200000 }
+                for k, v in pairs(extra or {}) do g[k] = v end
+                return g
+            end
+            local full = game({ joinedInProgress = true })
+            local bare = { bgType = "WSG", win = false, duration = 300, honor = 120, marks = 1, timestamp = at(1, 18, 2) }
+            local drawn = game({ bgType = "AB", result = "draw", timestamp = at(5, 21, 14), rankPoints = 0, rankState = "zero", honorCapped = true })
+            local left = game({ bgType = "DI", result = "left", win = false, timestamp = at(0, 20, 0) })
+            db.char.history = { full, bare, drawn, left }
+            db.global.history = { full }
+            S.windowBattleground, S.windowResult = "all", "all"
+            Window:RefreshCurrent()
+            local pool = G.stack.pools.game
+            check(G.stack.count == 4 and #pool == 4 and G.foot:GetText() == "4 games" and not G.empty:IsShown() and G.area.honorLogContentHeight == 80, "games: four rows of 20, and '4 games' under them")
+            local r1, r2, r3, r4 = pool[1], pool[2], pool[3], pool[4]
+            local c = r1.cells
+            check(c.when:GetText() == "Today 21:14" and c.bg:GetText() == "AV" and c.result:GetText() == "Win" and same(textColor(c.result), Kit.COLORS.green) and c.length:GetText() == HL:FormatDuration(1352), "games: when, battleground, result word in green, length")
+            check(c.honor:GetText() == "450" and c.rank:GetText() == "+100" and c.marks.icon.honorLogBG == "AV" and c.marks.icon:IsShown() and c.marks.text:GetText() == "3", "games: honor, rank points, marks with their icon")
+            check(c.kb:GetText() == "5" and c.hk:GetText() == "20" and c.deaths:GetText() == "2" and c.damage:GetText() == "184k" and c.healing:GetText() == "1.2m", "games: KB, HK, deaths, and large numbers shortened")
+            local b = r2.cells
+            check(b.when:GetText() == "Yesterday 18:02" and b.bg:GetText() == "WSG" and b.result:GetText() == "Loss" and same(textColor(b.result), Kit.COLORS.red) and b.length:GetText() == HL:FormatDuration(300)
+                and b.honor:GetText() == "120" and b.marks.text:GetText() == "1", "games: a record from before 2.0 shows what it has")
+            check(b.rank:GetText() == "-" and b.kb:GetText() == "-" and b.hk:GetText() == "-" and b.deaths:GetText() == "-" and b.damage:GetText() == "-" and b.healing:GetText() == "-" and same(textColor(b.kb), Kit.COLORS.grey),
+                "games: a number the record does not have is a dash")
+            check(r3.cells.result:GetText() == "Draw" and same(textColor(r3.cells.result), Kit.COLORS.grey) and r4.cells.result:GetText() == "Left" and same(textColor(r4.cells.result), Kit.COLORS.orange)
+                and r3.cells.when:GetText() == date("%b %d ", at(5, 21, 14)) .. "21:14" and r3.cells.honor:GetText() == "450*" and r3.cells.rank:GetText() == "0", "games: Draw in grey, Left in orange, an older day, a capped game's star, 0 rank points")
+            local blank = { bgType = "AV" }
+            db.char.history = { blank }
+            Window:RefreshCurrent()
+            local e = pool[1].cells
+            check(e.when:GetText() == "-" and e.result:GetText() == "Loss" and e.length:GetText() == "-" and e.honor:GetText() == "-" and not e.marks.icon:IsShown() and e.marks.text:GetText() == "-" and e.damage:GetText() == "-",
+                "games: a record with no field but its battleground draws dashes")
+            db.char.history = { full, bare, drawn, left }
+            Window:RefreshCurrent()
+            check(r1.stripe:IsShown() == false and r2.stripe:IsShown() == true, "games: every second row is striped")
+            local lastColumn = BG.COLUMNS[#BG.COLUMNS]
+            check(lastColumn.x + lastColumn.w <= 830 and c.when.__wrapWidth == 104 and c.honor.__wrapWidth == 58 and c.damage.__wrapWidth == 64 and G.titles[1]:GetText() == "When" and G.titles[2]:GetText() == "Battleground"
+                and G.titles[12]:GetText() == "Healing" and G.titles[6]:GetText() == "Rank pts", "games: the columns fit the table, and their titles")
+            check(G.area:GetWidth() == 830 and G.area:GetHeight() == 154, "games: the scroll area")
+
+            -- tooltips of a row
+            r1.__scripts.OnEnter(r1)
+            local t = tipLines()
+            check(t[1] == "Alterac Valley" and t[2]:find("^%d%d%d%d%-%d%d%-%d%d 21:14$") and t[3] == "+100" and t[4] == "+450 honor" and t[5] == "Joined in progress" and mock.tip.owner == r1, "games: the row tooltip: " .. tipText())
+            r2.__scripts.OnEnter(r2)
+            check(tipText():find("Warsong Gulch", 1, true) and not tipText():find("Joined in progress", 1, true), "games: no 'Joined in progress' for a game that was not")
+            HL.DescribeRankPoints, HL.DescribeHonor = function() return nil end, function() return nil end
+            r1.__scripts.OnEnter(r1)
+            check(#tipLines() == 3 and tipLines()[3] == "Joined in progress", "games: without the two descriptions the tooltip has the rest: " .. tipText())
+            r2.__scripts.OnEnter(r2)
+            check(#tipLines() == 2, "games: a bare tooltip is the name and the date")
+            HL.DescribeRankPoints, HL.DescribeHonor = save.rankText, save.honorText
+            r1.__scripts.OnLeave(r1)
+            check(not mock.tip.shown, "games: the tooltip goes away")
+
+            -- filters
+            local function chipClick(chips, key)
+                for _, bt in ipairs(chips.honorLogButtons) do
+                    if bt:IsShown() and bt.honorLogKey == key then click(bt) return end
+                end
+                error("no chip " .. key)
+            end
+            local function rowBgs()
+                local out = {}
+                for i = 1, G.stack.count do out[#out + 1] = pool[i].cells.bg:GetText() end
+                return table.concat(out, ",")
+            end
+            check(G.bgChips.honorLogButtons[1]:GetText() == "All" and G.bgChips.honorLogButtons[2]:GetText() == "AV" and G.bgChips.honorLogButtons[3]:GetText() == "WSG"
+                and G.bgChips.honorLogButtons[5]:GetText() == "DI" and G.resultChips.honorLogButtons[2]:GetText() == "Wins" and G.resultChips.honorLogButtons[3]:GetText() == "Losses"
+                and G.scopeChips.honorLogButtons[1]:GetText() == "This character" and G.scopeChips.honorLogButtons[2]:GetText() == "Account", "filters: the chips' words")
+            chipClick(G.bgChips, "AV")
+            check(S.windowBattleground == "AV" and rowBgs() == "AV", "filters: a battleground alone: " .. rowBgs())
+            check(G.foot:GetText() == "1 game", "filters: the foot counts what matches (1 game)")
+            chipClick(G.bgChips, "all")
+            chipClick(G.resultChips, "win")
+            check(S.windowResult == "win" and rowBgs() == "AV" and G.foot:GetText() == "1 game", "filters: wins alone")
+            chipClick(G.resultChips, "loss")
+            check(S.windowResult == "loss" and rowBgs() == "WSG", "filters: losses alone (a record without a result is read as a loss; a game left early is not a loss): " .. rowBgs())
+            chipClick(G.resultChips, "all")
+            chipClick(G.bgChips, "WSG")
+            chipClick(G.resultChips, "win")
+            check(rowBgs() == "" and G.empty:IsShown() and G.empty:GetText() == "No games match." and G.stack.count == 0 and G.foot:GetText() == "", "filters: combined, and nothing matches")
+            chipClick(G.resultChips, "loss")
+            check(rowBgs() == "WSG" and not G.empty:IsShown(), "filters: combined, one game")
+            check(G.bgChips.honorLogChosen == "WSG" and G.resultChips.honorLogChosen == "loss" and S.windowBattleground == "WSG" and S.windowResult == "loss", "filters: both choices are saved")
+
+            -- the saved filters come back with the window
+            S.windowTab = "battlegrounds"
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show()
+            P = Window.frames.battlegrounds.honorLogParts
+            G = P.games
+            pool = G.stack.pools.game
+            check(Window.current == "battlegrounds" and G.bgChips.honorLogChosen == "WSG" and G.resultChips.honorLogChosen == "loss" and G.stack.count == 1 and P.cards[2].wash:IsShown(), "tabs: the saved tab and the saved filters restore the screen")
+            S.windowBattleground, S.windowResult = "XX", "nonsense"
+            Window:RefreshCurrent()
+            check(G.bgChips.honorLogChosen == "all" and G.resultChips.honorLogChosen == "all" and G.stack.count == 4 and S.windowBattleground == "XX", "filters: an unknown saved choice reads as all and is not rewritten")
+            S.windowBattleground, S.windowResult = "all", "all"
+
+            -- the scope chips
+            lastScope, hoursScope = nil, nil
+            chipClick(G.scopeChips, "account")
+            check(S.viewMode == "account" and lastScope == "account" and hoursScope == "account" and G.stack.count == 1 and G.foot:GetText() == "1 game" and G.scopeChips.honorLogChosen == "account",
+                "scope: Account sets the view mode and the cards, the hours and the table follow")
+            chipClick(G.scopeChips, "character")
+            check(S.viewMode == "character" and lastScope == "character" and hoursScope == "character" and G.stack.count == 4 and G.scopeChips.honorLogChosen == "character", "scope: This character goes back")
+
+            -- the limit, the foot, the scroll position
+            local many = {}
+            for i = 1, 130 do many[i] = game({ timestamp = at(0, 12, 0) - i * 60, bgType = i % 2 == 0 and "AV" or "AB", honor = i }) end
+            db.char.history = many
+            Window:RefreshCurrent()
+            check(G.stack.count == 100 and #pool == 100 and G.foot:GetText() == "Showing the latest 100 of 130. Export has them all." and G.area.honorLogContentHeight == 2000, "limit: 100 rows, and the foot says there are more")
+            check(pool[1].cells.honor:GetText() == "1" and pool[100].cells.honor:GetText() == "100", "limit: the newest first")
+            chipClick(G.bgChips, "AV")
+            check(G.stack.count == 65 and G.foot:GetText() == "65 games" and #pool == 100, "limit: a filter under 100 shows them all with a plain foot")
+            chipClick(G.bgChips, "all")
+            G.area:SetVerticalScroll(400)
+            Window:RefreshCurrent()
+            check(G.area:GetVerticalScroll() == 400, "scroll: a refresh keeps the position")
+            Window:OnDataChanged()
+            check(G.area:GetVerticalScroll() == 400, "scroll: so does a recorded game")
+            chipClick(G.resultChips, "win")
+            check(G.area:GetVerticalScroll() == 0, "scroll: a filter change goes back to the top")
+            G.area:SetVerticalScroll(300)
+            click(P.cards[1].button)
+            check(G.area:GetVerticalScroll() == 0, "scroll: so does a click on a card")
+            click(P.cards[1].button)
+            chipClick(G.resultChips, "all")
+            local hundred = {}
+            for i = 1, 100 do hundred[i] = many[i] end
+            db.char.history = hundred
+            Window:RefreshCurrent()
+            check(G.foot:GetText() == "100 games", "limit: exactly 100 is a plain count")
+            db.char.history, db.global.history = {}, {}
+            Window:RefreshCurrent()
+            check(G.empty:IsShown() and G.empty:GetText() == "No games recorded yet. HonorLog records every battleground you finish." and G.stack.count == 0 and G.foot:GetText() == "", "empty: no game at all")
+            check(G.area.honorLogContentHeight == 0, "empty: the table is empty")
+            db.char.history = { full }
+            Window:RefreshCurrent()
+            check(not G.empty:IsShown() and G.stack.count == 1, "empty: a game brings the table back")
+
+            -- Export and Overview's way in
+            if _G.HonorLogExportFrame then _G.HonorLogExportFrame:Hide() end
+            click(G.export)
+            check(_G.HonorLogExportFrame and _G.HonorLogExportFrame:IsShown(), "export: the button opens the export frame")
+            _G.HonorLogExportFrame:Hide()
+            Window:Show("overview")
+            local ovGames = Window.frames.overview.honorLogParts.games
+            check(ovGames.all:GetText() == "All games" and ovGames.all:GetWidth() == 80, "overview: Recent games has an All games button")
+            click(ovGames.all)
+            check(Window.current == "battlegrounds" and Window.frames.battlegrounds:IsShown() and not Window.frames.overview:IsShown(), "overview: All games opens the Battlegrounds screen")
+
+            -- hygiene
+            do
+                local inScreen = function(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == Window.frames.battlegrounds then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inScreen(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "battlegrounds: no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 10 and #foreign == 0, "battlegrounds: only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            end
+
+            -- every client read gone or secret; every model answering nothing
+            local errorsMid = #mock.handledErrors
+            local secret = mock.newSecret
+            HL.GetBattlegroundModel, HL.GetHonorByDay, HL.GetWinRateByHour = save.model, save.days, save.hours
+            db.char.history = { full, blank, { win = true }, {} }
+            C_Item.GetItemCount, C_CurrencyInfo.GetCurrencyInfo, _G.GetMoney = function() return secret() end, function() return secret() end, function() return secret() end
+            Window:RefreshCurrent()
+            C_Item.GetItemCount, C_CurrencyInfo.GetCurrencyInfo = function() return nil end, function() return nil end
+            Window:RefreshCurrent()
+            HL.GetBattlegroundModel, HL.GetHonorByDay, HL.GetWinRateByHour = function() return nil end, function() return nil end, function() return nil end
+            Window:RefreshCurrent()
+            HL.GetBattlegroundModel, HL.GetHonorByDay, HL.GetWinRateByHour = function() error("model gone") end, function() error("days gone") end, function() error("hours gone") end
+            noErrors("battlegrounds: a model that raises draws what it can", function() Window:RefreshCurrent() end)
+            -- a part that fails outside the guarded reads is reported and leaves the others drawn
+            HL.GetBattlegroundModel, HL.GetHonorByDay, HL.GetWinRateByHour = function(_, bg) return models[bg] end, function() return dayList end, function() return hourList end
+            local realFormat = HL.Rank.FormatNumber
+            HL.Rank.FormatNumber = function() error("format gone") end
+            Window:RefreshCurrent()
+            HL.Rank.FormatNumber = realFormat
+            check(#mock.handledErrors > errorsMid and P.hours.foot:GetText() == "Win rate by when you played, 20 games." and P.cards[1].record:GetText() == "17 - 12",
+                "battlegrounds: a failing part is reported and the others are still drawn")
+            for i = #mock.handledErrors, errorsMid + 1, -1 do mock.handledErrors[i] = nil end
+            HL.GetBattlegroundModel, HL.GetHonorByDay, HL.GetWinRateByHour = save.model, save.days, save.hours
+            C_Item.GetItemCount, C_CurrencyInfo.GetCurrencyInfo, _G.GetMoney = save.count, save.currency, save.money
+            -- the real models, over real saved stats
+            db.char.battlegrounds.AB = HL.NewBGStats()
+            local abStats = db.char.battlegrounds.AB
+            abStats.played, abStats.wins, abStats.losses, abStats.totalDuration, abStats.honorLifetime = 3, 2, 1, 1800, 900
+            db.char.history = { game({ bgType = "AB", result = "win" }), game({ bgType = "AB", result = "loss", rankPoints = 0, rankState = "zero" }), game({ bgType = "AB", result = "win" }) }
+            Window:RefreshCurrent()
+            local abCard = P.cards[3]
+            check(abCard.record:GetText() == "2 - 1" and abCard.lines[1].value:GetText() == "67%" and abCard.lines[2].value:GetText() == "300" and abCard.lines[3].value:GetText() == HL:FormatDuration(600)
+                and abCard.seq.honorLogSquares[1].honorLogLetter:GetText() == "W" and abCard.seq.honorLogShown == 3 and abCard.rank:GetText():find("^Rank points"), "real model: a card over saved stats: " .. tostring(abCard.record:GetText()) .. " / " .. tostring(abCard.rank:GetText()))
+            abStats.played, abStats.wins, abStats.losses, abStats.totalDuration, abStats.honorLifetime = 0, 0, 0, 0, 0
+            check(#mock.handledErrors == errorsMid, "battlegrounds: nothing raises when every client read is nil or secret: " .. tostring(mock.handledErrors[errorsMid + 1]))
+
+            -- put it back
+            HL.GetBattlegroundModel, HL.GetHonorByDay, HL.GetWinRateByHour = save.model, save.days, save.hours
+            HL.DescribeRankPoints, HL.DescribeHonor = save.rankText, save.honorText
+            db.char.history, db.global.history = save.history, save.ghistory
+            S.windowTab, S.windowBattleground, S.windowResult, S.viewMode = "overview", save.bg, save.result, save.view
             Window:Hide()
         end)()
 

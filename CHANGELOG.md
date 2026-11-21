@@ -6,6 +6,11 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **Battlegrounds**, the window's fourth screen. A card per battleground with your record, your last ten
+  results and what a game there is worth (win rate, honor a game, average length, rank points); the honor
+  of each of the last seven days; your win rate by time of day; and the table of every recorded game with
+  filters for battleground, result and character or account, and an Export button. Click a card to show
+  only that battleground's games. The Overview's Recent games has an "All games" button that opens it.
 - **The Horde quartermasters are on the map from the start.** The four PvP quartermasters in Orgrimmar's
   Hall of Legends now have their positions built in, so "Show on map" pins them before you have ever opened
   one. (Alliance already had theirs.)
