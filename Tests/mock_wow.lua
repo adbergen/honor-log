@@ -342,16 +342,29 @@ for _, e in ipairs({
     "BAG_UPDATE_DELAYED", "POST_MATCH_CURRENCY_REWARD_UPDATE", "POST_MATCH_ITEM_REWARD_UPDATE", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
     "PARTY_KILL", "UPDATE_FACTION", "PLAYER_LEVEL_UP", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
-    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN", "CHAT_MSG_ADDON", "PLAYER_REGEN_ENABLED",
+    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN", "QUEST_LOG_UPDATE", "CHAT_MSG_ADDON", "PLAYER_REGEN_ENABLED",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
 
 -- Quests: titles the client knows and quests flagged completed.
-M.questTitles, M.questsDone = {}, {}
+-- M.questLog[id] = { complete = bool, objectives = { { text, finished } } } is a quest in the log.
+M.questTitles, M.questsDone, M.questLog = {}, {}, {}
 C_QuestLog = {
     GetTitleForQuestID = function(id) return M.questTitles[id] end,
     IsQuestFlaggedCompleted = function(id) return M.questsDone[id] == true end,
+    IsOnQuest = function(id) return M.questLog[id] ~= nil end,
+    IsComplete = function(id) return M.questLog[id] ~= nil and M.questLog[id].complete == true end,
+    ReadyForTurnIn = function(id) return M.questLog[id] ~= nil and M.questLog[id].complete == true end,
+    GetQuestObjectives = function(id)
+        local q = M.questLog[id]
+        if not q then return {} end
+        local out = {}
+        for i, o in ipairs(q.objectives or {}) do
+            out[i] = { text = o.text, type = "monster", finished = o.finished, numFulfilled = 0, numRequired = 1 }
+        end
+        return out
+    end,
 }
 
 -- Secret values: a table registered here makes issecretvalue() true. Touching

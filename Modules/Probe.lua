@@ -470,23 +470,15 @@ end
 
 -- Honor, rank points (faction 2800's standing as one running total), money and marks, as plain
 -- numbers where the client gives them.
+-- The read itself is shared with the always-on quest store (Modules/Quests.lua); the marks keep the probe's
+-- own keys ("WSG_20558").
 local function questState()
-    local honor = readNs("C_CurrencyInfo", "GetCurrencyInfo", HONOR_CURRENCY)
-    local progress = readNs("C_MajorFactions", "GetMajorFactionProgressionInfo", RANK_FACTION)
-    local rank
-    if type(progress) == "table" then
-        local level, earned = plain(progress.renownLevel), plain(progress.renownReputationEarned)
-        local curve = HonorLog.Rank
-        if level and earned then
-            rank = ((curve and curve.TotalForRank) and curve:TotalForRank(level) or 0) + earned
-        end
+    local s = HonorLog.Quests.ReadState()
+    local marks = {}
+    for bg, count in pairs(s.marks) do
+        if MARK_ITEMS[bg] then marks[bg .. "_" .. MARK_ITEMS[bg]] = count end
     end
-    return {
-        honor = type(honor) == "table" and plain(honor.quantity) or nil,
-        rank = rank,
-        money = plain(readGlobal("GetMoney")),
-        marks = markCounts(),
-    }
+    return { honor = s.honor, rank = s.rank, money = s.money, marks = marks }
 end
 
 local function questItems(kind, countFn)
