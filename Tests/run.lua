@@ -6882,6 +6882,21 @@ local function run()
             local noStamp = { dbVersion = 2, history = { { honor = 5 }, { timestamp = mock.newSecret() } } }
             HL.MigrateStore(noStamp, true)
             check(noStamp.since >= before, "migration: games without a usable timestamp do not set since")
+            -- with no dated game, the oldest "last seen" of an opponent or the first day of honor proves an earlier start
+            local seen = { dbVersion = 2, history = {}, opponents = { A = { kills = 1, lastSeen = 1790000500 }, B = { deaths = 2, lastSeen = 1790000100 }, C = "junk" } }
+            HL.MigrateStore(seen, true)
+            check(seen.since == 1790000100, "migration: since falls back to the oldest opponent last seen: " .. tostring(seen.since))
+            local days = { dbVersion = 2, history = {}, honorDays = { ["20261120"] = 500, ["20261118"] = 20, notADay = 1 } }
+            HL.MigrateStore(days, true)
+            check(days.since == realTime({ year = 2026, month = 11, day = 18, hour = 12 }), "migration: ...or to the first day of honor")
+            local mixed = { dbVersion = 2, history = { { timestamp = 1790000900 } }, opponents = { A = { lastSeen = 1790000300 } }, honorDays = {} }
+            HL.MigrateStore(mixed, true)
+            check(mixed.since == 1790000300, "migration: the earliest of them wins")
+            -- a key an early build made from a name and an empty realm is dropped; real keys become records
+            local keys = { dbVersion = 2, characters = { ["Liquid Elements"] = true, ["Liquid-"] = true, [""] = true, ["Other-Some Realm"] = true, Kept = { name = "Kept", level = 60 } } }
+            HL.MigrateStore(keys, false)
+            check(keys.characters["Liquid-"] == nil and keys.characters[""] == nil and deepEqual(keys.characters["Liquid Elements"], { name = "Liquid Elements" })
+                and deepEqual(keys.characters["Other-Some Realm"], { name = "Other-Some Realm" }) and keys.characters.Kept.level == 60, "migration: malformed character keys are dropped, the others become or stay records")
 
             -- 2 to 3: the going-back guarantee
             local v2 = dofile(ROOT .. "/Tests/fixtures/v2_savedvars.lua")
@@ -7170,7 +7185,24 @@ local function run()
             mock.weeklyReset = 2 * DAY
             local fixed = Weeks:Current()
             check(fixed == est and fixed.estimated == nil and fixed.finish == clock + 2 * DAY and fixed.start == fixed.finish - 7 * DAY, "weeks: the first readable clock corrects the finish and the start")
-            check(#c.weeks == 1 and #ended == 0 and c.weeksFilled == true, "weeks: correcting turns nothing over and lets the fill run")
+            check(#c.weeks == 1 and #ended == 0 and c.weeksFilled == nil, "weeks: correcting turns nothing over, and the fill waits for a second reading of the clock")
+            Weeks:Current()
+            check(c.weeksFilled == true and #c.weeks == 1, "weeks: a second reading that agrees lets the fill run")
+
+            -- the fill trusts no single reading of the reset clock
+            startWeek()
+            fresh()
+            local firstSight = Weeks:Current()
+            check(c.weeksFilled == nil, "weeks: the call that makes a record does not fill past weeks from its one reading")
+            mock.weeklyReset = 3 * DAY - 2 * 3600
+            check(Weeks:Current() == firstSight and c.weeksFilled == nil, "weeks: a second reading two hours off does not confirm it")
+            mock.weeklyReset = 3 * DAY - 60
+            clock = T0 + 60
+            check(Weeks:Current() == firstSight and c.weeksFilled == true, "weeks: a later reading that names the same reset does")
+            fresh()
+            clock = T0
+            mock.weeklyReset = 8 * DAY
+            check(Weeks:Current().estimated == true, "weeks: a reset clock of more than a week is no clock")
 
             -- every accumulator
             startWeek()
@@ -7288,7 +7320,8 @@ local function run()
             for i = 1, #c.weeks - 1 do ordered = ordered and c.weeks[i].start > c.weeks[i + 1].start end
             check(ordered and c.weeks[1].start == clock and c.weeks[26].start == clock - 25 * 7 * DAY and not c.weeks[1].closed, "weeks: newest first, the newest open")
 
-            -- the lazy fill
+            -- the lazy fill (it runs on the second reading of the reset clock, so these read twice)
+            local function twice() Weeks:Current() return Weeks:Current() end
             startWeek()
             local history = {
                 game(T0 - 1 * DAY, "WSG", "win", 100, 3), game(T0 - 3 * DAY, "AV", "loss", 300, 1),
@@ -7298,7 +7331,7 @@ local function run()
             fresh(DeepCopy(history))
             c.honorLog.weekEnd, c.honorLog.week = T0 + 3 * DAY + 1800, 777
             c.rankWeeks = { [3] = { startTotal = 3000, endTotal = 3500 }, [2] = { startTotal = 2400, endTotal = 3000 } }
-            cur = Weeks:Current()
+            cur = twice()
             check(cur.games == 2 and cur.wins == 1 and cur.losses == 1 and cur.bgHonor == 400 and deepEqual(cur.marks, { WSG = 3, AV = 1 }) and cur.best.bgType == "AV" and cur.best.honor == 300,
                 "fill: the current week is brought up to date from the saved games")
             check(cur.honor == 777 and cur.rankStart == 3000, "fill: honor from the honor log of the same week, the start total from the rank log")
@@ -7320,7 +7353,7 @@ local function run()
             -- a honor log of another week is not taken
             fresh(DeepCopy(history))
             c.honorLog.weekEnd, c.honorLog.week = T0 + 3 * DAY + 7200, 777
-            check(Weeks:Current().honor == 0, "fill: an honor log that ends at another reset is not taken")
+            check(twice().honor == 0 and c.weeksFilled == true, "fill: an honor log that ends at another reset is not taken")
 
             -- not while the finish is only a guess; then, once it is real, from the real start
             fresh(DeepCopy(history))
@@ -7328,7 +7361,8 @@ local function run()
             local guess = Weeks:Current()
             check(guess.estimated and c.weeksFilled == nil and #c.weeks == 1 and guess.games == 0, "fill: not done while the finish is estimated")
             mock.weeklyReset = 3 * DAY
-            check(Weeks:Current() == guess and guess.estimated == nil and guess.start == T0 - 4 * DAY and guess.games == 2 and #c.weeks == 3, "fill: done once the finish is real, from the real start of the week")
+            check(Weeks:Current() == guess and guess.estimated == nil and guess.start == T0 - 4 * DAY and c.weeksFilled == nil, "fill: the reading that corrects the finish does not fill yet")
+            check(Weeks:Current() == guess and guess.games == 2 and #c.weeks == 3, "fill: done once the finish is real and confirmed, from the real start of the week")
 
             -- a record that already covers an earlier week is not doubled
             fresh(DeepCopy(history))
@@ -7336,15 +7370,37 @@ local function run()
                 { start = T0 - 4 * DAY, finish = T0 + 3 * DAY, games = 0, wins = 0, losses = 0, draws = 0, left = 0, honor = 0, bgHonor = 0, marks = {}, kills = 0, deaths = 0, killingBlows = 0 },
                 { start = T0 - 11 * DAY, finish = T0 - 4 * DAY, closed = true, estimated = true, games = 9, wins = 0, losses = 0, draws = 0, left = 0, honor = 0, bgHonor = 0, marks = {} },
             }
-            Weeks:Current()
+            twice()
             check(#c.weeks == 3 and c.weeks[2].games == 9 and not c.weeks[2].filled and c.weeks[3].filled and c.weeks[3].games == 1, "fill: an existing record covering a week keeps it")
 
             -- the limit holds for the fill too
             local many = {}
             for k = 0, 39 do many[#many + 1] = game(T0 - 4 * DAY - k * 7 * DAY - DAY, "WSG", "win", 10, 0) end
             fresh(many)
-            Weeks:Current()
+            twice()
             check(#c.weeks == 26 and c.weeks[26].start == T0 - 4 * DAY - 25 * 7 * DAY and c.weeks[1].games == 0, "fill: at most 26 records, the oldest weeks dropped")
+
+            -- the game and the honor gain whose call runs the fill are not counted twice
+            fresh({ game(T0 - 1 * DAY, "WSG", "win", 100, 3) })
+            Weeks:Current() -- makes the record; the fill still waits for a second reading
+            local newGame = game(T0, "AB", "win", 200, 2)
+            table.insert(c.history, 1, newGame) -- a recorded game is saved before its event fires
+            Weeks:OnGame(newGame) -- the second reading: the fill runs inside this call
+            check(c.weeksFilled == true and c.weeks[1].games == 2 and c.weeks[1].bgHonor == 300, "fill: the game whose event runs it is counted once: " .. tostring(c.weeks[1].games))
+            Weeks:OnGame(game(T0, "AB", "loss", 50, 0))
+            check(c.weeks[1].games == 3 and c.weeks[1].bgHonor == 350, "fill: ...and the next game is counted as usual")
+            fresh({})
+            c.honorLog.weekEnd, c.honorLog.week = T0 + 3 * DAY, 500 -- the honor log already holds the gain
+            Weeks:Current()
+            Weeks:OnHonor(40)
+            check(c.weeksFilled == true and c.weeks[1].honor == 500, "fill: the honor gain whose call runs it is already in the honor log's total: " .. tostring(c.weeks[1].honor))
+            Weeks:OnHonor(40)
+            check(c.weeks[1].honor == 540, "fill: ...and the next gain is added")
+            fresh({})
+            c.honorLog.weekEnd, c.honorLog.week = T0 + 30 * DAY, 500 -- another week's log: not taken
+            Weeks:Current()
+            Weeks:OnHonor(40)
+            check(c.weeksFilled == true and c.weeks[1].honor == 40, "fill: a gain is added when the fill took no honor total")
 
             -- entering the world turns the week over
             fresh()

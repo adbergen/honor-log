@@ -251,24 +251,43 @@ STEPS[2] = function(store, isChar)
     end
 end
 
--- 3: additive only, so HonorLog 2.0 still reads the save and loses only the new data. The account's
--- `characters[key] = true` becomes `{ name = key }` (2.0 only ever wrote that value); a character store
--- gets `since`, the date counting began: its oldest saved game, else now.
+-- 3: additive only, so HonorLog 2.0 still reads the save and loses only the new data.
+-- The account's `characters[key] = true` becomes `{ name = key }` (2.0 only ever wrote that value, and never
+-- read it); a key an early build made by joining a name to an empty realm ("Name-") is dropped.
+-- A character store gets `since`, the earliest date the save can prove counting had begun by: its oldest
+-- saved game, the oldest "last seen" of an opponent, or its first day of honor; with none of those, now.
 STEPS[3] = function(store, isChar)
     if isChar then
         if type(store.since) ~= "number" then
             local oldest
+            local function note(ts)
+                if type(ts) == "number" and ts > 0 and (not oldest or ts < oldest) then oldest = ts end
+            end
             if type(store.history) == "table" then
                 for _, game in pairs(store.history) do
-                    local ts = type(game) == "table" and game.timestamp
-                    if type(ts) == "number" and (not oldest or ts < oldest) then oldest = ts end
+                    if type(game) == "table" then note(game.timestamp) end
+                end
+            end
+            if type(store.opponents) == "table" then
+                for _, opponent in pairs(store.opponents) do
+                    if type(opponent) == "table" then note(opponent.lastSeen) end
+                end
+            end
+            if type(store.honorDays) == "table" then
+                for key in pairs(store.honorDays) do
+                    local y, m, d = tostring(key):match("^(%d%d%d%d)(%d%d)(%d%d)$")
+                    if y then note(time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 })) end
                 end
             end
             store.since = oldest or time()
         end
     elseif type(store.characters) == "table" then
         for key, value in pairs(store.characters) do
-            if value == true then store.characters[key] = { name = key } end
+            if type(key) ~= "string" or key == "" or key:sub(-1) == "-" then
+                store.characters[key] = nil
+            elseif value == true then
+                store.characters[key] = { name = key }
+            end
         end
     end
 end

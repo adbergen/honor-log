@@ -42,6 +42,7 @@ local WEEK = 7 * DAY
 local KEPT = 26
 local HOUR = 3600
 local JUMP = 3 * DAY -- a reset clock this far past the stored finish means a reset has happened
+local AGREE = 300 -- seconds two readings of the reset clock may differ by and still name the same reset
 
 Weeks.KEPT = KEPT
 
@@ -67,11 +68,12 @@ local function char()
     return type(c) == "table" and c or nil
 end
 
--- Seconds to the weekly reset, or nil when the client does not give a positive number.
+-- Seconds to the weekly reset, or nil when the client does not give a number a week can hold (positive, and
+-- no more than seven days and an hour).
 local function resetSeconds()
     local api = C_DateAndTime
     local seconds = api and num(call(api.GetSecondsUntilWeeklyReset))
-    if seconds and seconds > 0 then return seconds end
+    if seconds and seconds > 0 and seconds <= WEEK + HOUR then return seconds end
     return nil
 end
 
@@ -200,8 +202,10 @@ local function fill(c, weeks, cur)
         if g.timestamp >= cur.start and g.timestamp < cur.finish then tally(cur, g) end
     end
     local log = c.honorLog
+    local tookHonor = false
     if type(log) == "table" and num(log.weekEnd) and num(log.week) and math.abs(log.weekEnd - cur.finish) <= HOUR then
         cur.honor = log.week
+        tookHonor = true
     end
     local own = rankWeek(c, cur.number)
     if own and num(own.startTotal) then cur.rankStart = own.startTotal end
@@ -247,10 +251,18 @@ local function fill(c, weeks, cur)
         table.sort(weeks, function(a, b) return a.start > b.start end)
         prune(weeks)
     end
+    return tookHonor
 end
 
+-- The record whose finish a second, later reading of the reset clock has agreed with (kept in memory only).
+-- The one-time fill cuts every past week from that finish, and what it writes cannot be redone, so it does
+-- not trust the single reading a record was made from.
+local confirmFor, confirmed
+
 -- The current record, made or turned over first. full = also read the rank data (number, season and the
--- running totals); the honor and kill paths leave it out unless something is missing.
+-- running totals); the honor and kill paths leave it out unless something is missing. Also returns whether
+-- the one-time fill ran in this call, and whether that fill took the honor log's total for the week: the
+-- caller's own game or honor gain is then already counted.
 local function current(full)
     local c = char()
     if not c then return nil end
@@ -286,18 +298,27 @@ local function current(full)
         info = rankInfo()
         if info then stamp(cur, info, weeks[2]) end
     end
-    if not c.weeksFilled and not cur.estimated then
+    if reset and not cur.estimated then
+        if confirmFor ~= cur then
+            confirmFor, confirmed = cur, false -- first sight of this record with a clock
+        elseif math.abs(now + reset - cur.finish) <= AGREE then
+            confirmed = true
+        end
+    end
+    local filledNow, tookHonor = false, false
+    if not c.weeksFilled and not cur.estimated and confirmFor == cur and confirmed then
         c.weeksFilled = true
-        local ok, err = pcall(fill, c, weeks, cur)
-        if not ok then report(err) end
+        filledNow = true
+        local ok, result = pcall(fill, c, weeks, cur)
+        if ok then tookHonor = result == true else report(result) end
     end
     if ended then HonorLog:Fire("HonorLog_WeekEnded", ended) end
-    return cur
+    return cur, filledNow, tookHonor
 end
 
 -- The current record (after turning over when it is due).
 function Weeks:Current()
-    return current(true)
+    return (current(true))
 end
 Weeks.GetCurrent = Weeks.Current
 
@@ -307,15 +328,25 @@ Weeks.GetCurrent = Weeks.Current
 
 function Weeks:OnGame(entry)
     if type(entry) ~= "table" or isSecret(entry) then return end
-    local rec = current(true) -- reads the rank data, which sets rankEnd
-    if rec then tally(rec, entry) end
+    local rec, filledNow = current(true) -- reads the rank data, which sets rankEnd
+    if not rec then return end
+    if filledNow then
+        -- the fill has just counted every saved game of this week, and a recorded game is saved before its
+        -- event fires: counting it here too would count it twice
+        local c = char()
+        for _, g in ipairs(c and type(c.history) == "table" and c.history or {}) do
+            if g == entry then return end
+        end
+    end
+    tally(rec, entry)
 end
 
 function Weeks:OnHonor(amount)
     amount = num(amount)
     if not amount or amount <= 0 then return end
-    local rec = current(false)
-    if rec then rec.honor = (rec.honor or 0) + amount end
+    local rec, _, tookHonor = current(false)
+    -- a fill that took the honor log's week total in this call already holds this gain
+    if rec and not tookHonor then rec.honor = (rec.honor or 0) + amount end
 end
 
 function Weeks:OnRankUp(_, info)
@@ -348,8 +379,13 @@ if type(HonorLog.AddHonorGain) == "function" then
     hooksecurefunc(HonorLog, "AddHonorGain", guarded(function(_, amount) Weeks:OnHonor(amount) end))
 end
 
+-- At login: turn the week over if a reset has passed, and look again a few seconds later, which gives the
+-- reset clock its second reading.
 local frame = CreateFrame("Frame", "HonorLogWeeksFrame")
-frame:SetScript("OnEvent", guarded(function() current(true) end))
+frame:SetScript("OnEvent", guarded(function()
+    current(true)
+    if C_Timer and C_Timer.After then C_Timer.After(5, guarded(function() current(true) end)) end
+end))
 pcall(frame.RegisterEvent, frame, "PLAYER_ENTERING_WORLD")
 
 --------------------------------------------------------------------------------
