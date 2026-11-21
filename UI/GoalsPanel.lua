@@ -1541,7 +1541,7 @@ local function CreateGoalsPanel(parent)
     local completedArrow = completedHeader:CreateTexture(nil, "ARTWORK")
     completedArrow:SetSize(12, 12)
     completedArrow:SetPoint("LEFT", 6, 0)
-    completedArrow:SetTexture("Interface\\Buttons\\UI-PlusMinusButtons")
+    completedArrow:SetTexture("Interface\\Buttons\\UI-PlusMinus-Buttons")
     completedArrow:SetTexCoord(0, 0.4375, 0, 0.4375) -- Plus sign (collapsed)
     panel.completedArrow = completedArrow
 

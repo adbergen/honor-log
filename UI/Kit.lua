@@ -179,6 +179,9 @@ end
 --------------------------------------------------------------------------------
 
 local PORTRAIT_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+-- The window's round portrait hangs over the top left corner of every screen: about 44 pixels across and
+-- 22 down, measured from a screen's own corner. Anything a screen puts in that corner starts this far right.
+Kit.PORTRAIT_CLEAR = 36
 
 -- Everything this file adds to a frame that came from a Blizzard template is named honorLog...: a
 -- template frame carries Blizzard's own methods and fields (a PortraitFrame has GetTitleText, CloseButton,
@@ -458,6 +461,30 @@ end
 -- Rank ring
 --------------------------------------------------------------------------------
 
+-- A dark round ground behind a ring-shaped badge, so the art under the badge does not show through its
+-- middle. Round, because a square one shows its corners past the ring. Without mask textures it is a
+-- smaller square whose corners stay under the ring.
+function Kit:RoundGround(frame, r, g, b)
+    local ground = frame:CreateTexture(nil, "BACKGROUND")
+    ground:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+    ground:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+    ground:SetColorTexture(r or 0.1, g or 0.1, b or 0.1, 1)
+    local masked = type(frame.CreateMaskTexture) == "function" and pcall(function()
+        local mask = frame:CreateMaskTexture()
+        mask:SetAllPoints(ground)
+        mask:SetTexture(PORTRAIT_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        ground:AddMaskTexture(mask)
+    end)
+    if not masked then
+        local side = (num(frame:GetWidth()) or 18) * 0.6
+        ground:ClearAllPoints()
+        ground:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        ground:SetSize(side, side)
+    end
+    ground.honorLogRound = masked and true or false
+    return ground
+end
+
 local RING = {
     glow = "UI-Character-Info-Honor-Bar-BG-Glow",
     horde = "UI-Character-Info-Honor-Bar-BG-Horde",
@@ -544,9 +571,7 @@ function Kit:Ring(parent, size)
         badge:SetSize(34 * scale, 34 * scale)
         badge:SetPoint("BOTTOM", ring, "BOTTOM", 0, -1 * scale)
         badge:SetFrameLevel(ring:GetFrameLevel() + 3)
-        local cover = badge:CreateTexture(nil, "BACKGROUND")
-        cover:SetAllPoints(badge)
-        cover:SetColorTexture(0.1, 0.1, 0.1, 1)
+        badge.honorLogGround = Kit:RoundGround(badge)
         local badgeRing = badge:CreateTexture(nil, "BORDER")
         badgeRing:SetAllPoints(badge)
         Kit:SetAtlasOr(badgeRing, RING.badge, 0.85, 0.66, 0.23, 1)
@@ -1205,9 +1230,10 @@ end
 -- A toggle for "this is a goal". star:SetOn(bool), star:IsOn(); a click flips it and calls
 -- star.honorLogOnToggle(star, on). The art is the client's own star, Interface\Common\ReputationStar (the file
 -- Forever's reputation window draws its star from; a file cannot be asked for the way an atlas can): the gold
--- star when on, the empty star, greyed and dimmed, when off, so the state is not colour alone.
+-- star when on, the outlined star in grey when off, so the state is not colour alone. (The file's own dark
+-- star, top right, is black on black on this window's ground.)
 local STAR_FILE = "Interface\\Common\\ReputationStar"
-local STAR_ON, STAR_OFF, STAR_GLOW = { 0, 0.5, 0, 0.5 }, { 0.5, 1, 0, 0.5 }, { 0, 0.5, 0.5, 1 }
+local STAR_ON, STAR_OFF, STAR_GLOW = { 0, 0.5, 0, 0.5 }, { 0, 0.5, 0.5, 1 }, { 0, 0.5, 0.5, 1 }
 Kit.STAR = { file = STAR_FILE, on = STAR_ON, off = STAR_OFF }
 
 function Kit:Star(parent, size)
@@ -1230,7 +1256,7 @@ function Kit:Star(parent, size)
         local c = on and STAR_ON or STAR_OFF
         self.honorLogArt:SetTexCoord(c[1], c[2], c[3], c[4])
         self.honorLogArt:SetDesaturated(not on)
-        self.honorLogArt:SetAlpha(on and 1 or 0.55)
+        self.honorLogArt:SetAlpha(on and 1 or 0.85)
     end
     function star:IsOn() return self.honorLogOn end
 

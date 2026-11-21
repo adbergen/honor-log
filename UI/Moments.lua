@@ -588,8 +588,10 @@ local function buildReport(state)
         local points = num(record.rankPoints)
         local text, tone = safe(HonorLog.DescribeRankPoints, HonorLog, record)
         text = str(text) or ""
+        -- a plain "+108" under the same "+108" says nothing: the note is for the cases that need words
+        local rankNote = (tone == "earned" and not record.rankCappedDuring) and "" or text
         setTile(rankTile, L["Rank points"], (points and points > 0) and ("+" .. commas(points)) or (points == 0 and "0" or "-"),
-            text, text, "white", tone == "blocked" and "orange" or "grey")
+            rankNote, text, "white", tone == "blocked" and "orange" or "grey")
 
         local marks = num(record.marks)
         local held = num(safe(HonorLog.GetCurrentMarks, HonorLog, bgType))
@@ -892,7 +894,9 @@ local function buildHonorCap(state)
         end
         local average = measuredAverage()
         if not average then pace:Hide() return end
-        p.paceText:SetText(string.format(L["About %d games until it stops counting."], math.max(1, math.ceil((cap - held) / average))))
+        local games = math.max(1, math.ceil((cap - held) / average))
+        p.paceText:SetText(games == 1 and L["About 1 game until it stops counting."]
+            or string.format(L["About %d games until it stops counting."], games))
     end }
 
     -- what can be bought now

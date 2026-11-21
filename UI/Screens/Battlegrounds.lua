@@ -144,11 +144,13 @@ local function buildCard(parent, bgType, index, count, onClick)
     c.edges = Kit:Edges(face, 1, 0.82, 0, 1)
     for _, e in ipairs(c.edges) do e:Hide() end
 
+    -- the first card's top left corner is under the window portrait: its icon and name start past it
+    local shift = index == 1 and Kit.PORTRAIT_CLEAR or 0
     c.mark = Kit:MarkIcon(face, 20)
-    c.mark:SetPoint("TOPLEFT", face, "TOPLEFT", 10, -8)
+    c.mark:SetPoint("TOPLEFT", face, "TOPLEFT", 10 + shift, -8)
     c.mark:SetBattleground(bgType)
-    c.name = Kit:FixedText(face, "label", 125)
-    c.name:SetPoint("TOPLEFT", face, "TOPLEFT", 36, -11)
+    c.name = Kit:FixedText(face, "label", 125 - shift)
+    c.name:SetPoint("TOPLEFT", face, "TOPLEFT", 36 + shift, -11)
     c.held = CreateFrame("Frame", nil, face)
     c.held:SetSize(36, 18)
     c.held:SetPoint("TOPRIGHT", face, "TOPRIGHT", -8, -9)

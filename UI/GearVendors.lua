@@ -136,11 +136,11 @@ local function buildList(root, onChoose)
                 hl:SetColorTexture(1, 1, 1, 0.07)
                 row.name = fixedText(row, "value", 150)
                 row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -5)
-                row.role = fixedText(row, "grey", 160)
+                row.role = fixedText(row, "grey", 164)
                 row.role:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -23)
                 row.pin = row:CreateTexture(nil, "ARTWORK")
                 row.pin:SetSize(12, 12)
-                row.pin:SetPoint("RIGHT", row, "RIGHT", -44, 0)
+                row.pin:SetPoint("TOPRIGHT", row, "TOPRIGHT", -44, -6)
                 Kit:SetAtlasOr(row.pin, "Waypoint-MapPin-Untracked", 0.6, 0.6, 0.6, 1)
                 row.pin:SetVertexColor(0.6, 0.6, 0.6, 1)
                 row.count = fixedText(row, "value", 34)
@@ -205,8 +205,8 @@ end
 --------------------------------------------------------------------------------
 
 local COL = {
-    item = { x = 4, w = 184 }, slot = { x = 192, w = 64 }, needs = { x = 260, w = 60 }, honor = { x = 324, w = 54 },
-    marks = { x = 382, w = 64 }, upgrade = { x = 450, w = 70 }, star = { x = 524, w = 48 },
+    item = { x = 4, w = 212 }, slot = { x = 220, w = 58 }, needs = { x = 282, w = 50 }, honor = { x = 336, w = 54 },
+    marks = { x = 394, w = 60 }, upgrade = { x = 458, w = 70 }, star = { x = 532, w = 44 },
 }
 local STOCK_AREA_W = TABLE_W - 12 - Kit.SCROLL_BAR_SPACE
 local STOCK_TOP = 120

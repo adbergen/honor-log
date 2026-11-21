@@ -160,7 +160,7 @@ local function refresh(p)
         p.rank:SetText(L["No rank yet"])
         p.ring:SetRank(0, faction)
         p.ring:SetProgress(0)
-        p.points:SetText(L["No rank yet"])
+        p.points:SetText("")
         p.percent:SetText("")
         p.gate:Hide()
     end
@@ -212,7 +212,7 @@ local function refresh(p)
     local advice = safe(HonorLog.GetHonorCapAdvice, HonorLog)
     local games = advice and num(advice.gamesToCap)
     if games then
-        p.cap:SetText(string.format(L["Cap in about %d games"], games))
+        p.cap:SetText(games == 1 and L["Cap in about 1 game"] or string.format(L["Cap in about %d games"], games))
         p.cap:Show()
     else
         p.cap:SetText("")
