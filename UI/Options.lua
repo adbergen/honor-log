@@ -60,7 +60,7 @@ local function CreateSlider(parent, name, label, minVal, maxVal, step, tooltip)
     slider:SetScript("OnEnter", function(self)
         if self.tooltipText then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(self.tooltipText, nil, nil, nil, nil, true)
+            GameTooltip:SetText(self.tooltipText, 1, 0.82, 0, 1, true)
         end
     end)
     slider:SetScript("OnLeave", function() GameTooltip:Hide() end)

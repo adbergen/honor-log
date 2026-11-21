@@ -1649,7 +1649,7 @@ local function CreateRankTabButton(parent, text)
     tab:SetScript("OnEnter", function(self)
         if not self.isActive then self.bg:SetColorTexture(0.20, 0.20, 0.25, 0.9) end
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("PvP Rank")
+        GameTooltip:SetText("PvP Rank", 1, 0.82, 0)
         GameTooltip:AddLine("Rank, weekly cap and the plan to any rank", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
@@ -1831,7 +1831,7 @@ local function CreateRankRow(parent, index)
             local reward = rewardOf[self]
             if not reward then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(reward.description or reward.name or "Reward")
+            GameTooltip:SetText(reward.description or reward.name or "Reward", 1, 0.82, 0)
             GameTooltip:Show()
         end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
