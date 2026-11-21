@@ -66,27 +66,8 @@ end
 -- Secret-safe readers
 --------------------------------------------------------------------------------
 
-local function isSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v) == true
-end
-
-local function num(v)
-    if isSecret(v) or type(v) ~= "number" then return nil end
-    return v
-end
-
-local function str(v)
-    if isSecret(v) or type(v) ~= "string" then return nil end
-    return v
-end
-
--- pcall(fn, ...) returning the results, or nothing when the call errors.
-local function call(fn, ...)
-    if type(fn) ~= "function" then return end
-    local res = { pcall(fn, ...) }
-    if not res[1] then return end
-    return unpack(res, 2)
-end
+local Util = HonorLog.Util
+local isSecret, num, str, call = Util.isSecret, Util.num, Util.str, Util.call
 
 local function pvp(name, ...)
     if not C_PvP then return end
@@ -126,6 +107,7 @@ local events = {
     "BAG_UPDATE_DELAYED",
     "BAG_UPDATE", -- For detecting acquired goal items
     "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", -- rank gained (faction 2800)
+    "PLAYER_LEVEL_UP", -- the level gate on rank 4 and above
     "PLAYER_PVP_RANK_CHANGED",
     "UPDATE_FACTION",
     "MERCHANT_SHOW", -- automatic PvP vendor price scan
@@ -213,14 +195,29 @@ local function ReadHonor()
     return num(info.quantity)
 end
 
--- { level, earned, threshold } of the PvP rank faction, or nil.
+-- The honor cap, from the currency itself (never a fixed number); nil when the client does not say.
+local function ReadHonorCap()
+    if not (C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo) then return nil end
+    local info = call(C_CurrencyInfo.GetCurrencyInfo, HONOR_CURRENCY)
+    if type(info) ~= "table" then return nil end
+    local cap = num(info.maxQuantity)
+    if cap and cap > 0 then return cap end
+end
+
+-- { level, earned, threshold, capRank, capTotal, total } of the PvP rank faction, or nil. capRank and
+-- capTotal are this week's cap (0 when the client names none); total is every point earned so far.
 local function ReadRank()
     if not (C_MajorFactions and C_MajorFactions.GetMajorFactionProgressionInfo) then return nil end
     local info = call(C_MajorFactions.GetMajorFactionProgressionInfo, RANK_FACTION)
     if type(info) ~= "table" then return nil end
     local level, earned = num(info.renownLevel), num(info.renownReputationEarned)
     if not level or not earned then return nil end
-    return { level = level, earned = earned, threshold = num(info.renownLevelThreshold) }
+    local capRank = num(info.currentWeekProgressiveMaxLevel) or 0
+    local rank = HonorLog.Rank
+    local total = rank and rank.TotalForRank and (rank:TotalForRank(level) + earned) or earned
+    local capTotal = (rank and rank.TotalForRank and capRank > 0) and rank:TotalForRank(capRank) or 0
+    return { level = level, earned = earned, threshold = num(info.renownLevelThreshold),
+             capRank = capRank, capTotal = capTotal, total = total }
 end
 
 -- Rank points earned between two reads. Reaching rank n costs the first n curve entries, so the
@@ -253,7 +250,8 @@ local function ReadMarks()
 end
 
 local function TakeSnapshot()
-    return { honor = ReadHonor(), marks = ReadMarks(), rank = ReadRank(), t = time() }
+    return { honor = ReadHonor(), honorCap = ReadHonorCap(), marks = ReadMarks(), rank = ReadRank(),
+             level = num(call(UnitLevel, "player")), t = time() }
 end
 
 -- Mark counts gained since the snapshot (can be negative when marks are spent).
@@ -306,6 +304,15 @@ end
 -- Rank data refresh (the Rank module owns the logic).
 function HonorLog:RefreshRank()
     if self.Rank then self.Rank:Refresh() end
+end
+
+-- A level-up can move the level gate. The client may still report the old level while the event runs,
+-- so the new one is passed along, and the rank is read again a moment later from the client itself.
+function HonorLog:PLAYER_LEVEL_UP(newLevel)
+    self.levelHint = num(newLevel)
+    self:RefreshRank()
+    self.levelHint = nil
+    C_Timer.After(1, function() HonorLog:RefreshRank() end)
 end
 
 function HonorLog:MAJOR_FACTION_RENOWN_LEVEL_CHANGED(factionID, newLevel, oldLevel)
@@ -711,7 +718,17 @@ FinalizeMatch = function(reason)
         for _, delta in pairs(m.marks or {}) do marks = marks + math.max(0, delta) end
     end
 
-    local rankPoints = RankDelta(m.snapshot.rank, ReadRank())
+    local rankEnd = ReadRank()
+    local rankPoints = RankDelta(m.snapshot.rank, rankEnd)
+    local rankState, rankCappedDuring
+    if HonorLog.Rank then
+        rankState, rankCappedDuring = HonorLog.Rank:ClassifyGame(m.snapshot.rank, rankEnd, rankPoints, m.snapshot.level)
+    end
+
+    -- A game played at the honor cap gives no honor; it stays out of the honor averages.
+    local honorCap = ReadHonorCap() or m.snapshot.honorCap
+    local honorCapped = honorCap and ((m.snapshot.honor and m.snapshot.honor >= honorCap)
+        or (honorNow and honorNow >= honorCap)) or false
 
     local duration
     if m.duration and not m.joinedInProgress and result ~= "left" then
@@ -725,6 +742,9 @@ FinalizeMatch = function(reason)
         result = result,
         joinedInProgress = m.joinedInProgress,
         rankPoints = rankPoints,
+        rankState = rankState,
+        rankCappedDuring = rankCappedDuring,
+        honorCapped = honorCapped or nil,
         scoreboard = m.sb ~= nil,
     }
     if m.sb then
@@ -743,6 +763,8 @@ FinalizeMatch = function(reason)
         print(string.format("|cff00ff00[HonorLog]|r %s in %s - %s, +%d honor, +%d marks, +%d rank points",
             ResultLabel(result), HonorLog:GetBGDisplayName(bgType), HonorLog:FormatDuration(duration),
             honor, marks, rankPoints))
+        local zeroLine = HonorLog.Rank and HonorLog.Rank:TakeZeroPointLine(bgType)
+        if zeroLine then HonorLog:Say(zeroLine) end
     end
     SaveBGState()
 end
@@ -776,15 +798,7 @@ function HonorLog:CheckHonorCap()
             char.honorCapWarned = true
             local text = string.format("Honor cap: %s of %s (%d%%). Spend honor before it is wasted.",
                 tostring(quantity), tostring(cap), math.floor(quantity / cap * 100))
-            -- Same style as goal completion: sound, raid notice, screen text, chat.
-            PlaySound(878)
-            if RaidNotice_AddMessage and RaidBossEmoteFrame then
-                RaidNotice_AddMessage(RaidBossEmoteFrame, "|cffffd700" .. text .. "|r", ChatTypeInfo["RAID_WARNING"])
-            end
-            if UIErrorsFrame then
-                UIErrorsFrame:AddMessage("|cffffd700[HonorLog]|r " .. text, 1, 0.82, 0, 1, 3)
-            end
-            print("|cffffd700[HonorLog]|r " .. text)
+            HonorLog:Announce(text)
         end
     else
         char.honorCapWarned = false

@@ -22,6 +22,23 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
   cap, the season countdown and the next reward. Pick a rank and it tells you the games
   needed at your own pace and the earliest date the weekly cap allows it. The main
   panel has a rank bar and a Rank tab, with a rank-up celebration and a weekly-cap alert.
+- **Rank planner says why.** Each game saves why it gave the rank points it did: earned,
+  zero, week's cap already reached, the level gate, or no rank data. Your pace is
+  averaged from the earned and zero games only, so games played at the cap no longer pull
+  it down. The Rank tab lists your measured points per win and per loss for each
+  battleground.
+- **No more "~0 games".** If at least 5 measured games gave 0 rank points, the plan, the
+  tooltip, `/honorlog rank` and the goals say so in a sentence instead of printing a date
+  for today.
+- **Battlegrounds that give no rank points.** When a battleground's last 3 or more
+  counted games all gave 0 (Alterac Valley, per player reports), the Rank tab and the
+  end-of-game chat line say so, with your average in the other battlegrounds. The chat
+  line shows once per battleground each login.
+- **Level gate on rank 4.** Players report that rank 4 needs character level 40; Blizzard
+  hasn't confirmed it. Below level 40 at rank 3, the rank bar, Rank tab, tooltip and
+  `/honorlog rank` say so, and plans for rank 4 and above read "after level 40". If a
+  character holds rank 4 or higher under level 40, HonorLog drops the gate for that
+  character. The probe records the observation when it is armed.
 - **Honor summary** for today, this week and this session, with a warning before you hit
   the 25,000 honor cap.
 - **Gear goals rebuilt for Forever:** about 900 items (Premier blue and epic sets, Seals,
@@ -45,6 +62,9 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 - Opponent "last seen" times are saved as whole seconds.
 
 ### Fixed
+- Games played at the honor cap gave 0 honor and pulled the honor averages down. They are
+  now flagged and left out of the honor per game figures.
+- A rank pace of 0 points per game was shown as "~0 games" and today's date.
 - `/honorlog goal list` raised an error.
 - The history limit stopped at 100 although the slider offers 500.
 - Debug messages appeared on every right-click.

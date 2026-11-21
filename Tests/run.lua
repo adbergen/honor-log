@@ -46,6 +46,7 @@ local function run()
     -- The test's file list must equal the .toc list, in order.
     local FILES = {
         "Libs/LibStub.lua", "Libs/CallbackHandler-1.0.lua", "Libs/LibDataBroker-1.1.lua", "Libs/LibDBIcon-1.0.lua",
+        "Util.lua",
         "Data/GearDatabase.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
@@ -1199,6 +1200,353 @@ local function run()
         mock.seasonSeconds = 86400 * 30
         mock.bagItems = { [20558] = 12, [20559] = 3 }
         mock.currencies[1792].quantity = 8200
+    end
+
+    ----------------------------------------------------------------------
+    -- Round 5: rank that tells the truth
+    ----------------------------------------------------------------------
+    do
+        local Util = HL.Util
+        local savedHist, savedLevel = char.history, mock.level
+        local savedRank, savedWindow = mock.rank, { cap = mock.rankWindow.cap, week = mock.rankWindow.week, prevCap = mock.rankWindow.prevCap }
+        local function near2(a, b) return math.abs(a - b) < 1e-6 end
+
+        -- Util: the shared readers, copies, chat helpers and the string table.
+        check(Util.num(5) == 5 and Util.num("5") == nil and Util.num(mock.newSecret()) == nil, "Util.num: numbers only, never a secret")
+        check(Util.str("a") == "a" and Util.str(5) == nil and Util.str(mock.newSecret()) == nil, "Util.str: strings only, never a secret")
+        check(Util.isSecret(mock.newSecret()) == true and Util.isSecret(1) == false, "Util.isSecret")
+        local c1, c2 = Util.call(function(a, b) return a + b, a * b end, 3, 4)
+        check(c1 == 7 and c2 == 12, "Util.call returns the results")
+        check(Util.call(function() error("boom") end) == nil and Util.call(nil) == nil, "Util.call: an error or a non-function gives nothing")
+        local orig = { a = 1, nested = { b = 2 } }
+        local copy = Util.DeepCopy(orig)
+        copy.nested.b = 9
+        check(orig.nested.b == 2 and copy.a == 1, "Util.DeepCopy copies nested tables")
+        local target = { a = 5, nested = {} }
+        Util.DeepMerge(target, { a = 1, c = 3, nested = { b = 2 } })
+        check(target.a == 5 and target.c == 3 and target.nested.b == 2, "Util.DeepMerge fills missing keys and keeps existing ones")
+        check(HL.L["Rank %d needs level %d."] == "Rank %d needs level %d." and HL.L["never added"] == "never added", "HonorLog.L returns the key")
+        local nSay = countPlain("[HonorLog]|r hello say")
+        HL:Say("hello say")
+        check(countPlain("[HonorLog]|r hello say") == nSay + 1, "HonorLog:Say prints with the prefix")
+        local nAnn = countPlain("announce check")
+        HL:Announce("announce check")
+        Rank:Announce("announce check")
+        check(countPlain("announce check") == nAnn + 2, "HonorLog:Announce and Rank:Announce both print")
+
+        -- A recorded-game helper: newest first, spaced a few hours apart.
+        local function rec(bg, result, pts, state, extra)
+            local g = { bgType = bg, result = result, win = result == "win", rankPoints = pts, rankState = state,
+                timestamp = time() - 3600 * (extra and extra.hours or 2) }
+            if extra then for k, v in pairs(extra) do if k ~= "hours" then g[k] = v end end end
+            return g
+        end
+        local function setHistory(list)
+            for i, g in ipairs(list) do g.timestamp = time() - i * 3600 end
+            char.history = list
+        end
+
+        -- Rank state per game, through the whole game flow.
+        mock.level = 60
+        local function playGame(bg, mapID, winner, midGame)
+            resetPvP()
+            enter(bg, mapID)
+            if midGame then midGame() end
+            mock.pvp.roster, mock.pvp.matchComplete = roster(), true
+            mock.fireEvent("PVP_MATCH_COMPLETE", winner, 400)
+            leave()
+            return lastGame()
+        end
+        mock.currencies[1792].quantity, mock.currencies[1792].maxQuantity = 8200, 25000
+        char.history = {}
+        setRank(3, 100, 6, 3, 5)
+        local g = playGame("Warsong Gulch", 489, 1, function() mock.rank.earned = 200 end)
+        check(g.rankState == "earned" and g.rankPoints == 100 and g.rankCappedDuring == nil, "game state earned: " .. tostring(g.rankState))
+        setRank(3, 100, 6, 3, 5)
+        g = playGame("Warsong Gulch", 489, 0)
+        check(g.rankState == "zero" and g.rankPoints == 0, "game state zero when nothing else explains the 0: " .. tostring(g.rankState))
+        setRank(3, 100, 6, 3, 5)
+        g = playGame("Warsong Gulch", 489, 0, function() mock.rankWindow.noData = true end)
+        mock.rankWindow.noData = false
+        check(g.rankState == "nodata", "game state nodata when the end read is nil: " .. tostring(g.rankState))
+        setRank(3, 100, 6, 3, 5)
+        mock.rankWindow.noData = true
+        resetPvP()
+        enter("Warsong Gulch", 489)
+        mock.rankWindow.noData = false
+        mock.pvp.roster, mock.pvp.matchComplete = roster(), true
+        mock.fireEvent("PVP_MATCH_COMPLETE", 0, 400)
+        leave()
+        check(lastGame().rankState == "nodata", "game state nodata when the start read is nil")
+        setRank(5, 0, 5, 3, 4) -- total points equal this week's cap total
+        g = playGame("Warsong Gulch", 489, 0)
+        check(g.rankState == "capped", "game state capped when the week's cap was already reached: " .. tostring(g.rankState))
+        setRank(4, 1300, 5, 3, 4) -- 50 points short of the cap total
+        g = playGame("Warsong Gulch", 489, 1, function() mock.rank.earned = 1350 end)
+        check(g.rankState == "earned" and g.rankPoints == 50 and g.rankCappedDuring == true, "earned, and the cap was reached during the game")
+        mock.level = 35
+        setRank(3, 100, 6, 3, 5)
+        g = playGame("Warsong Gulch", 489, 0)
+        check(g.rankState == "gated", "game state gated: level 35, rank 3, nothing earned: " .. tostring(g.rankState))
+        setRank(1, 100, 6, 3, 5)
+        g = playGame("Warsong Gulch", 489, 0)
+        check(g.rankState == "zero", "a 0 at rank 1 under the gate is not the gate's doing: " .. tostring(g.rankState))
+        setRank(3, 100, 6, 3, 5)
+        g = playGame("Warsong Gulch", 489, 1, function() mock.rank.earned = 190 end)
+        check(g.rankState == "earned" and g.rankPoints == 90, "points earned under the gate still read as earned")
+        mock.level = 60
+
+        -- Pace uses only earned and zero games.
+        local noise = {
+            rec("WSG", "win", 0, "capped"), rec("WSG", "loss", 0, "nodata"), rec("WSG", "loss", 0, "gated"),
+            rec("WSG", "win", 0, nil), -- an old record that gave 0: unknown
+            rec("WSG", "win", 10, "earned", { rankCappedDuring = true }),
+        }
+        local list = {}
+        for _, n in ipairs(noise) do list[#list + 1] = n end
+        for _ = 1, 5 do list[#list + 1] = rec("WSG", "win", 100, "earned") end
+        for _ = 1, 3 do list[#list + 1] = rec("WSG", "loss", 25, "earned") end
+        list[#list + 1] = rec("WSG", "win", 100) -- an old record that gave points: earned
+        for _ = 1, 2 do list[#list + 1] = rec("WSG", "loss", 0, "zero") end
+        setHistory(list)
+        pace = Rank:GetPace()
+        check(pace.measuredGames == 11 and not pace.estimated, "pace measures earned and zero games only: " .. pace.measuredGames)
+        check(near2(pace.pointsPerWin, 100) and near2(pace.pointsPerLoss, 15), "per win 100 and per loss 75/5 = 15: " .. pace.pointsPerWin .. "/" .. pace.pointsPerLoss)
+        check(pace.noPoints == false and pace.measuredWins == 6 and pace.measuredLosses == 5, "pace counts measured wins and losses")
+        setHistory({ rec("WSG", "win", 100, "earned"), rec("WSG", "win", 100, "earned"), rec("WSG", "win", 0, "capped"), rec("WSG", "loss", 0, "gated") })
+        pace = Rank:GetPace()
+        check(pace.estimated and pace.measuredGames == 2 and pace.pointsPerWin == 100 and pace.noPoints == false, "below 5 measured games the pace stays an estimate with the defaults")
+        local mixed = {}
+        for _ = 1, 6 do mixed[#mixed + 1] = rec("AV", "loss", 0, "zero") end
+        for _ = 1, 6 do mixed[#mixed + 1] = rec("WSG", "win", 100, "earned") end
+        setHistory(mixed)
+        check(Rank:GetPace("AV").noPoints == true and Rank:GetPace("AV").measuredGames == 6, "pace for one battleground: AV gives no points")
+        check(Rank:GetPace("WSG").noPoints == false and near2(Rank:GetPace("WSG").pointsPerWin, 100) and Rank:GetPace("WSG").measuredGames == 6, "pace for one battleground: WSG is unaffected")
+        check(Rank:GetPace().noPoints == false and Rank:GetPace().measuredGames == 12, "pace for everything mixes both")
+
+        -- Points per result: one row per battleground with measured games.
+        local ppr = Rank:GetPointsPerResult()
+        check(#ppr == 2 and ppr[1].bgType == "AV" and ppr[1].perWin == nil and ppr[1].perLoss == 0 and ppr[1].games == 6, "points per result: AV row")
+        check(ppr[2].bgType == "WSG" and ppr[2].perWin == 100 and ppr[2].perLoss == nil and ppr[2].games == 6, "points per result: WSG row")
+
+        -- The zero-point pace: no "~0 games" and no today's date anywhere.
+        local zeros = {}
+        for _ = 1, 6 do zeros[#zeros + 1] = rec("WSG", "win", 0, "zero") end
+        setHistory(zeros)
+        setRank(4, 300, 6, 3, 5)
+        info = Rank:GetInfo()
+        pace = Rank:GetPace()
+        check(pace.noPoints == true and not pace.estimated, "6 measured games averaging 0 is a measured no-points pace")
+        plan = Rank:PlanToRank(6, info, pace)
+        check(plan.gamesNeeded == nil and plan.projectedDateAtPace == nil and plan.limitedBy == "nopoints" and plan.date == nil, "plan with a 0 pace: no games, no date, limited by nopoints")
+        check(plan.pointsNeeded == 2550, "the plan still says the points needed")
+        check(Rank:PlanToRank(3, info, pace).reached, "a reached rank is still reached")
+        local tip2 = { lines = {} }
+        function tip2:AddLine(t) self.lines[#self.lines + 1] = t end
+        function tip2:AddDoubleLine(l, r) self.lines[#self.lines + 1] = l .. " " .. r end
+        Rank:AddTooltipLines(tip2)
+        local tip2Text = table.concat(tip2.lines, "\n")
+        check(tip2Text:find("no estimate: your games give no rank points", 1, true) and not tip2Text:find("~0", 1, true), "tooltip: plain sentence, no ~0 games")
+        local before = #printed
+        slash("rank 6")
+        slash("rank")
+        local out = table.concat(printed, "\n", before + 1)
+        check(out:find("No estimate: your games give no rank points", 1, true) and not out:find("about 0", 1, true) and not out:find("~0 games", 1, true), "/honorlog rank 6: plain sentence")
+        check(out:find("no pace to plan with", 1, true), "/honorlog rank: says there is no pace")
+        HL.db.settings.showRankBar = true
+        Rank:Refresh()
+        rui.panel:Update(Rank:GetInfo())
+        local detail = rui.panel.rows[6].detail:GetText()
+        check(detail:find("no estimate", 1, true) and not detail:find("~0", 1, true), "Rank tab row: plain sentence: " .. tostring(detail))
+        check(rui.panel.lines[4]:GetText():find("no pace to plan with", 1, true), "Rank tab summary says there is no pace")
+        -- Goals: a rank-gated item with the 0 pace has a limit and no date, with nothing erroring.
+        local rankItem
+        for id in pairs(HL.GearDB) do
+            local it = HL:GetGearItem(id)
+            if it and it.rank and it.rank >= 6 and not it.scanned and HL:IsGearAvailable(id) then rankItem = id break end
+        end
+        check(rankItem ~= nil, "found a rank-gated item in the gear database")
+        local gp2 = HL:GetGoalProgress(rankItem)
+        check(gp2.rank and gp2.rank.limitedBy == "nopoints" and gp2.rank.date == nil and gp2.readyLimitedBy == "nopoints" and gp2.readyDate == nil,
+            "goal progress with a 0 rank pace: " .. tostring(gp2.rank and gp2.rank.limitedBy) .. "/" .. tostring(gp2.readyLimitedBy))
+
+        -- Zero-point battlegrounds: the latest three or more earned/zero games all 0.
+        local zl = {}
+        for i = 1, 3 do zl[#zl + 1] = rec("AV", "loss", 0, "zero") end
+        zl[#zl + 1] = rec("AV", "win", 100, "earned") -- older
+        for i = 1, 4 do zl[#zl + 1] = rec("WSG", "win", 62, "earned") end
+        setHistory(zl)
+        local zp = Rank:GetZeroPointBattlegrounds()
+        check(#zp == 1 and zp[1].bgType == "AV" and zp[1].zero == 3 and zp[1].games == 3 and near2(zp[1].otherAverage, 62), "zero-point battlegrounds: AV, 3 of 3, others average 62")
+        check(Rank:ZeroPointText(zp[1]) == "Alterac Valley gave 0 rank points in 3 of 3 games. Your other battlegrounds average 62.", "zero-point sentence: " .. Rank:ZeroPointText(zp[1]))
+        setHistory({ rec("AV", "loss", 0, "zero"), rec("AV", "loss", 0, "zero"), rec("AV", "loss", 0, "capped"), rec("AV", "win", 100, "earned") })
+        check(#Rank:GetZeroPointBattlegrounds() == 0, "two zeros are not enough; a capped game neither counts nor breaks the run")
+        setHistory({ rec("AV", "win", 100, "earned"), rec("AV", "loss", 0, "zero"), rec("AV", "loss", 0, "zero"), rec("AV", "loss", 0, "zero") })
+        check(#Rank:GetZeroPointBattlegrounds() == 0, "an earned game after the zeros ends the flag")
+        setHistory({ rec("WSG", "left", 0, "zero"), rec("WSG", "left", 0, "zero"), rec("WSG", "left", 0, "zero"), rec("WSG", "left", 0, "zero"), rec("WSG", "left", 0, "zero") })
+        check(#Rank:GetZeroPointBattlegrounds() == 0, "games left early never flag a battleground")
+        check(Rank:GetPace().measuredGames == 0 and not Rank:GetPace().noPoints, "games left early are not measured games")
+        setHistory({ rec("AV", "loss", 0, "zero"), rec("AV", "loss", 0, "zero"), rec("AV", "loss", 0, "zero") })
+        zp = Rank:GetZeroPointBattlegrounds()
+        check(#zp == 1 and zp[1].otherAverage == nil and Rank:ZeroPointText(zp[1]) == "Alterac Valley gave 0 rank points in 3 of 3 games.", "with no other data the second sentence is dropped")
+        -- The Rank tab lists it, then the points per result.
+        setHistory(zl)
+        setRank(4, 300, 6, 3, 5)
+        Rank:Refresh()
+        rui.panel:Update(Rank:GetInfo())
+        check(rui.panel.extraRows[1].name:GetText() == "Alterac Valley" and rui.panel.extraRows[1].detail:GetText() == "Gave 0 rank points in 3 of 3 games.", "Rank tab: one line per zero-point battleground")
+        check(rui.panel.extraHeader:GetText() == "Points per result (measured games)", "Rank tab: points per result header")
+        check(rui.panel.extraRows[3].name:GetText() == "Alterac Valley" or rui.panel.extraRows[2].name:GetText() == "Alterac Valley", "Rank tab: a points-per-result row for AV")
+        check(rui.panel.extraRows[3].detail:GetText() == "per win 100, per loss 0" or rui.panel.extraRows[2].detail:GetText() == "per win 100, per loss 0", "Rank tab: AV measured 100 per win and 0 per loss")
+        check(rui.panel.extraRows[4].detail:GetText() == "per win 62, per loss -" and rui.panel.extraRows[4].tag:GetText() == "4 games", "Rank tab: WSG row")
+        check(rui.panel.content:GetHeight() == (Rank.MAX_RANK + 4) * (HL.Layout.RANK_ROW_HEIGHT + 2), "the scroll area grows to hold the extra rows: " .. rui.panel.content:GetHeight())
+        -- The end-of-game line: once per battleground per login.
+        local avGames = {}
+        for _ = 1, 2 do avGames[#avGames + 1] = rec("AV", "loss", 0, "zero") end
+        for _ = 1, 4 do avGames[#avGames + 1] = rec("WSG", "win", 62, "earned") end
+        setHistory(avGames)
+        setRank(3, 100, 6, 3, 5)
+        local fullLine = "Alterac Valley gave 0 rank points in 3 of 3 games. Your other battlegrounds average 62."
+        local nLine, n33 = countPlain(fullLine), countPlain("gave 0 rank points in 3 of 3")
+        g = playGame("Alterac Valley", 30, 0)
+        check(g.rankState == "zero", "the third AV game gave 0")
+        check(countPlain(fullLine) == nLine + 1, "the end-of-game line names the zero-point battleground")
+        g = playGame("Alterac Valley", 30, 0)
+        check(countPlain("Alterac Valley gave 0 rank points in 4 of 4") == 0 and countPlain("gave 0 rank points in 3 of 3") == n33 + 1, "the line is not repeated for the same battleground in the same login")
+        check(Rank:TakeZeroPointLine("AV") == nil, "TakeZeroPointLine: already told this login")
+        setHistory({ rec("MAP999", "loss", 0, "zero"), rec("MAP999", "loss", 0, "zero"), rec("MAP999", "loss", 0, "zero") })
+        local t1 = Rank:TakeZeroPointLine("MAP999")
+        local t2 = Rank:TakeZeroPointLine("MAP999")
+        check(t1 ~= nil and t2 == nil, "a second battleground is told once: " .. tostring(t1) .. " / " .. tostring(t2))
+        check(Rank:TakeZeroPointLine("AB") == nil, "a battleground that gives points gets no line")
+
+        -- The level gate.
+        check(Rank.LEVEL_GATES[1].rank == 4 and Rank.LEVEL_GATES[1].level == 40, "the one reported gate: rank 4 needs level 40")
+        char.gateDisproved = nil
+        setHistory({})
+        mock.level = 35
+        setRank(3, 100, 6, 3, 5)
+        info = Rank:GetInfo()
+        check(info.gate and info.gate.rank == 4 and info.gate.level == 40 and info.gate.blocking == true, "gate blocks: level 35, rank 3, cap 6")
+        local gateSentence = "Rank 4 needs level 40. Players report this; Blizzard hasn't confirmed it."
+        check(Rank:GateText(info.gate) == gateSentence, "gate sentence")
+        Rank:Refresh()
+        check(rui.bar.text:GetText():find("Rank 4 needs level 40", 1, true), "rank bar says the gate: " .. tostring(rui.bar.text:GetText()))
+        rui.panel:Update(Rank:GetInfo())
+        check(rui.panel.lines[4]:GetText() == gateSentence, "Rank tab summary says the gate sentence")
+        tip2 = { lines = {} }
+        function tip2:AddLine(t) self.lines[#self.lines + 1] = t end
+        function tip2:AddDoubleLine(l, r) self.lines[#self.lines + 1] = l .. " " .. r end
+        Rank:AddTooltipLines(tip2)
+        check(table.concat(tip2.lines, "\n"):find(gateSentence, 1, true), "tooltip says the gate sentence")
+        before = #printed
+        slash("rank")
+        check(table.concat(printed, "\n", before + 1):find(gateSentence, 1, true), "/honorlog rank says the gate sentence")
+        HL.db.settings.ldbFormat = "rank"
+        check(Rank:BrokerText():find("needs level 40", 1, true), "broker text says the gate")
+        HL.db.settings.ldbFormat = "games"
+        -- Plans past the gate.
+        plan = Rank:PlanToRank(6, info, Rank:GetPace())
+        check(plan.limitedBy == "level" and plan.gateLevel == 40 and plan.date == nil and plan.projectedDateAtPace == nil, "plan past the gate: limited by level, no date")
+        check(Rank:PlanToRank(4, info, Rank:GetPace()).limitedBy == "level", "the gate rank itself is behind the gate")
+        before = #printed
+        slash("rank 6")
+        check(table.concat(printed, "\n", before + 1):find("after level 40", 1, true), "/honorlog rank 6: after level 40")
+        rui.panel:Update(Rank:GetInfo())
+        check(rui.panel.rows[6].detail:GetText():find("after level 40", 1, true) and rui.panel.rows[6].tag:GetText() == "level", "Rank tab row: after level 40")
+        tip2 = { lines = {} }
+        function tip2:AddLine(t) self.lines[#self.lines + 1] = t end
+        function tip2:AddDoubleLine(l, r) self.lines[#self.lines + 1] = l .. " " .. r end
+        Rank:AddTooltipLines(tip2)
+        check(table.concat(tip2.lines, "\n"):find("after level 40", 1, true), "tooltip: after level 40")
+        gp2 = HL:GetGoalProgress(rankItem)
+        check(gp2.rank.limitedBy == "level" and gp2.rank.date == nil and gp2.readyLimitedBy == "level" and gp2.readyDate == nil, "goal progress behind the gate: level, no date")
+        -- When it applies and when it blocks.
+        setRank(3, 100, 3, 3, 3)
+        info = Rank:GetInfo()
+        check(info.gate and info.gate.blocking == false, "the gate applies but the weekly cap (rank 3) is the limit, so it is not blocking")
+        Rank:Refresh()
+        check(not rui.bar.text:GetText():find("needs level", 1, true), "bar does not blame the level while the cap is the limit")
+        setRank(3, 100, 0, 3, 0)
+        check(Rank:GetInfo().gate.blocking == true, "no cap named: blocking")
+        setRank(2, 100, 6, 3, 5)
+        check(Rank:GetInfo().gate and Rank:GetInfo().gate.blocking == false, "rank 2 is two below the gate rank: applies, not blocking")
+        check(Rank:PlanToRank(3, Rank:GetInfo(), Rank:GetPace()).limitedBy ~= "level" and Rank:PlanToRank(5, Rank:GetInfo(), Rank:GetPace()).limitedBy == "level", "plans below the gate rank are not level-limited")
+        mock.level = 40
+        setRank(3, 100, 6, 3, 5)
+        check(Rank:GetInfo().gate == nil, "level 40: no gate")
+        mock.level = 35
+        setRank(4, 100, 6, 3, 5)
+        check(Rank:GetInfo().gate == nil, "at the gate rank already: no gate")
+        -- Disproved: holding the rank under the level.
+        HonorLogDB.probe = HonorLogDB.probe or {}
+        HonorLogDB.probe.log = {}
+        HonorLogDB.probe.armed = false
+        Rank:Refresh()
+        check(char.gateDisproved and char.gateDisproved[4] == true, "holding rank 4 at level 35 disproves the gate")
+        check(#HonorLogDB.probe.log == 0, "a disarmed probe logs nothing")
+        char.gateDisproved = nil
+        slash("probe on")
+        HonorLogDB.probe.log = {}
+        Rank:Refresh()
+        Rank:Refresh()
+        local gateLogs = 0
+        for _, e in ipairs(HonorLogDB.probe.log) do if e.event == "RANK_GATE_DISPROVED" then gateLogs = gateLogs + 1 end end
+        check(gateLogs == 1, "an armed probe logs the observation once: " .. gateLogs)
+        check(HonorLogDB.probe.log[#HonorLogDB.probe.log].args[1] == 4 and HonorLogDB.probe.log[#HonorLogDB.probe.log].args[3] == 35, "the log entry has the gate rank and the level")
+        slash("probe off")
+        setRank(3, 100, 6, 3, 5) -- e.g. a season reset: the gate stays off for this character
+        check(Rank:GetInfo().gate == nil, "a disproved gate is not applied again")
+        check(Rank:PlanToRank(6, Rank:GetInfo(), Rank:GetPace()).limitedBy ~= "level", "plans ignore a disproved gate")
+        char.gateDisproved = nil
+        -- PLAYER_LEVEL_UP refreshes the rank; the new level wins while the client still reports the old one.
+        check(mock.knownEvents.PLAYER_LEVEL_UP, "the mock knows PLAYER_LEVEL_UP")
+        local registered = false
+        for _, f in ipairs(mock.frames) do if f.__events.PLAYER_LEVEL_UP then registered = true end end
+        check(registered, "HonorLog registers PLAYER_LEVEL_UP")
+        Rank:Refresh()
+        check(rui.bar.text:GetText():find("needs level 40", 1, true) or rui.bar.text:GetText():find("Rank 4 needs level 40", 1, true), "before the level-up the bar shows the gate")
+        mock.deferTimers, mock.timers = true, {}
+        mock.level = 40
+        mock.fireEvent("PLAYER_LEVEL_UP", 40)
+        check(not rui.bar.text:GetText():find("needs level", 1, true), "after the level-up the bar no longer shows the gate")
+        mock.level = 35
+        mock.fireEvent("PLAYER_LEVEL_UP", 40) -- the client still says 35
+        check(not rui.bar.text:GetText():find("needs level", 1, true), "the level in the event wins while the client catches up")
+        mock.flushTimers()
+        mock.deferTimers = false
+        check(rui.bar.text:GetText():find("needs level", 1, true), "a second read from the client settles on its own level")
+        mock.level = 60
+        Rank:Refresh()
+
+        -- Honor at the cap: flagged games stay out of the honor averages.
+        setRank(3, 100, 6, 3, 5)
+        mock.currencies[1792].quantity, mock.currencies[1792].maxQuantity = 25000, 25000
+        g = playGame("Warsong Gulch", 489, 1)
+        check(g.honorCapped == true, "a game that starts at the honor cap is flagged")
+        mock.currencies[1792].quantity = 24900
+        g = playGame("Warsong Gulch", 489, 1, function() gainHonor(200) end)
+        check(g.honorCapped == true, "a game that reaches the cap is flagged")
+        mock.currencies[1792].quantity = 8200
+        g = playGame("Warsong Gulch", 489, 1)
+        check(g.honorCapped == nil, "a game below the cap is not flagged")
+        mock.currencies[1792].quantity, mock.currencies[1792].maxQuantity = 25000, 30000
+        g = playGame("Warsong Gulch", 489, 1)
+        check(g.honorCapped == nil, "the cap comes from the currency, not from 25000")
+        mock.currencies[1792].quantity, mock.currencies[1792].maxQuantity = 8200, 25000
+        local avgAll, avgDI, best0 = HL:GetAverageHonorPerGame(), HL:GetAverageHonorPerBG("DI"), HL:GetBestHonorPerGame()
+        HL:RecordGame("DI", true, 100, 90000, 0, { honorCapped = true })
+        check(near2(HL:GetAverageHonorPerGame(), avgAll) and near2(HL:GetAverageHonorPerBG("DI"), avgDI) and near2(HL:GetBestHonorPerGame(), best0),
+            "a capped game moves none of the three honor averages")
+        check(lastGame().honorCapped == true and HL.db.char.battlegrounds.DI.cappedPlayed >= 1, "the flag is kept on the record and the counters")
+        HL:RecordGame("DI", true, 100, 90000, 0, {})
+        check(HL:GetBestHonorPerGame() > best0, "an uncapped game does move the averages")
+
+        char.history = savedHist
+        mock.level, mock.rank = savedLevel, savedRank
+        mock.rankWindow.cap, mock.rankWindow.week, mock.rankWindow.prevCap = savedWindow.cap, savedWindow.week, savedWindow.prevCap
+        mock.pvp.matchComplete = false
+        Rank:Refresh()
     end
 
     -- 11. Migration: a TBC-era save with EotS and arena fields loads, migrates, keeps its history.

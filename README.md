@@ -21,7 +21,10 @@ is not meant for the TBC client.
   opponents you meet most, without the combat log.
 - **Honor summary:** today, this week and this session, with a warning before the 25,000 cap.
 - **Rank planner:** the 14 PvP ranks, this week's cap, the season end, and for any rank the
-  games it takes at your pace and the earliest date the cap allows.
+  games it takes at your pace and the earliest date the cap allows. It records why each game
+  gave the rank points it did, shows your measured points per win and loss for each
+  battleground, flags battlegrounds that give no rank points, and says when character level 40
+  (a player-reported gate on rank 4) is what blocks the next rank.
 - **Gear goals:** about 900 Forever PvP items with honor, marks, gold, rank gates and
   reputation. Epics show as blue piece plus Seal; goals get a "ready on" date.
 - **Vendor scan:** reads real vendor prices, automatically (see below).

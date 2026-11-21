@@ -62,7 +62,10 @@ local DB_VERSION = 2
 -- Lifetime counters for one battleground. played counts every recorded game;
 -- win rate uses wins and losses only, draws and games left early are shown apart.
 local function NewBGStats()
-    return { played = 0, wins = 0, losses = 0, draws = 0, left = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0 }
+    -- cappedPlayed and cappedHonor are the games played at the honor cap and what they gave:
+    -- the honor averages leave them out, because honor stops counting at the cap.
+    return { played = 0, wins = 0, losses = 0, draws = 0, left = 0, totalDuration = 0, honorLifetime = 0, marksLifetime = 0,
+             cappedPlayed = 0, cappedHonor = 0 }
 end
 local function NewSessionBG()
     return { played = 0, wins = 0, losses = 0, draws = 0, left = 0, honor = 0, marks = 0 }
@@ -184,33 +187,7 @@ local DEFAULTS = {
     },
 }
 
--- Deep copy utility
-local function DeepCopy(orig)
-    local copy
-    if type(orig) == "table" then
-        copy = {}
-        for k, v in pairs(orig) do
-            copy[k] = DeepCopy(v)
-        end
-    else
-        copy = orig
-    end
-    return copy
-end
-
--- Deep merge (target inherits missing keys from source)
-local function DeepMerge(target, source)
-    for k, v in pairs(source) do
-        if type(v) == "table" then
-            if type(target[k]) ~= "table" then
-                target[k] = {}
-            end
-            DeepMerge(target[k], v)
-        elseif target[k] == nil then
-            target[k] = DeepCopy(v)
-        end
-    end
-end
+local DeepCopy, DeepMerge = HonorLog.Util.DeepCopy, HonorLog.Util.DeepMerge
 
 -- Battleground keys Forever tracks. Anything else in an old save (EotS, arena
 -- aggregates) moves under `legacy`; its history entries stay in the history list.
@@ -441,7 +418,7 @@ local RESULTS = { win = "wins", loss = "losses", draw = "draws", left = "left" }
 -- Record a completed game. `won` stays for older callers; extra.result
 -- ("win" | "loss" | "draw" | "left") wins over it. extra also carries the
 -- optional history fields: joinedInProgress, kb, hk, deaths, damage, healing,
--- objectives, rankPoints, teams, scoreboard.
+-- objectives, rankPoints, rankState, rankCappedDuring, honorCapped, teams, scoreboard.
 function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
     extra = extra or {}
     local result = extra.result or (won and "win" or "loss")
@@ -463,12 +440,20 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
     charBG.totalDuration = charBG.totalDuration + duration
     charBG.honorLifetime = charBG.honorLifetime + honor
     charBG.marksLifetime = charBG.marksLifetime + marks
+    if extra.honorCapped then
+        charBG.cappedPlayed = (charBG.cappedPlayed or 0) + 1
+        charBG.cappedHonor = (charBG.cappedHonor or 0) + honor
+    end
 
     local globalBG = self.db.global.battlegrounds[bgType]
     bump(globalBG)
     globalBG.totalDuration = globalBG.totalDuration + duration
     globalBG.honorLifetime = globalBG.honorLifetime + honor
     globalBG.marksLifetime = globalBG.marksLifetime + marks
+    if extra.honorCapped then
+        globalBG.cappedPlayed = (globalBG.cappedPlayed or 0) + 1
+        globalBG.cappedHonor = (globalBG.cappedHonor or 0) + honor
+    end
 
     local session = self.db.char.session[bgType]
     bump(session)
@@ -491,6 +476,9 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
         damage = extra.damage, healing = extra.healing,
         objectives = extra.objectives,
         rankPoints = extra.rankPoints,
+        rankState = extra.rankState,
+        rankCappedDuring = extra.rankCappedDuring,
+        honorCapped = extra.honorCapped,
         teams = extra.teams,
         scoreboard = extra.scoreboard,
     }
@@ -928,7 +916,14 @@ AVERAGE CALCULATION APIs - For Game Estimates
 ============================================================================
 --]]
 
--- Get average honor per game (based on lifetime stats)
+-- Honor and games of a battleground's stats without the games played at the honor cap.
+function HonorLog:UncappedHonor(bgStats)
+    local games = (bgStats.played or 0) - (bgStats.cappedPlayed or 0)
+    local honor = (bgStats.honorLifetime or 0) - (bgStats.cappedHonor or 0)
+    return honor, math.max(0, games)
+end
+
+-- Get average honor per game (based on lifetime stats, games at the cap left out)
 function HonorLog:GetAverageHonorPerGame(scope)
     scope = scope or "character"
     local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
@@ -936,9 +931,10 @@ function HonorLog:GetAverageHonorPerGame(scope)
     local totalHonor = 0
     local totalGames = 0
 
-    for bgType, bgStats in pairs(stats) do
-        totalHonor = totalHonor + (bgStats.honorLifetime or 0)
-        totalGames = totalGames + (bgStats.played or 0)
+    for _, bgStats in pairs(stats) do
+        local honor, games = self:UncappedHonor(bgStats)
+        totalHonor = totalHonor + honor
+        totalGames = totalGames + games
     end
 
     if totalGames > 0 then
@@ -969,8 +965,9 @@ function HonorLog:GetAverageHonorPerBG(bgType, scope)
     local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
     local bgStats = stats[bgType]
 
-    if bgStats and (bgStats.played or 0) > 0 then
-        return (bgStats.honorLifetime or 0) / bgStats.played
+    if bgStats then
+        local honor, games = self:UncappedHonor(bgStats)
+        if games > 0 then return honor / games end
     end
 
     -- No games recorded yet: a rough estimate
@@ -1438,9 +1435,9 @@ function HonorLog:GetBestHonorPerGame()
     local best
     for _, bgType in ipairs(self.BG_ORDER or {}) do
         local stats = self.db.char.battlegrounds[bgType]
-        if stats and (stats.played or 0) > 0 then
-            local avg = (stats.honorLifetime or 0) / stats.played
-            if not best or avg > best then best = avg end
+        if stats then
+            local honor, games = self:UncappedHonor(stats)
+            if games > 0 and (not best or honor / games > best) then best = honor / games end
         end
     end
     return best or self:GetAverageHonorPerGame()
@@ -1500,7 +1497,8 @@ local function ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow)
     local readyDate, limitedBy
     local rankUnmet = rankRow and rankRow.known and not rankRow.met
     if rankUnmet and not rankDate then
-        limitedBy = "season" -- the rank cannot be reached this season
+        -- no date: the level gate, a pace of 0 rank points, or the season ends first
+        limitedBy = (rankLimit == "level" or rankLimit == "nopoints") and rankLimit or "season"
     elseif rateLimit == "nopace" then
         limitedBy = "nopace" -- no recent games to measure a rate from
     elseif rankUnmet and rankDate > rateDate then

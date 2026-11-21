@@ -1753,7 +1753,10 @@ local function RankBarText(info)
     else
         parts[1] = commas(info.totalPoints) .. " pts"
     end
-    if info.weekCapRank > 0 then
+    if info.gate and info.gate.blocking then
+        -- The full sentence is in the tooltip and on the Rank tab; the bar only has room for this.
+        parts[#parts + 1] = string.format(HonorLog.L["Rank %d needs level %d"], info.gate.rank, info.gate.level)
+    elseif info.weekCapRank > 0 then
         parts[#parts + 1] = (info.capped and "capped R" or "cap R") .. info.weekCapRank
     end
     return table.concat(parts, " \194\183 ")
@@ -1870,12 +1873,73 @@ local function CreateRankPanel(frame)
     panel.rows = {}
     for n = 1, HonorLog.Rank.MAX_RANK do panel.rows[n] = CreateRankRow(content, n) end
 
+    -- Below the rank rows: one row per battleground that gives no points, then the measured points
+    -- per result. Rows are made when first needed and reuse the rank row style.
+    panel.extraRows = {}
+    panel.extraHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.extraHeader:SetJustifyH("LEFT")
+    panel.extraHeader:SetTextColor(unpack(COLORS.textSecondary))
+    local function extraRow(slot)
+        local row = panel.extraRows[slot]
+        if not row then
+            row = CreateRankRow(content, HonorLog.Rank.MAX_RANK + slot)
+            row.icons[1]:Hide() row.icons[2]:Hide() row.icons[3]:Hide()
+            panel.extraRows[slot] = row
+        end
+        row:Show()
+        row:SetBackdropColor(unpack(COLORS.bgCard))
+        row:SetAlpha(1)
+        return row
+    end
+
+    -- Fills the rows after the ranks and sizes the scroll area to them.
+    function panel:UpdateExtras()
+        local Rank, L = HonorLog.Rank, HonorLog.L
+        for _, row in ipairs(self.extraRows) do row:Hide() end
+        self.extraHeader:Hide()
+        local slot = 0
+        for _, entry in ipairs(Rank:GetZeroPointBattlegrounds()) do
+            slot = slot + 1
+            local row = extraRow(slot)
+            row.name:SetText(entry.name)
+            row.name:SetTextColor(unpack(COLORS.accent))
+            row.tag:SetText(entry.otherAverage and string.format(L["others average %d"], math.floor(entry.otherAverage + 0.5)) or "")
+            row.tag:SetTextColor(unpack(COLORS.rankCap))
+            row.detail:SetText(string.format(L["Gave 0 rank points in %d of %d games."], entry.zero, entry.games))
+            row:SetBackdropBorderColor(unpack(COLORS.rankCap))
+        end
+        local results = Rank:GetPointsPerResult()
+        if #results > 0 then
+            slot = slot + 1
+            local y = -(HonorLog.Rank.MAX_RANK + slot - 1) * (Layout.RANK_ROW_HEIGHT + 2) - 8
+            self.extraHeader:ClearAllPoints()
+            self.extraHeader:SetPoint("TOPLEFT", content, "TOPLEFT", PADDING + 2, y)
+            self.extraHeader:SetText(L["Points per result (measured games)"])
+            self.extraHeader:Show()
+            for _, r in ipairs(results) do
+                slot = slot + 1
+                local row = extraRow(slot)
+                row.name:SetText(r.name)
+                row.name:SetTextColor(unpack(COLORS.accent))
+                row.tag:SetText(string.format(L["%d games"], r.games))
+                row.tag:SetTextColor(unpack(COLORS.textSecondary))
+                row.detail:SetText(string.format(L["per win %s, per loss %s"],
+                    r.perWin and tostring(math.floor(r.perWin + 0.5)) or "-",
+                    r.perLoss and tostring(math.floor(r.perLoss + 0.5)) or "-"))
+                row:SetBackdropBorderColor(unpack(COLORS.borderDark))
+            end
+        end
+        content:SetHeight((HonorLog.Rank.MAX_RANK + slot) * (Layout.RANK_ROW_HEIGHT + 2))
+    end
+
     function panel:Update(info)
         local L = self.lines
         for _, row in ipairs(self.rows) do row:SetShown(info ~= nil) end
         if not info then
             L[1]:SetText("No PvP rank data from the client yet.")
             for i = 2, 4 do L[i]:SetText("") end
+            for _, row in ipairs(self.extraRows) do row:Hide() end
+            self.extraHeader:Hide()
             return
         end
         local Rank = HonorLog.Rank
@@ -1895,9 +1959,18 @@ local function CreateRankPanel(frame)
         end
         L[2]:SetText(progress)
         L[3]:SetText(cap .. (info.secondsToSeasonEnd > 0 and (" \194\183 season ends in " .. Rank.FormatSpan(info.secondsToSeasonEnd)) or ""))
-        L[4]:SetText(string.format("Pace: %d/win, %d/loss, %d%% wins, %.1f games/day%s", math.floor(pace.pointsPerWin + 0.5),
-            math.floor(pace.pointsPerLoss + 0.5), math.floor(pace.winRate * 100 + 0.5), pace.gamesPerDay,
-            pace.estimated and " (estimate)" or ""))
+        if info.gate and info.gate.blocking then
+            L[4]:SetText(Rank:GateText(info.gate))
+            L[4]:SetTextColor(unpack(COLORS.rankCap))
+        elseif pace.noPoints then
+            L[4]:SetText(HonorLog.L["Your measured games give no rank points, so there is no pace to plan with."])
+            L[4]:SetTextColor(unpack(COLORS.rankCap))
+        else
+            L[4]:SetText(string.format("Pace: %d/win, %d/loss, %d%% wins, %.1f games/day%s", math.floor(pace.pointsPerWin + 0.5),
+                math.floor(pace.pointsPerLoss + 0.5), math.floor(pace.winRate * 100 + 0.5), pace.gamesPerDay,
+                pace.estimated and " (estimate)" or ""))
+            L[4]:SetTextColor(unpack(COLORS.textSecondary))
+        end
 
         for n, row in ipairs(self.rows) do
             local plan = Rank:PlanToRank(n, info, pace)
@@ -1910,8 +1983,9 @@ local function CreateRankPanel(frame)
             if plan.reached then
                 row.detail:SetText(total .. " \194\183 reached")
             else
-                row.detail:SetText(string.format("%s \194\183 %s to go \194\183 ~%s games \194\183 %s", total,
-                    commas(plan.pointsNeeded), commas(plan.gamesNeeded), plan.date and Rank.FormatDate(plan.date) or "no date"))
+                local games = Rank.PlanGames(plan)
+                row.detail:SetText(string.format("%s \194\183 %s to go \194\183 %s%s", total,
+                    commas(plan.pointsNeeded), games and (games .. " \194\183 ") or "", Rank.PlanWhen(plan) or "no date"))
             end
             -- The current rank and this week's cap stand out.
             local isCurrent, isCap = n == info.rank, info.weekCapRank > 0 and n == info.weekCapRank
@@ -1930,6 +2004,7 @@ local function CreateRankPanel(frame)
                 end
             end
         end
+        self:UpdateExtras()
     end
 
     panel:Hide()

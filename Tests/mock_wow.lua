@@ -213,7 +213,7 @@ for _, e in ipairs({
     "PLAYER_DEAD", "BATTLEGROUND_POINTS_UPDATE", "CURRENCY_DISPLAY_UPDATE", "BAG_UPDATE",
     "BAG_UPDATE_DELAYED", "POST_MATCH_CURRENCY_REWARD_UPDATE", "POST_MATCH_ITEM_REWARD_UPDATE", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
-    "PARTY_KILL", "UPDATE_FACTION", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
+    "PARTY_KILL", "UPDATE_FACTION", "PLAYER_LEVEL_UP", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
@@ -473,7 +473,8 @@ function UnitName(unit)
     return u and u.name or nil
 end
 function UnitFactionGroup() return M.faction, M.faction end
-function UnitLevel() return 60 end
+M.level = 60 -- tests change it
+function UnitLevel() return M.level end
 function UnitClass(unit)
     local u = unit and unit ~= "player" and M.units[unit]
     if u then return u.class, u.class, 1 end
