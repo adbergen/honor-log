@@ -1741,13 +1741,13 @@ local function run()
         gp = HL:GetGoalProgress(TABARD)
         check(gp.rep.needed == 5 and gp.rep.amount == 1200 and gp.rep.remainingRep == 1800 and gp.rep.perGame == nil, "tabard: 1,800 reputation to Friendly, no rate")
         check(gp.readyDate == nil and gp.readyLimitedBy == "norep" and not gp.isComplete, "a reputation-only item with no rate: no date, limited by norep")
-        check(gp.readyText == "play a Alterac Valley game to measure reputation", "the norep text names the battleground: " .. tostring(gp.readyText))
+        check(gp.readyText == "play Alterac Valley once to measure reputation", "the norep text names the battleground: " .. tostring(gp.readyText))
         HL:AddGoal(TABARD)
         HL:UpdateGoalsPanel()
-        check(goalsPanel.goalCards[1].statusLine:GetText():find("play a Alterac Valley game to measure reputation", 1, true), "card status says to play a game")
+        check(goalsPanel.goalCards[1].statusLine:GetText():find("play Alterac Valley once to measure reputation", 1, true), "card status says to play a game")
         before = #printed
         slash("goal list")
-        check(table.concat(printed, "\n", before + 1):find("play a Alterac Valley game", 1, true), "/honorlog goal list says it too")
+        check(table.concat(printed, "\n", before + 1):find("play Alterac Valley once", 1, true), "/honorlog goal list says it too")
 
         -- Per-game rate: newest 20 games that recorded the faction.
         local repHistory = {}
@@ -3538,7 +3538,7 @@ local function run()
         mock.currencies[1792].quantity = 24000
         ov:Refresh()
         local capAdvice = HL:GetHonorCapAdvice()
-        check(capAdvice and capAdvice.gamesToCap and left.cap:IsShown() and left.cap:GetText() == string.format("Cap in about %d games", capAdvice.gamesToCap),
+        check(capAdvice and capAdvice.gamesToCap and left.cap:IsShown() and left.cap:GetText() == (capAdvice.gamesToCap == 1 and "Cap in about 1 game" or string.format("Cap in about %d games", capAdvice.gamesToCap)),
             "overview: cap line " .. tostring(left.cap:GetText()))
         mock.currencies[1792].quantity = 8200
 
@@ -3706,7 +3706,7 @@ local function run()
         mock.rankWindow.noData = true
         char.history = {}
         ov:Refresh()
-        check(left.rank:GetText() == "No rank yet" and left.points:GetText() == "No rank yet" and left.ring.honorLogRank == 0 and not left.gate:IsShown() and left.season:GetText() == "",
+        check(left.rank:GetText() == "No rank yet" and left.points:GetText() == "" and left.ring.honorLogRank == 0 and not left.gate:IsShown() and left.season:GetText() == "",
             "overview: without rank data it says so")
         mock.rankWindow.noData = false
         local errorsBefore = #mock.handledErrors
@@ -4519,7 +4519,7 @@ local function run()
             local toggles = {}
             star.honorLogOnToggle = function(s, on) toggles[#toggles + 1] = on end
             local art = star.honorLogArt
-            check(star:IsOn() == false and art.__texture == Kit.STAR.file and same(art.__texCoord, Kit.STAR.off) and art.__desaturated == true and art.__alpha == 0.55,
+            check(star:IsOn() == false and art.__texture == Kit.STAR.file and same(art.__texCoord, Kit.STAR.off) and art.__desaturated == true and art.__alpha == 0.85,
                 "star: off is the client's empty star, greyed and dimmed")
             click(star)
             check(star:IsOn() == true and toggles[1] == true and same(art.__texCoord, Kit.STAR.on) and art.__desaturated == false and art.__alpha == 1,
@@ -4613,8 +4613,8 @@ local function run()
                 check(row.status:GetText() == HL:GoalReadyText(gp), "goals: row " .. i .. " status is the ready text")
                 check(row.percent:GetText() == string.format("%d%%", math.floor(HL:GetGoalPercent(gp))) and row.bar.honorLogFraction == Kit.Clamp01(HL:GetGoalPercent(gp) / 100),
                     "goals: row " .. i .. " percent over a bar: " .. tostring(row.percent:GetText()))
-                check(row.name.__wrapWidth == 150 and row.status.__wrapWidth == 150 and row.name.__wrapWidth and row.percent.__wrapWidth == 56 and row.bar:GetWidth() == 56 and row:GetHeight() == 50,
-                    "goals: row " .. i .. " sizes, texts fixed so the client cuts them")
+                check(row.name.__wrapWidth == 162 and row.status.__wrapWidth == 162 and row.status.__maxLines == 2 and row.percent.__wrapWidth == 44 and row.bar:GetWidth() == 44 and row:GetHeight() == 50,
+                    "goals: row " .. i .. " sizes: the name is cut by the client, the status may take two lines")
             end
             check(list.area.honorLogContentHeight == 150, "goals: the list is as tall as its rows")
             check(list.totals.wrap:IsShown() and list.area:GetHeight() < 330, "goals: with several goals the totals box shows and the list gives way")
@@ -4822,7 +4822,7 @@ local function run()
                 { "nopace", "No recent games to measure from. Play a game for a date.", { readyDate = false } },
                 { "nopoints", "Your recent games gave no rank points, so the rank cannot be dated.", { readyDate = false } },
                 { "season", "The rank cannot be reached this season.", { readyDate = false } },
-                { "norep", "play a AB game to measure reputation", { readyText = "play a AB game to measure reputation", readyDate = false } },
+                { "norep", "play AB once to measure reputation", { readyText = "play AB once to measure reputation", readyDate = false } },
             }
             for _, r in ipairs(reasons) do
                 local over = { readyLimitedBy = r[1] }
@@ -4923,7 +4923,7 @@ local function run()
                 check(r.name:GetText() == v.name and r.role:GetText() == v.role and r.count:GetText() == tostring(v.count) and r:GetHeight() == 40
                     and r.pin:IsShown() == not v.known and same(textColor(r.count), Kit.COLORS.gold), "vendors: row " .. i .. " is " .. v.name .. ", its role and its count")
             end
-            check(vrows[1].name.__wrapWidth == 150 and vrows[1].role.__wrapWidth == 160 and vrows[1].count.__wrapWidth == 34, "vendors: the vendor texts have fixed widths")
+            check(vrows[1].name.__wrapWidth == 150 and vrows[1].role.__wrapWidth == 164 and vrows[1].count.__wrapWidth == 34, "vendors: the vendor texts have fixed widths")
             check(vlist.foot:GetText() == "Counts are what your class can use.", "vendors: the foot note")
             check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name, "vendors: with none chosen the first has the wash and edge, and its stock shows")
             -- a vendor with no position: none is left in the table, so one is blanked while the list is built
@@ -5069,7 +5069,7 @@ local function run()
             check(fr1.honor:GetText() == "9,000" and not fr1.gold:IsShown(), "columns: honor with a thousands separator")
             check(fr2.honor:GetText() == HL:GoldShort(56764) and not fr2.gold:IsShown(), "columns: a gold-only cost stands in the honor cell")
             check(fr3.honor:GetText() == "1,000" and fr3.gold:IsShown() and fr3.gold:GetText() == "2g", "columns: honor and a gold price under it")
-            check(fr4.honor:GetText() == "500" and fr1.slot.__wrapWidth == 64 and fr1.name.__wrapWidth == 156, "columns: fixed widths")
+            check(fr4.honor:GetText() == "500" and fr1.slot.__wrapWidth == 58 and fr1.name.__wrapWidth == 184, "columns: fixed widths")
             check(fr1.marks[1].icon:IsShown() and fr1.marks[1].icon.honorLogBG == "AV" and fr1.marks[1].count:GetText() == "15" and not fr1.marks[2].icon:IsShown(), "columns: marks with their battleground")
             check(fr3.marks[1].icon.honorLogBG == "AV" and fr3.marks[2].icon.honorLogBG == "WSG" and fr3.marks[2].count:GetText() == "7" and fr3.marks[3] == nil, "columns: at most two battlegrounds")
             check(not fr2.marks[1].icon:IsShown(), "columns: no marks, no icon")
@@ -5307,7 +5307,7 @@ local function run()
             local cards = P.cards
             check(#cards == #HL.BG_ORDER and cards[1].bgType == "AV" and cards[4].bgType == "DI" and cards[1].root:GetWidth() == 211 and cards[1].root:GetHeight() == 132, "cards: one per battleground, side by side at equal widths")
             local av = cards[1]
-            check(av.name:GetText() == "Alterac Valley" and av.name.__wrapWidth == 125 and av.mark.honorLogBG == "AV" and av.mark:GetWidth() == 20, "cards: the head has the battleground's mark and its name in a fixed width")
+            check(av.name:GetText() == "Alterac Valley" and av.name.__wrapWidth == 125 - Kit.PORTRAIT_CLEAR and av.mark.honorLogBG == "AV" and av.mark:GetWidth() == 20, "cards: the head has the battleground's mark and its name in a fixed width")
             check(av.heldText:GetText() == "12" and av.heldText.__wrapWidth == 36, "cards: the marks held")
             av.held.__scripts.OnEnter(av.held)
             check(tipText() == "In your bags", "cards: the marks tooltip: " .. tipText())
@@ -6495,7 +6495,7 @@ local function run()
                 local t = p.tiles
                 check(p.tileCount == 4 and t[1]:IsShown() and t[4]:IsShown() and t[1]:GetWidth() == 107 and t[4]:GetWidth() == 107, "report: four tiles of 107 px")
                 check(t[1].label:GetText() == "Honor" and t[1].value:GetText() == "+412" and t[1].note:GetText() == "Average 398", "report: the honor tile and its average")
-                check(t[2].label:GetText() == "Rank points" and t[2].value:GetText() == "+25" and t[2].note:GetText() == "+25" and t[2].honorLogTipButton.honorLogText == "+25", "report: the rank points tile with the whole text as tooltip")
+                check(t[2].label:GetText() == "Rank points" and t[2].value:GetText() == "+25" and t[2].note:GetText() == "" and t[2].honorLogTipButton.honorLogText == "+25", "report: the rank points tile does not repeat its number as a note; the tooltip has the whole text")
                 check(t[3].label:GetText() == "Marks" and t[3].value:GetText() == "+3" and t[3].note:GetText() == "9 in your bags" and p.markIcon.honorLogBG == "AB", "report: the marks tile with the battleground's mark")
                 check(t[4].label:GetText() == "Reputation" and t[4].value:GetText() == "+200" and t[4].note:GetText() == "Faction 509", "report: the reputation tile names the faction: " .. tostring(t[4].note:GetText()))
                 mock.reputation[509] = nil
@@ -8112,6 +8112,44 @@ local function run()
         C_MajorFactions.GetMajorFactionProgressionInfo = realRank
         check(HL:GetCurrentHonor() == mock.currencies[1792].quantity and type(HL.Rank:GetInfo()) == "table", "secret reads: the real reads are back")
         check(#mock.handledErrors == errorsBefore, "secret reads: nothing reached the error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+    end)()
+
+    -- Found by drawing the screens with the client's own art and font (2026-11-21).
+    ;(function()
+        local HL, Kit = HonorLog, HonorLog.Kit
+        local function same(a, b)
+            for i = 1, #b do
+                if not a or a[i] ~= b[i] then return false end
+            end
+            return true
+        end
+        -- a round ground behind a ring badge; a smaller square where the client has no mask textures
+        local badge = CreateFrame("Frame")
+        badge:SetSize(34, 34)
+        local ground = Kit:RoundGround(badge)
+        check(ground.honorLogRound == true and same(ground.__color, { 0.1, 0.1, 0.1, 1 }), "round ground: masked to a circle")
+        local raw = getmetatable(badge).__index
+        local plain = setmetatable({}, { __index = function(t, k)
+            if k == "CreateMaskTexture" then return nil end
+            return raw(t, k)
+        end })
+        plain.__children, plain.__scripts, plain.__events, plain.__nregions, plain.__width = {}, {}, {}, 0, 20
+        local square = Kit:RoundGround(plain)
+        check(square.honorLogRound == false and math.abs(square:GetWidth() - 12) < 0.001, "round ground: without masks, a square that stays under the ring")
+        -- the corner under the window portrait
+        check(Kit.PORTRAIT_CLEAR >= 34 and Kit.PORTRAIT_CLEAR <= 44, "the portrait clearance covers the portrait's width inside a screen")
+        -- the empty star is the outlined one, not the file's black star
+        check(same(Kit.STAR.off, { 0, 0.5, 0.5, 1 }) and same(Kit.STAR.on, { 0, 0.5, 0, 0.5 }), "star: on is the gold star, off the outlined star")
+        -- weeks before last week take the schedule's cap, never more than last week's
+        local savedWindow = {}
+        for k, v in pairs(mock.rankWindow) do savedWindow[k] = v end
+        mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week, mock.rankWindow.noData = 7, 6, 4, false
+        local Rank = HL.Rank
+        check(Rank:CapRankForWeek(4) == 7 and Rank:CapRankForWeek(3) == 6 and Rank:CapRankForWeek(2) == 5 and Rank:CapRankForWeek(1) == 3,
+            "cap by week: past weeks follow the schedule: " .. table.concat({ Rank:CapRankForWeek(1), Rank:CapRankForWeek(2), Rank:CapRankForWeek(3) }, ","))
+        mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 10, 8, 5 -- a cap the schedule does not hold
+        check(Rank:CapRankForWeek(3) == 8 and Rank:CapRankForWeek(1) == 8, "cap by week: an unknown schedule keeps last week's cap for the past")
+        for k, v in pairs(savedWindow) do mock.rankWindow[k] = v end
     end)()
 
     -- The mock's registration rules are live: the restricted event raises.
