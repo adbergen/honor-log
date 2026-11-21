@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.0] - Unreleased
+
+### Added
+- **A summary of each of your characters**, kept in the account's saved data: class, faction, level, rank and
+  rank points, whether the weekly rank cap is reached and until when, honor, marks, how far the first gear
+  goal is, games and wins. Each character writes its own on entering the world, after each game, on a
+  rank-up and at logout. Nothing shows it yet; a later screen lists them side by side.
+- **A record per reset week**, kept for 26 weeks: games and results, honor, marks, rank points gained, the
+  best game and world kills and deaths. The first time it runs it also builds the earlier weeks from the games
+  you have saved. Nothing shows it yet; a later screen turns it into a weekly recap.
+
+### Changed
+- The saved data moves to version 3. The change only adds data, so going back to 2.0 keeps working and loses
+  only the new summaries and weeks.
+
 ## [2.0.0] - Unreleased
 
 HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays on

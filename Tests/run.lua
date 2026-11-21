@@ -51,7 +51,7 @@ local function run()
         "Data/Vendors.lua", "Data/Quests.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
-        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
@@ -2527,7 +2527,7 @@ local function run()
     fixture.char.opponents = { Frac = { kills = 1, deaths = 0, lastSeen = 1794894684.0000069 } }
     HonorLogDB, HonorLogCharDB = fixture.global, fixture.char
     HL:InitializeDB()
-    check(HonorLogDB.dbVersion == 2 and HonorLogCharDB.dbVersion == 2, "dbVersion 2 after migration")
+    check(HonorLogDB.dbVersion == 3 and HonorLogCharDB.dbVersion == 3, "dbVersion 3 after migration (1 to 2 to 3)")
     check(HonorLogDB.battlegrounds.EotS == nil and HonorLogCharDB.battlegrounds.EotS == nil, "EotS leaves the tracked battlegrounds")
     check(HonorLogDB.legacy.EotS.played == 8 and HonorLogCharDB.legacy.EotS.wins == 5, "EotS aggregates kept under legacy")
     check(HonorLogDB.legacy.Arena2v2 and HonorLogDB.battlegrounds.Arena2v2 == nil, "arena aggregate moved to legacy")
@@ -6819,6 +6819,628 @@ local function run()
         mock.shift, mock.ctrl = false, false
         HL:ClearMapPins()
     end
+
+    ----------------------------------------------------------------------
+    -- Saved-data version 3: the migration chain, the character summaries and the weeks
+    ----------------------------------------------------------------------
+    ;(function()
+        local DeepCopy = HL.Util.DeepCopy
+        local realTime = time
+        local function deepEqual(a, b)
+            if type(a) ~= type(b) then return false end
+            if type(a) ~= "table" then return a == b end
+            for k, v in pairs(a) do if not deepEqual(v, b[k]) then return false end end
+            for k in pairs(b) do if a[k] == nil then return false end end
+            return true
+        end
+        local function setGlobal(name, value) _G[name] = value end
+        -- What the sections below replace, put back at the end of each.
+        local function keepStores()
+            local kept = { db = HL.db, global = HonorLogDB, char = HonorLogCharDB, reload = HL.isReload,
+                name = mock.playerName, level = mock.level, faction = mock.faction, reset = mock.weeklyReset,
+                honor = mock.currencies[1792].quantity, rank = mock.rank, bags = mock.bagItems, deferred = mock.deferTimers }
+            kept.window = { cap = mock.rankWindow.cap, week = mock.rankWindow.week, prevCap = mock.rankWindow.prevCap, noData = mock.rankWindow.noData }
+            return kept
+        end
+        local function restoreStores(kept)
+            HL.db, HonorLogDB, HonorLogCharDB, HL.isReload = kept.db, kept.global, kept.char, kept.reload
+            mock.playerName, mock.level, mock.faction, mock.weeklyReset = kept.name, kept.level, kept.faction, kept.reset
+            mock.currencies[1792].quantity, mock.rank, mock.bagItems, mock.deferTimers = kept.honor, kept.rank, kept.bags, kept.deferred
+            mock.rankWindow.cap, mock.rankWindow.week, mock.rankWindow.prevCap = kept.window.cap, kept.window.week, kept.window.prevCap
+            mock.rankWindow.noData = kept.window.noData
+            mock.timers = {}
+        end
+        -- Run fn with a set of client globals replaced, then put them back.
+        local function withGlobals(replacements, fn)
+            local saved = {}
+            for name, value in pairs(replacements) do saved[name] = _G[name]; setGlobal(name, value) end
+            local ok, err = pcall(fn)
+            for name in pairs(replacements) do setGlobal(name, saved[name]) end
+            if not ok then error(err, 0) end
+        end
+
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+
+            -- 1 to 2 to 3: the TBC save goes through both steps, and what version 2 did is still true.
+            local tbc = dofile(ROOT .. "/Tests/fixtures/tbc_savedvars.lua")
+            local before = time()
+            HL.MigrateStore(tbc.global, false)
+            HL.MigrateStore(tbc.char, true)
+            check(tbc.global.dbVersion == 3 and tbc.char.dbVersion == 3, "migration: a save with no version reaches 3")
+            check(tbc.global.legacy.EotS.played == 8 and tbc.global.battlegrounds.EotS == nil and tbc.char.bgState == nil, "migration: step 2 ran on the way to 3")
+            check(tbc.char.session.EotS == nil, "migration: step 2 dropped the EotS session")
+            check(deepEqual(tbc.global.characters, { ["Oldchar-TestRealm"] = { name = "Oldchar-TestRealm" } }), "migration: the TBC account's character became a table")
+            check(tbc.char.since == 1759980000, "migration: since is the oldest saved game")
+            check(tbc.global.since == nil, "migration: the account store gets no since")
+
+            -- a character store with no games dates from the migration
+            local bare = { dbVersion = 2 }
+            HL.MigrateStore(bare, true)
+            check(bare.since >= before and bare.since <= time() and bare.dbVersion == 3, "migration: with no games, since is the time of the migration")
+            local noStamp = { dbVersion = 2, history = { { honor = 5 }, { timestamp = mock.newSecret() } } }
+            HL.MigrateStore(noStamp, true)
+            check(noStamp.since >= before, "migration: games without a usable timestamp do not set since")
+            -- with no dated game, the oldest "last seen" of an opponent or the first day of honor proves an earlier start
+            local seen = { dbVersion = 2, history = {}, opponents = { A = { kills = 1, lastSeen = 1790000500 }, B = { deaths = 2, lastSeen = 1790000100 }, C = "junk" } }
+            HL.MigrateStore(seen, true)
+            check(seen.since == 1790000100, "migration: since falls back to the oldest opponent last seen: " .. tostring(seen.since))
+            local days = { dbVersion = 2, history = {}, honorDays = { ["20261120"] = 500, ["20261118"] = 20, notADay = 1 } }
+            HL.MigrateStore(days, true)
+            check(days.since == realTime({ year = 2026, month = 11, day = 18, hour = 12 }), "migration: ...or to the first day of honor")
+            local mixed = { dbVersion = 2, history = { { timestamp = 1790000900 } }, opponents = { A = { lastSeen = 1790000300 } }, honorDays = {} }
+            HL.MigrateStore(mixed, true)
+            check(mixed.since == 1790000300, "migration: the earliest of them wins")
+            -- a key an early build made from a name and an empty realm is dropped; real keys become records
+            local keys = { dbVersion = 2, characters = { ["Liquid Elements"] = true, ["Liquid-"] = true, [""] = true, ["Other-Some Realm"] = true, Kept = { name = "Kept", level = 60 } } }
+            HL.MigrateStore(keys, false)
+            check(keys.characters["Liquid-"] == nil and keys.characters[""] == nil and deepEqual(keys.characters["Liquid Elements"], { name = "Liquid Elements" })
+                and deepEqual(keys.characters["Other-Some Realm"], { name = "Other-Some Realm" }) and keys.characters.Kept.level == 60, "migration: malformed character keys are dropped, the others become or stay records")
+
+            -- 2 to 3: the going-back guarantee
+            local v2 = dofile(ROOT .. "/Tests/fixtures/v2_savedvars.lua")
+            local was = dofile(ROOT .. "/Tests/fixtures/v2_savedvars.lua")
+            HL.MigrateStore(v2.global, false)
+            HL.MigrateStore(v2.char, true)
+            check(v2.global.dbVersion == 3 and v2.char.dbVersion == 3, "migration: version 2 reaches 3")
+            check(deepEqual(v2.global.characters, { ["Fenwick Tally"] = { name = "Fenwick Tally" }, ["Marla Quill-Testrealm"] = { name = "Marla Quill-Testrealm" } }),
+                "migration: characters = true became { name = key }")
+            check(v2.char.since == 1789990000, "migration: since is the oldest saved game of the character")
+            local globalCopy, wasGlobal = DeepCopy(v2.global), was.global
+            globalCopy.characters, globalCopy.dbVersion, wasGlobal.characters, wasGlobal.dbVersion = nil, nil, nil, nil
+            check(deepEqual(globalCopy, wasGlobal), "migration: every other account key is deep-equal to version 2")
+            local charCopy, wasChar = DeepCopy(v2.char), was.char
+            charCopy.since, charCopy.dbVersion, wasChar.dbVersion = nil, nil, nil
+            check(deepEqual(charCopy, wasChar), "migration: every other character key is deep-equal to version 2")
+            local pristine = dofile(ROOT .. "/Tests/fixtures/v2_savedvars.lua")
+            local gainedChar, gainedGlobal = 0, 0
+            for key in pairs(v2.char) do if pristine.char[key] == nil then gainedChar = gainedChar + 1 end end
+            for key in pairs(v2.global) do if pristine.global[key] == nil then gainedGlobal = gainedGlobal + 1 end end
+            check(gainedChar == 1 and v2.char.since ~= nil, "migration: the character store gained exactly one key (since)")
+            check(gainedGlobal == 0, "migration: the account store gained no key")
+
+            -- a second load changes nothing
+            local once = DeepCopy(v2)
+            HL.MigrateStore(v2.global, false)
+            HL.MigrateStore(v2.char, true)
+            check(deepEqual(v2, once), "migration: a second pass changes nothing")
+
+            -- a save already at 3 is untouched; an unknown higher version is left alone
+            local three = { dbVersion = 3, characters = { a = true }, extra = { 1, 2 } }
+            local threeCopy = DeepCopy(three)
+            HL.MigrateStore(three, false)
+            check(deepEqual(three, threeCopy), "migration: a save at 3 is untouched")
+            local future = { dbVersion = 7, characters = { a = true }, history = { { timestamp = 5 } } }
+            local futureCopy = DeepCopy(future)
+            HL.MigrateStore(future, true)
+            HL.MigrateStore(future, false)
+            check(deepEqual(future, futureCopy) and future.since == nil, "migration: an unknown higher version is left alone")
+
+            -- the whole load on the version 2 save, twice
+            local loaded = dofile(ROOT .. "/Tests/fixtures/v2_savedvars.lua")
+            HonorLogDB, HonorLogCharDB = loaded.global, loaded.char
+            HL:InitializeDB()
+            local key = HL:GetCharacterKey()
+            check(HonorLogDB.dbVersion == 3 and HonorLogCharDB.dbVersion == 3, "load: both stores at 3")
+            check(type(HonorLogCharDB.weeks) == "table" and #HonorLogCharDB.weeks == 0, "load: the character store has weeks = {}")
+            check(HonorLogDB.characters["Fenwick Tally"].name == "Fenwick Tally" and deepEqual(HonorLogDB.characters[key], { name = key }), "load: the current character gets a stub record")
+            check(HonorLogCharDB.since == 1789990000, "load: since kept")
+            local first = { chars = DeepCopy(HonorLogDB.characters), since = HonorLogCharDB.since, a = HonorLogDB.dbVersion, b = HonorLogCharDB.dbVersion }
+            HL:InitializeDB()
+            check(deepEqual(first.chars, HonorLogDB.characters) and first.since == HonorLogCharDB.since and first.a == 3 and first.b == 3, "load: a second load changes nothing")
+
+            -- InitializeDB does not write over a record that is a table; it replaces a bare true
+            HonorLogDB.characters[key] = { name = "Kept", honor = 5, lastSeen = 9 }
+            HL:InitializeDB()
+            check(HonorLogDB.characters[key].honor == 5 and HonorLogDB.characters[key].name == "Kept", "load: an existing record is kept")
+            HonorLogDB.characters[key] = true
+            HL:InitializeDB()
+            check(deepEqual(HonorLogDB.characters[key], { name = key }), "load: a bare true is replaced by a stub")
+
+            -- a fresh save starts at 3
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            check(HonorLogDB.dbVersion == 3 and HonorLogCharDB.dbVersion == 3, "load: a fresh save starts at 3")
+            check(type(HonorLogCharDB.weeks) == "table" and HonorLogCharDB.since == nil, "load: a fresh character store has weeks and no since yet")
+            HL.Weeks:Current()
+            check(type(HonorLogCharDB.since) == "number", "load: the first week sets since on a fresh save")
+
+            check(#mock.handledErrors == errorsBefore, "migration section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            restoreStores(kept)
+        end)()
+
+        --------------------------------------------------------------------
+        -- Characters
+        --------------------------------------------------------------------
+        local clock = realTime({ year = 2026, month = 11, day = 18, hour = 10, min = 0, sec = 0 })
+        setGlobal("time", function(t) if t then return realTime(t) end return clock end)
+
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+            local Characters = HL.Characters
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            local alphaChar = HL.db.char
+            mock.playerName = "Alpha"
+            local key = HL:GetCharacterKey()
+            check(key == "Alpha-TestRealm", "characters: the key is name and realm")
+            mock.level, mock.faction = 58, "Horde"
+            mock.currencies[1792].quantity = 12345
+            mock.bagItems = { [20558] = 12, [20559] = 3 }
+            mock.rank = { level = 4, earned = 300, threshold = 1200 }
+            mock.rankWindow.cap, mock.rankWindow.week, mock.rankWindow.prevCap, mock.rankWindow.noData = 4, 3, 3, false
+            mock.weeklyReset = 2 * 86400
+            HL:RecordGame("WSG", true, 600, 100, 3)
+            HL:RecordGame("AB", false, 500, 50, 1)
+            local goalItem = next(HL.GearDB)
+            check(HL:AddGoal(goalItem), "characters: a goal to point at")
+
+            -- every field of a snapshot
+            Characters:Snapshot()
+            local rec = HonorLogDB.characters[key]
+            local info = HL.Rank:GetInfo()
+            local reading = HL.Quests.ReadState()
+            check(info.capped == true, "characters: the setup is capped")
+            check(rec.name == "Alpha" and rec.class == "WARRIOR" and rec.faction == "Horde" and rec.level == 58, "characters: name, class, faction and level")
+            check(rec.rank == 4 and rec.rankPoints == info.totalPoints, "characters: rank and the running total")
+            check(rec.capped == true and rec.capUntil == clock + 2 * 86400, "characters: capped, and the reset the cap holds until")
+            check(rec.honor == 12345 and deepEqual(rec.marks, reading.marks) and rec.marks.WSG == 12, "characters: honor and marks")
+            check(rec.nextGoal == goalItem and rec.goalPercent == HL:GetGoalPercent(HL:GetAllGoalsProgress()[1]), "characters: the first goal and how far it is")
+            check(rec.games == 2 and rec.wins == 1, "characters: games and wins from the battleground stats")
+            check(rec.lastSeen == clock, "characters: lastSeen")
+            -- not capped: the cap clears
+            mock.rank = { level = 3, earned = 100, threshold = 1050 }
+            Characters:Snapshot()
+            check(rec.capped == false and rec.capUntil == nil, "characters: not capped clears capUntil")
+            mock.rank = { level = 4, earned = 300, threshold = 1200 }
+            Characters:Snapshot()
+
+            -- an unknown or secret value keeps what was stored
+            local stored = DeepCopy(rec)
+            mock.level, mock.rankWindow.noData = nil, true
+            mock.currencies[1792].quantity = mock.newSecret()
+            withGlobals({ UnitClass = function() return mock.newSecret(), mock.newSecret() end,
+                UnitFactionGroup = function() return mock.newSecret(), mock.newSecret() end }, function()
+                clock = clock + 5
+                Characters:Snapshot()
+            end)
+            check(rec.lastSeen == clock, "characters: lastSeen moves on")
+            stored.lastSeen = rec.lastSeen
+            local differs = {}
+            for k, v in pairs(rec) do if not deepEqual(v, stored[k]) then differs[#differs + 1] = k end end
+            for k in pairs(stored) do if rec[k] == nil then differs[#differs + 1] = k end end
+            check(deepEqual(rec, stored), "characters: unknown and secret reads keep the stored values (differs: " .. table.concat(differs, ",") .. ")")
+            mock.level, mock.rankWindow.noData = 58, false
+            mock.currencies[1792].quantity = 12345
+
+            -- each moment that snapshots
+            mock.deferTimers = true
+            mock.timers = {}
+            HonorLogDB.characters[key] = nil
+            mock.level = 59
+            mock.fireEvent("PLAYER_ENTERING_WORLD")
+            rec = HonorLogDB.characters[key]
+            check(rec and rec.level == 59 and rec.lastSeen == clock, "characters: entering the world snapshots")
+            local late = false
+            for _, t in ipairs(mock.timers) do if t.delay == 5 then late = true end end
+            check(late, "characters: a second snapshot is scheduled five seconds later")
+            mock.level = 60
+            check(rec.level == 59, "characters: nothing changes before the five seconds are over")
+            mock.advance(5)
+            check(rec.level == 60, "characters: five seconds later snapshots again")
+            mock.deferTimers, mock.timers = false, {}
+            mock.level = 61
+            HL:RecordGame("AV", true, 600, 90, 2)
+            check(rec.level == 61 and rec.games == 3, "characters: a recorded game snapshots, with the new game counted")
+            mock.level = 62
+            HL:Fire("HonorLog_RankUp", 5, nil)
+            check(rec.level == 62, "characters: a rank-up snapshots")
+            mock.level = 63
+            mock.fireEvent("PLAYER_LOGOUT")
+            check(rec.level == 63, "characters: logout snapshots")
+
+            -- two characters on one account
+            local betaChar = DeepCopy(alphaChar)
+            betaChar.goals.items = {}
+            betaChar.battlegrounds = { WSG = { played = 5, wins = 4 } }
+            HL.db.char = betaChar
+            mock.playerName, mock.level, mock.faction = "Beta", 40, "Alliance"
+            mock.currencies[1792].quantity = 700
+            Characters:Snapshot()
+            HL.db.char = alphaChar
+            mock.playerName = "Alpha"
+            local beta = HonorLogDB.characters["Beta-TestRealm"]
+            check(beta and beta.name == "Beta" and beta.level == 40 and beta.faction == "Alliance" and beta.honor == 700 and beta.games == 5 and beta.wins == 4,
+                "characters: a second character has its own record")
+            check(beta.nextGoal == nil and rec.honor == 12345 and rec.level == 63 and rec.nextGoal == goalItem, "characters: the first character's record is untouched")
+
+            -- the list, its order, current, stub and cappedNow
+            local store = HonorLogDB.characters
+            for k in pairs(store) do store[k] = nil end
+            store[key] = { name = "Alpha", lastSeen = clock - 10, honor = 1000, capped = true, capUntil = clock + 500 }
+            store["Beta-TestRealm"] = { name = "Beta", lastSeen = clock - 100, honor = 200, capped = true, capUntil = clock - 1 }
+            store["Gamma-TestRealm"] = { name = "Gamma", lastSeen = clock - 50, capped = true, capUntil = clock + 1000 }
+            store["Zed-TestRealm"] = { name = "Zed" }
+            store["Abe-TestRealm"] = { name = "Abe" }
+            store["Old"] = true
+            local list = Characters:GetList()
+            local order = {}
+            for _, c in ipairs(list) do order[#order + 1] = c.name end
+            check(table.concat(order, ",") == "Alpha,Gamma,Beta,Abe,Old,Zed", "characters: the current first, then newest seen, stubs last by name: " .. table.concat(order, ","))
+            check(list[1].current and not list[2].current and list[1].key == key, "characters: current marks this character")
+            check(not list[1].stub and not list[3].stub and list[4].stub and list[5].stub and list[6].stub, "characters: stub marks a record never snapshotted")
+            check(list[1].cappedNow and list[2].cappedNow and not list[3].cappedNow and not list[4].cappedNow, "characters: cappedNow while capUntil is ahead")
+            list[1].honor = 5
+            check(store[key].honor == 1000, "characters: the list holds copies")
+            local totals = Characters:GetTotals(list)
+            check(totals.count == 6 and totals.honor == 205 and totals.cappedNow == 2, "characters: totals count, add the known honor and count the capped")
+            check(Characters:GetTotals().count == 6 and Characters:GetTotals().honor == 1200, "characters: totals make the list when none is given")
+            clock = clock + 2000
+            list = Characters:GetList()
+            check(not list[1].cappedNow and not list[2].cappedNow and Characters:GetTotals(list).cappedNow == 0, "characters: cappedNow ends with capUntil")
+            store[key] = { name = "Alpha" }
+            check(Characters:GetList()[1].current and Characters:GetList()[1].stub, "characters: the current character stays first even as a stub")
+            store[key] = { name = "Alpha", lastSeen = clock }
+
+            -- forget
+            check(Characters:Forget("Beta-TestRealm") == true and store["Beta-TestRealm"] == nil, "characters: forget removes a deleted character")
+            check(Characters:Forget(key) == false and store[key] ~= nil, "characters: forget refuses the current character")
+            check(Characters:Forget("Nobody") == false and Characters:Forget(nil) == false, "characters: forget of nothing does nothing")
+            check(Characters:Forget("Zed-TestRealm") == true, "characters: a stub can be forgotten")
+
+            -- every client read nil, then every one a secret: nothing raises
+            local nothing = function() end
+            local secret = function() return mock.newSecret(), mock.newSecret(), mock.newSecret() end
+            for _, answer in ipairs({ nothing, secret }) do
+                withGlobals({
+                    UnitClass = answer, UnitFactionGroup = answer, UnitLevel = answer, GetUnitName = answer, UnitName = answer,
+                    GetRealmName = answer, GetMoney = answer,
+                    C_CurrencyInfo = { GetCurrencyInfo = answer }, C_Item = { GetItemCount = answer },
+                    C_MajorFactions = { GetMajorFactionProgressionInfo = answer, GetTotalReputationForRenownLevel = answer },
+                    C_DateAndTime = { GetSecondsUntilWeeklyReset = answer }, C_SeasonInfo = { GetTimeUntilCurrentPVPSeasonEnd = answer },
+                }, function()
+                    local ok, err = pcall(Characters.Snapshot, Characters)
+                    check(ok, "characters: a snapshot with every read unknown does not raise: " .. tostring(err))
+                    check(pcall(Characters.GetList, Characters) and pcall(Characters.GetTotals, Characters), "characters: the readers do not raise either")
+                end)
+            end
+
+            check(#mock.handledErrors == errorsBefore, "characters section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            restoreStores(kept)
+        end)()
+
+        --------------------------------------------------------------------
+        -- Weeks
+        --------------------------------------------------------------------
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+            local Weeks = HL.Weeks
+            local DAY = 86400
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            local c = HL.db.char
+            mock.playerName = "Alpha"
+            local T0 = realTime({ year = 2026, month = 11, day = 18, hour = 10, min = 0, sec = 0 })
+            local ended = {}
+            local listener = {}
+            HL.RegisterCallback(listener, "HonorLog_WeekEnded", function(_, rec) ended[#ended + 1] = rec end)
+            local function fresh(history)
+                c.weeks, c.weeksFilled, c.since = {}, nil, nil
+                c.history = history or {}
+                c.honorLog = { day = 0, today = 0, weekEnd = 0, week = 0, session = 0 }
+                c.rankWeeks = {}
+                ended = {}
+            end
+            local function game(ts, bg, result, honor, marks)
+                return { bgType = bg, result = result, win = result == "win", honor = honor, marks = marks, timestamp = ts, duration = 600 }
+            end
+            -- week 3, rank 4 with 300 points, cap 6, three days to the reset
+            local function startWeek()
+                clock = T0
+                mock.weeklyReset = 3 * DAY
+                setRank(4, 300, 6, 3, 5)
+            end
+
+            -- a week made with a real reset clock
+            startWeek()
+            fresh()
+            local info = HL.Rank:GetInfo()
+            local cur = Weeks:Current()
+            check(cur.finish == T0 + 3 * DAY and cur.start == T0 - 4 * DAY and cur.estimated == nil, "weeks: a real clock gives a real finish, a week after the last reset")
+            check(cur.number == 3 and cur.rankStart == info.totalPoints and cur.rankEnd == info.totalPoints, "weeks: number and the running total when it opens")
+            check(c.weeks[1] == cur and #c.weeks == 1 and Weeks:GetCurrent() == cur and c.weeksFilled == true and type(c.since) == "number", "weeks: one record in the store, filled once, since set")
+            check(cur.games == 0 and cur.honor == 0 and cur.bgHonor == 0 and next(cur.marks) == nil and cur.kills == 0 and cur.closed == nil, "weeks: it starts empty")
+
+            -- a week with no clock is estimated, then corrected
+            fresh()
+            mock.weeklyReset = nil
+            local est = Weeks:Current()
+            check(est.estimated == true and est.start == T0 and est.finish == T0 + 7 * DAY and c.weeksFilled == nil, "weeks: with no clock the week is a guess of seven days")
+            mock.weeklyReset = 0
+            check(Weeks:Current() == est and est.estimated == true, "weeks: a reset clock of zero is no clock")
+            clock = T0 + DAY
+            mock.weeklyReset = 2 * DAY
+            local fixed = Weeks:Current()
+            check(fixed == est and fixed.estimated == nil and fixed.finish == clock + 2 * DAY and fixed.start == fixed.finish - 7 * DAY, "weeks: the first readable clock corrects the finish and the start")
+            check(#c.weeks == 1 and #ended == 0 and c.weeksFilled == nil, "weeks: correcting turns nothing over, and the fill waits for a second reading of the clock")
+            Weeks:Current()
+            check(c.weeksFilled == true and #c.weeks == 1, "weeks: a second reading that agrees lets the fill run")
+
+            -- the fill trusts no single reading of the reset clock
+            startWeek()
+            fresh()
+            local firstSight = Weeks:Current()
+            check(c.weeksFilled == nil, "weeks: the call that makes a record does not fill past weeks from its one reading")
+            mock.weeklyReset = 3 * DAY - 2 * 3600
+            check(Weeks:Current() == firstSight and c.weeksFilled == nil, "weeks: a second reading two hours off does not confirm it")
+            mock.weeklyReset = 3 * DAY - 60
+            clock = T0 + 60
+            check(Weeks:Current() == firstSight and c.weeksFilled == true, "weeks: a later reading that names the same reset does")
+            fresh()
+            clock = T0
+            mock.weeklyReset = 8 * DAY
+            check(Weeks:Current().estimated == true, "weeks: a reset clock of more than a week is no clock")
+
+            -- every accumulator
+            startWeek()
+            fresh()
+            cur = Weeks:Current()
+            local rankStart = cur.rankStart
+            HL:RecordGame("WSG", true, 600, 100, 3, { result = "win" })
+            setRank(5, 100, 6, 3, 5)
+            HL:RecordGame("AV", false, 900, 250, 1, { result = "loss" })
+            HL:RecordGame("AB", false, 300, 40, 0, { result = "draw" })
+            HL:RecordGame("DI", false, 100, 0, 0, { result = "left" })
+            check(cur.games == 4 and cur.wins == 1 and cur.losses == 1 and cur.draws == 1 and cur.left == 1, "weeks: each result in its own counter")
+            check(cur.bgHonor == 390 and cur.honor == 0, "weeks: battleground honor from the games, not counted twice into honor")
+            check(deepEqual(cur.marks, { WSG = 3, AV = 1 }), "weeks: marks by battleground")
+            check(deepEqual(cur.best, { bgType = "AV", honor = 250, timestamp = clock }), "weeks: the best game is the one with the most honor")
+            check(cur.rankStart == rankStart and cur.rankEnd == HL.Rank:GetInfo().totalPoints and cur.rankEnd > rankStart, "weeks: rankEnd follows a game, rankStart stays")
+            local weekBefore = c.honorLog.week
+            HL:AddHonorGain(50)
+            HL:AddHonorGain(25)
+            HL:AddHonorGain(-5)
+            HL:AddHonorGain(0)
+            HL:AddHonorGain("x")
+            HL:AddHonorGain(mock.newSecret())
+            check(cur.honor == 75 and c.honorLog.week == weekBefore + 75, "weeks: every positive honor gain through the hook, the original untouched")
+            setRank(6, 0, 6, 3, 5)
+            HL:Fire("HonorLog_RankUp", 6, HL.Rank:GetInfo())
+            check(cur.rankEnd == HL.Rank:GetInfo().totalPoints, "weeks: a rank-up sets rankEnd")
+            HL:Fire("HonorLog_WorldKill", { kb = true })
+            HL:Fire("HonorLog_WorldKill", { kb = false })
+            HL:Fire("HonorLog_WorldKill", "not a table")
+            HL:Fire("HonorLog_WorldDeath", {})
+            HL:Fire("HonorLog_WorldDeath")
+            check(cur.kills == 3 and cur.killingBlows == 1 and cur.deaths == 2, "weeks: kills, killing blows and deaths")
+
+            -- the recap of this week
+            local recap = Weeks:GetRecap(0)
+            check(recap.week == cur and recap.played == 4 and recap.wins == 1 and recap.losses == 1 and recap.draws == 1 and recap.left == 1, "recap: games and results")
+            check(recap.honor == 75 and recap.honorPerGame == 97.5, "recap: honor, and battleground honor per game")
+            check(deepEqual(recap.marks, { WSG = 3, AV = 1 }) and recap.marksTotal == 4, "recap: marks and their total")
+            check(recap.rankGained == cur.rankEnd - cur.rankStart and recap.rankGained > 0, "recap: rank points gained")
+            check(recap.best == cur.best and recap.kills == 3 and recap.deaths == 2 and recap.killingBlows == 1, "recap: best game, kills, deaths, killing blows")
+            check(recap.nextCap and recap.nextCap.rank == 7 and deepEqual(recap.nextCap.unlocks, HL:GetRankUnlocks(7)), "recap: the cap of the week after, with what it unlocks")
+            setRank(6, 0, 14, 3, 13)
+            check(Weeks:GetRecap(0).nextCap == nil, "recap: no nextCap when the cap does not rise")
+            setRank(6, 0, 6, 3, 5)
+            cur.rankStart = nil
+            mock.rankWindow.noData = true
+            check(Weeks:GetRecap(0).rankGained == nil, "recap: no rank gain unless both totals are known")
+            mock.rankWindow.noData = false
+            cur.rankStart = rankStart
+            check(Weeks:GetRecap(1) == nil and Weeks:GetRecap(-1) == nil and Weeks:GetRecap("x") == nil and Weeks:GetRecap(1.5) == nil, "recap: nil when there is no such week")
+
+            -- turnover exactly at the reset
+            clock = cur.finish - 1
+            check(Weeks:Current() == cur and not cur.closed and #ended == 0, "weeks: one second before the reset nothing turns over")
+            clock = cur.finish
+            mock.weeklyReset = 7 * DAY
+            setRank(6, 0, 7, 4, 6)
+            local nextWeek = Weeks:Current()
+            check(nextWeek ~= cur and cur.closed == true and #ended == 1 and ended[1] == cur, "weeks: at the reset the record closes and the event fires once with it")
+            check(nextWeek.start == clock and nextWeek.finish == clock + 7 * DAY and nextWeek.estimated == nil and nextWeek.number == 4, "weeks: the new week starts at the reset")
+            check(nextWeek.rankStart == cur.rankEnd and #c.weeks == 2 and c.weeks[1] == nextWeek and c.weeks[2] == cur, "weeks: the new week starts where the old one ended, newest first")
+            Weeks:Current()
+            Weeks:GetRecap(0)
+            check(#ended == 1, "weeks: the event fires once")
+            local last = Weeks:GetRecap(1)
+            check(last.week == cur and last.played == 4 and last.honor == 75 and last.kills == 3 and last.nextCap and last.nextCap.rank == 7, "recap: the last closed week, with the cap that came after it")
+            check(Weeks:GetRecap(2) == nil, "recap: nil past the oldest week")
+            local now = Weeks:GetRecap(0)
+            check(now.played == 0 and now.honorPerGame == nil and now.rankGained == 0 and now.best == nil and now.marksTotal == 0, "recap: an empty week")
+            -- the client may still report the old week number just after a reset: it is not taken for the new week
+            clock = nextWeek.finish
+            mock.weeklyReset = 7 * DAY
+            setRank(6, 0, 7, 4, 6)
+            local stale = Weeks:Current()
+            check(stale.number == nil and #ended == 2, "weeks: a week number equal to the last one's is not taken yet")
+            setRank(6, 0, 7, 5, 6)
+            check(Weeks:Current().number == 5 and Weeks:Current() == stale, "weeks: it is taken once the client moves on")
+
+            -- a login after a missed reset: one new week, no empty ones
+            clock = stale.finish + 20 * DAY
+            mock.weeklyReset = 2 * DAY
+            setRank(7, 0, 8, 9, 7)
+            local back = Weeks:Current()
+            check(#c.weeks == 4 and c.weeks[1] == back and c.weeks[2] == stale and #ended == 3 and ended[3] == stale, "weeks: three weeks away gives one new week")
+            check(back.start == clock + 2 * DAY - 7 * DAY and back.finish == clock + 2 * DAY, "weeks: it starts at the most recent reset")
+            -- a reset clock that already reads a new week while the stored finish is a moment away
+            clock = back.finish - 1
+            mock.weeklyReset = 7 * DAY
+            local jumped = Weeks:Current()
+            check(jumped ~= back and back.closed and #ended == 4 and jumped.start == back.finish, "weeks: a clock that has reset turns the week over a moment early, the new week starting where the old one was due to end")
+
+            -- no clock: the chain of estimated weeks
+            fresh()
+            mock.weeklyReset = nil
+            clock = T0
+            local e1 = Weeks:Current()
+            clock = T0 + 3 * DAY
+            check(Weeks:Current() == e1 and #ended == 0, "weeks: an estimated week lasts seven days")
+            clock = T0 + 17 * DAY
+            local e2 = Weeks:Current()
+            check(#c.weeks == 2 and e1.closed and e1.estimated == true and ended[1] == e1, "weeks: an estimated week closes and fires the event")
+            check(e2.start == T0 + 14 * DAY and e2.finish == T0 + 21 * DAY and e2.estimated == true, "weeks: the next estimated week is the most recent boundary of the chain")
+
+            -- the 26-record limit
+            fresh()
+            mock.weeklyReset = 7 * DAY
+            clock = T0
+            for _ = 1, 30 do
+                clock = clock + 7 * DAY
+                Weeks:Current()
+            end
+            check(#c.weeks == 26 and Weeks.KEPT == 26 and #ended == 29, "weeks: at most 26 records, the oldest dropped: " .. #c.weeks)
+            local ordered = true
+            for i = 1, #c.weeks - 1 do ordered = ordered and c.weeks[i].start > c.weeks[i + 1].start end
+            check(ordered and c.weeks[1].start == clock and c.weeks[26].start == clock - 25 * 7 * DAY and not c.weeks[1].closed, "weeks: newest first, the newest open")
+
+            -- the lazy fill (it runs on the second reading of the reset clock, so these read twice)
+            local function twice() Weeks:Current() return Weeks:Current() end
+            startWeek()
+            local history = {
+                game(T0 - 1 * DAY, "WSG", "win", 100, 3), game(T0 - 3 * DAY, "AV", "loss", 300, 1),
+                game(T0 - 5 * DAY, "AB", "win", 150, 2), game(T0 - 6 * DAY, "AB", "loss", 50, 0),
+                game(T0 - 19 * DAY, "WSG", "win", 80, 1),
+            }
+            fresh(DeepCopy(history))
+            c.honorLog.weekEnd, c.honorLog.week = T0 + 3 * DAY + 1800, 777
+            c.rankWeeks = { [3] = { startTotal = 3000, endTotal = 3500 }, [2] = { startTotal = 2400, endTotal = 3000 } }
+            cur = twice()
+            check(cur.games == 2 and cur.wins == 1 and cur.losses == 1 and cur.bgHonor == 400 and deepEqual(cur.marks, { WSG = 3, AV = 1 }) and cur.best.bgType == "AV" and cur.best.honor == 300,
+                "fill: the current week is brought up to date from the saved games")
+            check(cur.honor == 777 and cur.rankStart == 3000, "fill: honor from the honor log of the same week, the start total from the rank log")
+            check(#c.weeks == 3 and c.weeksFilled == true, "fill: a record for each earlier week that has games")
+            local prev, old = c.weeks[2], c.weeks[3]
+            check(prev.filled and prev.closed and prev.start == cur.start - 7 * DAY and prev.finish == cur.start and prev.estimated == nil, "fill: an earlier week is filled and closed, with its dates")
+            check(prev.games == 2 and prev.wins == 1 and prev.losses == 1 and prev.bgHonor == 200 and deepEqual(prev.marks, { AB = 2 }) and prev.best.bgType == "AB" and prev.best.honor == 150, "fill: its games, results, honor, marks and best")
+            check(prev.number == 2 and prev.rankStart == 2400 and prev.rankEnd == 3000, "fill: its number and rank totals come from the rank log")
+            check(prev.honor == nil and prev.kills == nil and prev.deaths == nil and prev.killingBlows == nil, "fill: what the saved games do not hold is left out")
+            check(old.filled and old.start == cur.start - 21 * DAY and old.games == 1 and old.number == nil and old.rankStart == nil, "fill: a week before the first has no rank number to use, and the empty weeks between have no record")
+            check(#ended == 0, "fill: it never fires the event")
+            table.insert(c.history, game(T0 - 40 * DAY, "AV", "win", 10, 0))
+            Weeks:Current()
+            Weeks:GetRecap(0)
+            check(#c.weeks == 3, "fill: it is done once")
+            local filledRecap = Weeks:GetRecap(1)
+            check(filledRecap.played == 2 and filledRecap.honor == nil and filledRecap.honorPerGame == 100 and filledRecap.kills == nil, "recap: a filled week leaves out what it does not know")
+
+            -- a honor log of another week is not taken
+            fresh(DeepCopy(history))
+            c.honorLog.weekEnd, c.honorLog.week = T0 + 3 * DAY + 7200, 777
+            check(twice().honor == 0 and c.weeksFilled == true, "fill: an honor log that ends at another reset is not taken")
+
+            -- not while the finish is only a guess; then, once it is real, from the real start
+            fresh(DeepCopy(history))
+            mock.weeklyReset = nil
+            local guess = Weeks:Current()
+            check(guess.estimated and c.weeksFilled == nil and #c.weeks == 1 and guess.games == 0, "fill: not done while the finish is estimated")
+            mock.weeklyReset = 3 * DAY
+            check(Weeks:Current() == guess and guess.estimated == nil and guess.start == T0 - 4 * DAY and c.weeksFilled == nil, "fill: the reading that corrects the finish does not fill yet")
+            check(Weeks:Current() == guess and guess.games == 2 and #c.weeks == 3, "fill: done once the finish is real and confirmed, from the real start of the week")
+
+            -- a record that already covers an earlier week is not doubled
+            fresh(DeepCopy(history))
+            c.weeks = {
+                { start = T0 - 4 * DAY, finish = T0 + 3 * DAY, games = 0, wins = 0, losses = 0, draws = 0, left = 0, honor = 0, bgHonor = 0, marks = {}, kills = 0, deaths = 0, killingBlows = 0 },
+                { start = T0 - 11 * DAY, finish = T0 - 4 * DAY, closed = true, estimated = true, games = 9, wins = 0, losses = 0, draws = 0, left = 0, honor = 0, bgHonor = 0, marks = {} },
+            }
+            twice()
+            check(#c.weeks == 3 and c.weeks[2].games == 9 and not c.weeks[2].filled and c.weeks[3].filled and c.weeks[3].games == 1, "fill: an existing record covering a week keeps it")
+
+            -- the limit holds for the fill too
+            local many = {}
+            for k = 0, 39 do many[#many + 1] = game(T0 - 4 * DAY - k * 7 * DAY - DAY, "WSG", "win", 10, 0) end
+            fresh(many)
+            twice()
+            check(#c.weeks == 26 and c.weeks[26].start == T0 - 4 * DAY - 25 * 7 * DAY and c.weeks[1].games == 0, "fill: at most 26 records, the oldest weeks dropped")
+
+            -- the game and the honor gain whose call runs the fill are not counted twice
+            fresh({ game(T0 - 1 * DAY, "WSG", "win", 100, 3) })
+            Weeks:Current() -- makes the record; the fill still waits for a second reading
+            local newGame = game(T0, "AB", "win", 200, 2)
+            table.insert(c.history, 1, newGame) -- a recorded game is saved before its event fires
+            Weeks:OnGame(newGame) -- the second reading: the fill runs inside this call
+            check(c.weeksFilled == true and c.weeks[1].games == 2 and c.weeks[1].bgHonor == 300, "fill: the game whose event runs it is counted once: " .. tostring(c.weeks[1].games))
+            Weeks:OnGame(game(T0, "AB", "loss", 50, 0))
+            check(c.weeks[1].games == 3 and c.weeks[1].bgHonor == 350, "fill: ...and the next game is counted as usual")
+            fresh({})
+            c.honorLog.weekEnd, c.honorLog.week = T0 + 3 * DAY, 500 -- the honor log already holds the gain
+            Weeks:Current()
+            Weeks:OnHonor(40)
+            check(c.weeksFilled == true and c.weeks[1].honor == 500, "fill: the honor gain whose call runs it is already in the honor log's total: " .. tostring(c.weeks[1].honor))
+            Weeks:OnHonor(40)
+            check(c.weeks[1].honor == 540, "fill: ...and the next gain is added")
+            fresh({})
+            c.honorLog.weekEnd, c.honorLog.week = T0 + 30 * DAY, 500 -- another week's log: not taken
+            Weeks:Current()
+            Weeks:OnHonor(40)
+            check(c.weeksFilled == true and c.weeks[1].honor == 40, "fill: a gain is added when the fill took no honor total")
+
+            -- entering the world turns the week over
+            fresh()
+            mock.fireEvent("PLAYER_ENTERING_WORLD")
+            check(#c.weeks == 1, "weeks: entering the world makes the week")
+
+            -- every client read nil, then every one a secret: nothing raises
+            local nothing = function() end
+            local secret = function() return mock.newSecret(), mock.newSecret(), mock.newSecret() end
+            for _, answer in ipairs({ nothing, secret }) do
+                fresh()
+                withGlobals({
+                    C_DateAndTime = { GetSecondsUntilWeeklyReset = answer },
+                    C_MajorFactions = { GetMajorFactionProgressionInfo = answer, GetTotalReputationForRenownLevel = answer },
+                    C_SeasonInfo = { GetTimeUntilCurrentPVPSeasonEnd = answer, GetCurrentDisplaySeasonID = answer },
+                    GetCurrentArenaSeason = answer, UnitLevel = answer,
+                }, function()
+                    clock = T0
+                    local ok, week = pcall(Weeks.Current, Weeks)
+                    check(ok and week.estimated == true and week.number == nil and week.rankStart == nil, "weeks: with no readable client the week is a guess and has no rank data")
+                    check(pcall(Weeks.GetRecap, Weeks, 0) and pcall(Weeks.GetRecap, Weeks, 1), "recap: the readers do not raise")
+                    -- straight to this module's handlers: other listeners of these events are not under test here
+                    Weeks:OnGame({ bgType = mock.newSecret(), result = mock.newSecret(), honor = mock.newSecret(), marks = mock.newSecret(), timestamp = mock.newSecret(), win = mock.newSecret() })
+                    Weeks:OnGame(mock.newSecret())
+                    Weeks:OnRankUp(mock.newSecret(), mock.newSecret())
+                    HL:Fire("HonorLog_WorldKill", mock.newSecret())
+                    HL:Fire("HonorLog_WorldKill", { kb = mock.newSecret() })
+                    HL:Fire("HonorLog_WorldDeath", mock.newSecret())
+                    HL:AddHonorGain(10)
+                    check(week.games == 1 and week.wins == 0 and week.losses == 0 and week.bgHonor == 0 and next(week.marks) == nil and week.best == nil, "weeks: a game full of secrets counts as a game and nothing more")
+                    check(week.kills == 2 and week.killingBlows == 0 and week.deaths == 1 and week.honor == 10, "weeks: secret kill, death and honor reads are counted or left out without raising")
+                end)
+            end
+
+            HL.UnregisterCallback(listener, "HonorLog_WeekEnded")
+            check(#mock.handledErrors == errorsBefore, "weeks section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            restoreStores(kept)
+        end)()
+        setGlobal("time", realTime)
+    end)()
 
     -- The mock's registration rules are live: the restricted event raises.
     local ok = pcall(UIParent.RegisterEvent, UIParent, "COMBAT_LOG_EVENT_UNFILTERED")

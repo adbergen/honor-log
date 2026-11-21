@@ -36,6 +36,8 @@ Modules\WSG.lua
 Modules\DI.lua
 Modules\Rank.lua
 Modules\Quests.lua
+Modules\Characters.lua
+Modules\Weeks.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 
