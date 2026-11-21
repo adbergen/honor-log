@@ -61,7 +61,8 @@ is not meant for the TBC client.
 
 | Command | Result |
 | --- | --- |
-| `/honorlog` | Show or hide the stats frame |
+| `/honorlog` | Open or close the HonorLog window (also the minimap button, a key binding and the addon menu) |
+| `/honorlog mini` | Show or hide the small tracker frame |
 | `/honorlog stats [bg]` | Print a stats summary |
 | `/honorlog history [n]` | Recent games |
 | `/honorlog honor` | Honor today, this week and this session |

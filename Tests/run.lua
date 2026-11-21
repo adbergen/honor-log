@@ -54,7 +54,7 @@ local function run()
         "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
-        "UI/Export.lua",
+        "UI/Export.lua", "UI/Kit.lua", "UI/Window.lua", "UI/Screens/Overview.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -2942,6 +2942,717 @@ local function run()
         mock.rankWindow.cap, mock.rankWindow.week, mock.rankWindow.prevCap = savedState.window.cap, savedState.window.week, savedState.window.prevCap
         HonorLogDB.scannedGear, HonorLogDB.scannedVendors = savedState.scannedGear, savedState.scannedVendors
         mock.currencies[1792].quantity, mock.money, mock.bagContents = savedState.honor, savedState.money, savedState.bags
+    end
+
+    -- ═══ The full window: Kit, Window, Overview ══════════════════════════════════════
+    do
+        local Kit = HL.Kit
+        check(Kit and HL.Window, "Kit and Window are loaded")
+        check(_G.HonorLogWindow == nil and HL.Window.frame == nil, "window: no frame exists before first use")
+        local function liveTickers()
+            local n = 0
+            for _, t in ipairs(mock.tickers) do if not t.cancelled then n = n + 1 end end
+            return n
+        end
+        local tickersAtStart = liveTickers()
+
+        local function setMode(present)
+            mock.atlasMode = present and "all" or "none"
+            mock.missingTemplates = present and {} or { ["*"] = true }
+            if present then mock.restoreFonts() else mock.removeFonts() end
+        end
+
+        -- Blizzard globals the kit uses when present; the test supplies recording stand-ins.
+        local selectCalls, deselectCalls, pctCalls = {}, {}, {}
+        local function addBlizzardGlobals()
+            _G.PanelTemplates_SelectTab = function(b) selectCalls[#selectCalls + 1] = b end
+            _G.PanelTemplates_DeselectTab = function(b) deselectCalls[#deselectCalls + 1] = b end
+            _G.PanelTemplates_TabResize = function() end
+            _G.CooldownFrame_SetDisplayAsPercentage = function(cd, pct) pctCalls[#pctCalls + 1] = { cd, pct } end
+        end
+        local function removeBlizzardGlobals()
+            _G.PanelTemplates_SelectTab, _G.PanelTemplates_DeselectTab, _G.PanelTemplates_TabResize = nil, nil, nil
+            _G.CooldownFrame_SetDisplayAsPercentage = nil
+        end
+
+        -- An item whose vendor is known with a position on the map.
+        local vendorItem
+        for id in pairs(HL.GearDB) do
+            local v = HL:GetVendorFor(id)
+            if v and v.map and v.x and v.y then vendorItem = id break end
+        end
+        check(vendorItem, "kit tests have an item with a vendor that has coordinates")
+
+        local function kitSuite(present)
+            local label = present and "kit (all present): " or "kit (all missing): "
+            setMode(present)
+            addBlizzardGlobals()
+            local parent = CreateFrame("Frame", nil, UIParent)
+
+            -- templates and atlases
+            local f, template = Kit:CreateTemplated("Frame", nil, parent, "InsetFrameTemplate")
+            check(f and template == (present and "InsetFrameTemplate" or nil), label .. "CreateTemplated reports the template that took")
+            local f2, t2 = Kit:CreateTemplated("Frame", nil, parent, "NoSuchTemplate", "AnotherOne")
+            check(f2 and (present and t2 == "NoSuchTemplate" or t2 == nil), label .. "CreateTemplated tries each template in order")
+            check(Kit:HasAtlas("UI-Character-Info-Honor-Bar") == present, label .. "HasAtlas follows the client")
+            local tex = parent:CreateTexture()
+            check(Kit:SetAtlasOr(tex, "UI-Character-Info-Honor-Bar", 0.1, 0.2, 0.3, 0.4) == present, label .. "SetAtlasOr reports which one took")
+            if present then
+                check(tex.__atlas == "UI-Character-Info-Honor-Bar", label .. "the atlas is set")
+            else
+                check(tex.__color and tex.__color[1] == 0.1 and tex.__color[4] == 0.4, label .. "a plain colour replaces the atlas")
+            end
+
+            -- text styles and fonts
+            for _, style in ipairs({ "label", "labelSmall", "value", "grey", "title", "big" }) do
+                local fs = Kit:Text(parent, style)
+                check(fs.honorLogStyle == style, label .. "text style " .. style)
+                check((fs.honorLogFont ~= false) == present, label .. "font object for " .. style .. " is " .. (present and "found" or "absent"))
+            end
+            if present then
+                check(Kit:Text(parent, "big").honorLogFont == "GameFontHighlightHuge", "big text uses GameFontHighlightHuge first")
+                _G.GameFontHighlightHuge = nil
+                check(Kit:Text(parent, "big").honorLogFont == "GameFontNormalHuge", "big text falls back to GameFontNormalHuge")
+                _G.GameFontNormalHuge = nil
+                check(Kit:Text(parent, "big").honorLogFont == "GameFontHighlightLarge", "…then GameFontHighlightLarge")
+                mock.restoreFonts()
+            end
+
+            -- the window frame
+            local w = Kit:Window("HonorLogKitWindow" .. (present and "A" or "B"), 900, 540)
+            check(w.honorLogChrome == (present and "PortraitFrameTemplate" or false), label .. "window chrome")
+            w:SetTitleText("Title")
+            check(w:GetTitleText() == "Title", label .. "SetTitleText")
+            if present then check(w.__title == "Title", label .. "the template's SetTitle is used") end
+            w:SetPortraitTexture(4242)
+            check(w.honorLogPortrait == 4242, label .. "SetPortraitTexture")
+            if present then check(w.__portrait == 4242, label .. "the template's SetPortraitToAsset is used") end
+            check(type(w.Content) == "table" and type(w.CloseButton) == "table", label .. "window has Content and CloseButton")
+            local topLeft, bottomRight
+            for _, pt in ipairs(w.Content.__points) do
+                if pt[1] == "TOPLEFT" then topLeft = pt elseif pt[1] == "BOTTOMRIGHT" then bottomRight = pt end
+            end
+            check(topLeft and topLeft[4] == 6 and topLeft[5] == -24 and bottomRight and bottomRight[4] == -6 and bottomRight[5] == 6,
+                label .. "Content is inset 6 left, right and bottom and 24 from the top")
+            w:Show()
+            local click = w.CloseButton.__scripts.OnClick
+            check(present or click, label .. "the close button closes the window on the plain path")
+            if click then click(w.CloseButton) end
+            if not present then check(not w:IsShown(), label .. "the close button hides the window") end
+            local started, moved = 0, nil
+            rawset(w, "StartMoving", function() started = started + 1 end)
+            w.honorLogOnMoved = function() moved = true end
+            w.honorLogDrag.__scripts.OnDragStart(w.honorLogDrag)
+            w.honorLogDrag.__scripts.OnDragStop(w.honorLogDrag)
+            check(started == 1 and moved, label .. "the title area drags the window and reports the move")
+
+            -- inset, header, buttons
+            local inset = Kit:Inset(parent)
+            check(inset.honorLogTemplate == (present and "InsetFrameTemplate" or false), label .. "inset template")
+            if not present then check(#inset.honorLogEdges == 4, label .. "plain inset draws a 1-pixel edge") end
+            local header = Kit:Header(parent, "Section")
+            check(header.Label:GetText() == "Section", label .. "header text")
+            local red, small = Kit:Button(parent, "Go", "red"), Kit:Button(parent, "Small", "small")
+            check(red:GetText() == "Go" and small:GetText() == "Small", label .. "button texts")
+            check(red.honorLogTemplate == (present and "UIPanelButtonTemplate" or false), label .. "red button template")
+            check(small.honorLogTemplate == (present and "SharedButtonSmallTemplate" or false), label .. "small button template")
+            if present then
+                mock.missingTemplates = { SharedButtonSmallTemplate = true }
+                check(Kit:Button(parent, "S2", "small").honorLogTemplate == "UIPanelButtonTemplate", label .. "small button falls back to UIPanelButtonTemplate")
+                mock.missingTemplates = {}
+            end
+
+            -- tabs
+            local picked = {}
+            local tabs = Kit:Tabs(w, function(key) picked[#picked + 1] = key end)
+            local ta, tb = tabs:Add("a", "Alpha"), tabs:Add("b", "Bravo")
+            check(ta.honorLogTemplate == (present and "PanelTabButtonTemplate" or false), label .. "tab template")
+            check(tabs:GetSelected() == nil, label .. "no tab is selected at first")
+            check(tabs:Select("b") and tabs:GetSelected() == "b" and picked[#picked] == "b", label .. "Select reports the selection")
+            check(not tabs:Select("zzz") and tabs:GetSelected() == "b", label .. "an unknown tab changes nothing")
+            ta.__scripts.OnClick(ta)
+            check(tabs:GetSelected() == "a" and picked[#picked] == "a", label .. "clicking a tab selects it")
+            check(ta.honorLogSelected and not tb.honorLogSelected, label .. "only the selected tab is marked")
+            if present then
+                check(selectCalls[#selectCalls] == ta and deselectCalls[#deselectCalls] == tb, label .. "PanelTemplates select and deselect are used")
+            else
+                check(ta.GetHeight(ta) > tb.GetHeight(tb), label .. "the selected plain tab is taller, not only a different colour")
+            end
+
+            -- bar
+            local bar = Kit:Bar(parent)
+            bar:SetValue01(0.4)
+            check(bar:GetValue() == 0.4, label .. "bar value")
+            bar:SetValue01(7)
+            check(bar:GetValue() == 1, label .. "bar value clamps high")
+            bar:SetValue01(-1)
+            check(bar:GetValue() == 0, label .. "bar value clamps low")
+            bar:SetBarColor(1, 0.5, 0.25)
+            check(bar.honorLogColor[2] == 0.5, label .. "bar colour")
+
+            -- ring
+            local ring = Kit:Ring(parent, 150)
+            check(ring.honorLogFull == present, label .. "the ring art is used only when the client has it")
+            ring:SetRank(3, "Horde")
+            check(ring.honorLogRank == 3 and ring.Badge.Label:GetText() == "3", label .. "ring rank number")
+            if present then
+                check(ring.Icon.__atlas == "UI-Character-Info-Honor-Icon-3", label .. "ring rank icon atlas")
+                check(ring.Disc.__atlas == "UI-Character-Info-Honor-Bar-BG-Horde", label .. "ring faction disc")
+                ring:SetRank(0, "Alliance")
+                check(ring.Icon.__atlas == "UI-Character-Info-Honor-Icon-Alliance", label .. "rank 0 shows the faction icon")
+                ring:SetProgress(0.4)
+                check(pctCalls[#pctCalls][1] == ring.Cooldown and pctCalls[#pctCalls][2] == 0.4, label .. "progress goes through CooldownFrame_SetDisplayAsPercentage")
+                _G.CooldownFrame_SetDisplayAsPercentage = nil
+                local cdCalls = {}
+                rawset(ring.Cooldown, "SetCooldown", function(_, start, duration) cdCalls.start, cdCalls.duration = start, duration end)
+                rawset(ring.Cooldown, "Pause", function() cdCalls.paused = true end)
+                mock.now = 1000
+                ring:SetProgress(0.25)
+                mock.now = nil
+                check(cdCalls.duration == 100 and cdCalls.start == 975 and cdCalls.paused, label .. "without that function the cooldown is set and paused by hand")
+                ring:SetProgress(5)
+                check(ring.honorLogProgress == 1, label .. "ring progress clamps")
+            else
+                check(ring.Bar and ring.Icon, label .. "the fallback ring is an icon over a bar")
+                ring:SetProgress(0.5)
+                check(ring.Bar:GetValue() == 0.5, label .. "fallback ring progress drives the bar")
+                ring:SetRank(0, "Alliance")
+                check(ring.Icon.__texture == HL.RANK_ICON_FALLBACK, label .. "rank 0 uses the neutral icon")
+            end
+
+            -- tile and rows
+            local tile = Kit:Tile(parent)
+            check(tile.label and tile.value and tile.note and tile.noteRow and not tile.noteRow:IsShown(), label .. "tile parts")
+            local made, updated = 0, {}
+            local rows = Kit:Rows(parent, 20, function() made = made + 1 end, function(row, entry, i) updated[i] = entry end)
+            rows:SetData({ "x", "y", "z" })
+            check(made == 3 and rows.count == 3 and updated[3] == "z" and rows.frames[3]:IsShown(), label .. "rows show one row per entry")
+            rows:SetData({ "q" })
+            check(made == 3 and rows.frames[1]:IsShown() and not rows.frames[2]:IsShown() and not rows.frames[3]:IsShown(), label .. "rows hide the rest and are pooled")
+            rows:SetData({})
+            check(rows.count == 0 and not rows.frames[1]:IsShown(), label .. "rows with no data")
+
+            -- item icon
+            local base = HL.GearDB[vendorItem]
+            local icon = Kit:ItemIcon(parent, 18)
+            icon:SetItem(vendorItem)
+            check(icon.honorLogItemID == vendorItem and icon.honorLogTexture.__texture == 100000 + vendorItem % 1000, label .. "item icon texture")
+            local qr, qg, qb = Kit:QualityColor(base.quality)
+            check(icon.honorLogBorder.__color[1] == qr and icon.honorLogBorder.__color[2] == qg and icon.honorLogBorder.__color[3] == qb,
+                label .. "item border has the quality colour")
+            mock.itemQuality[vendorItem] = 4
+            icon:SetItem(vendorItem)
+            check(icon.honorLogQuality == 4, label .. "quality from C_Item.GetItemQualityByID wins over the gear database")
+            mock.itemQuality[vendorItem] = nil
+            _G.ITEM_QUALITY_COLORS = { [3] = { r = 0.1, g = 0.2, b = 0.3 } }
+            check(select(2, Kit:QualityColor(3)) == 0.2, label .. "ITEM_QUALITY_COLORS is used when present")
+            _G.ITEM_QUALITY_COLORS = nil
+            check(select(2, Kit:QualityColor(3)) == 0.44, label .. "a built-in table is used otherwise")
+            icon:SetItem(nil)
+            icon:SetItem(vendorItem)
+            icon.__scripts.OnEnter(icon)
+            check(mock.tip.itemID == vendorItem and mock.tip.owner == icon and mock.tip.anchor == "ANCHOR_RIGHT" and mock.tip.shown,
+                label .. "item tooltip is the item's own")
+            local vendorLine, clickLine
+            for _, line in ipairs(mock.tip.lines) do
+                if line.text == HL:GetVendorLine(vendorItem) then vendorLine = line end
+                if line.text == "Click: show the vendor on your map" then clickLine = line end
+            end
+            check(vendorLine, label .. "tooltip says where it is sold")
+            check(clickLine and clickLine.g > clickLine.r, label .. "tooltip adds the green click line")
+            icon.__scripts.OnLeave(icon)
+            check(not mock.tip.shown, label .. "tooltip hides on leave")
+
+            HL:ClearMapPins()
+            icon.__scripts.OnClick(icon, "LeftButton")
+            check(HL.MapPin:Count() == 1, label .. "a click places the vendor's map pin")
+            HL:ClearMapPins()
+            local dressed, linked = {}, {}
+            _G.DressUpItemLink = function(link) dressed[#dressed + 1] = link end
+            _G.ChatEdit_InsertLink = function(link) linked[#linked + 1] = link return true end
+            mock.ctrl = true
+            icon.__scripts.OnClick(icon, "LeftButton")
+            mock.ctrl = false
+            check(#dressed == 1 and dressed[1]:find("Hitem:" .. vendorItem, 1, true) and HL.MapPin:Count() == 0, label .. "Ctrl+click previews and places no pin")
+            mock.shift = true
+            icon.__scripts.OnClick(icon, "LeftButton")
+            mock.shift = false
+            check(#linked == 1 and linked[1]:find("Hitem:" .. vendorItem, 1, true) and HL.MapPin:Count() == 0 and #dressed == 1,
+                label .. "Shift+click links the item and places no pin")
+            _G.DressUpItemLink, _G.ChatEdit_InsertLink = nil, nil
+            mock.ctrl, mock.shift = true, true
+            icon.__scripts.OnClick(icon, "LeftButton") -- without the client functions: nothing, and no error
+            mock.ctrl, mock.shift = false, false
+
+            -- mark icon
+            local mark = Kit:MarkIcon(parent, 14)
+            mark:SetBattleground("AB")
+            check(mark.honorLogTexture.__texture == HL.BG_ICONS.AB, label .. "mark icon texture")
+            mark.__scripts.OnEnter(mark)
+            check(mock.tip.itemID == 20559 and mock.tip.shown, label .. "mark tooltip shows the mark item")
+            local bags
+            for _, line in ipairs(mock.tip.lines) do if line.text:find("^In your bags") then bags = line.text end end
+            check(bags == string.format("In your bags: %d", HL:GetCurrentMarks("AB")), label .. "mark tooltip counts the bags: " .. tostring(bags))
+            mark.__scripts.OnClick(mark, "LeftButton")
+
+            -- place link
+            local calls = {}
+            local realVendor, realPlace = HL.ShowVendorOnMap, HL.ShowPlaceOnMap
+            HL.ShowVendorOnMap = function(_, vendor) calls.vendor = vendor end
+            HL.ShowPlaceOnMap = function(_, place) calls.place = place end
+            local pl = Kit:PlaceLink(parent)
+            local vendor, place = { name = "Brave Stonehide", map = 1 }, { name = "Graveyard", map = 2, x = 1, y = 2 }
+            pl:SetVendor(vendor)
+            check(pl.honorLogName:GetText() == "Brave Stonehide", label .. "place link names the vendor")
+            pl.__scripts.OnClick(pl)
+            check(calls.vendor == vendor and not calls.place, label .. "a vendor link calls ShowVendorOnMap")
+            pl:SetPlace(place)
+            check(pl.honorLogName:GetText() == "Graveyard", label .. "place link names the place")
+            pl.__scripts.OnClick(pl)
+            check(calls.place == place, label .. "a place link calls ShowPlaceOnMap")
+            pl.__scripts.OnEnter(pl)
+            pl.__scripts.OnLeave(pl)
+            HL.ShowVendorOnMap, HL.ShowPlaceOnMap = realVendor, realPlace
+            removeBlizzardGlobals()
+        end
+        kitSuite(true)
+        kitSuite(false)
+        setMode(true)
+        mock.atlasMode, mock.missingTemplates = "default", {}
+
+        -- ── Window ──────────────────────────────────────────────────────────────────
+        local Window = HL.Window
+        local framesBefore = #mock.frames
+        local probeRefreshes
+        local function registerProbe()
+            probeRefreshes = 0
+            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 2, create = function(parent)
+                local f = CreateFrame("Frame", nil, parent)
+                function f:Refresh() probeRefreshes = probeRefreshes + 1 end
+                return f
+            end })
+        end
+        registerProbe()
+        check(#Window.screens == 2 and Window.screens[1].key == "overview" and Window.screens[2].key == "probe", "window: screens are kept in order")
+        check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
+        check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview", "window: the new settings have defaults")
+
+        mock.runShowScripts = true
+        local function closed() return not Window:IsShown() end
+        local function expectOpen(what, fn)
+            if Window:IsShown() then Window:Hide() end
+            fn()
+            check(Window:IsShown(), "window opens from " .. what)
+            Window:Hide()
+        end
+        local mini = HL.mainFrame
+        local miniBefore = mini:IsShown()
+        expectOpen("the bare slash command", function() SlashCmdList.HONORLOG("") end)
+        check(_G.HonorLogWindow == Window.frame and Window.frame:GetName() == "HonorLogWindow", "window: the frame is HonorLogWindow")
+        check(mini:IsShown() == miniBefore, "the bare slash command leaves the small frame alone")
+        expectOpen("/honorlog toggle", function() SlashCmdList.HONORLOG("toggle") end)
+        SlashCmdList.HONORLOG("toggle")
+        SlashCmdList.HONORLOG("toggle")
+        check(closed(), "toggle closes the window again")
+        expectOpen("the key binding function", function() _G.HonorLog_ToggleWindow() end)
+        expectOpen("the addon menu function", function() _G.HonorLog_OnAddonCompartmentClick("HonorLog", "LeftButton") end)
+        expectOpen("the broker left click", function() HL.ldb.OnClick(nil, "LeftButton") end)
+        expectOpen("the small frame's menu", function()
+            HL:ShowContextMenu()
+            mock.pickDropdown(_G.HonorLogContextMenu, "Open HonorLog")
+        end)
+        check(_G.BINDING_HEADER_HONORLOG == "HonorLog" and _G.BINDING_NAME_HONORLOG_TOGGLE == "Open or close HonorLog", "binding names are set")
+        local bindings = io.open(ROOT .. "/Bindings.xml"):read("*a")
+        check(bindings:find('name="HONORLOG_TOGGLE"', 1, true) and bindings:find('category="BINDING_HEADER_HONORLOG"', 1, true)
+            and bindings:find("HonorLog_ToggleWindow()", 1, true), "Bindings.xml names the binding and calls the toggle")
+        check(not io.open(ROOT .. "/HonorLog.toc"):read("*a"):find("Bindings.xml", 1, true), "the toc does not list Bindings.xml")
+        local tocText = io.open(ROOT .. "/HonorLog.toc"):read("*a")
+        check(tocText:find("## AddonCompartmentFunc: HonorLog_OnAddonCompartmentClick", 1, true) and tocText:find("## IconTexture: ", 1, true), "toc names the addon menu function and icon")
+        SlashCmdList.HONORLOG("mini")
+        check(mini:IsShown() ~= miniBefore and not Window:IsShown(), "/honorlog mini toggles the small frame, not the window")
+        SlashCmdList.HONORLOG("mini")
+        check(mini:IsShown() == miniBefore, "/honorlog mini toggles it back")
+        local helpFrom = #printed
+        SlashCmdList.HONORLOG("help")
+        local sawMini = false
+        for i = helpFrom + 1, #printed do if printed[i]:find("/honorlog mini", 1, true) then sawMini = true end end
+        check(sawMini, "the help lists /honorlog mini")
+        check(HL.ldb.icon == Window.frame.honorLogPortrait, "the portrait is the broker object's icon")
+        local escape = false
+        for _, n in ipairs(UISpecialFrames) do if n == "HonorLogWindow" then escape = true end end
+        check(escape, "Escape closes the window (registered in UISpecialFrames)")
+
+        -- the title bar
+        Window:Show()
+        check(Window.leftText:GetText() == "Tester \194\183 Level 60 Warrior", "title bar left: " .. tostring(Window.leftText:GetText()))
+        local rightText = Window.rightText:GetText()
+        check(rightText:find("Rank week resets in", 1, true) and rightText:find("3d 0h", 1, true) and rightText:find("|cffffffff", 1, true), "title bar right: " .. tostring(rightText))
+        mock.rankWindow.noData = true
+        Window:UpdateTitleBar()
+        check(not Window.rightText:IsShown(), "the reset text hides without rank data")
+        mock.rankWindow.noData = false
+        Window:UpdateTitleBar()
+        check(Window.rightText:IsShown(), "…and returns with it")
+
+        -- tickers and OnUpdate
+        local base = liveTickers()
+        Window:Hide()
+        check(liveTickers() == tickersAtStart and Window.ticker == nil, "no live ticker while the window is hidden")
+        Window:Show()
+        check(liveTickers() == tickersAtStart + 1, "exactly one ticker while shown")
+        local ticker = Window.ticker
+        mock.weeklyReset = 86400
+        ticker.fn()
+        check(Window.rightText:GetText():find("1d 0h", 1, true), "the 30-second ticker refreshes the title bar")
+        mock.weeklyReset = 3 * 86400
+        check(ticker.interval == 30, "the ticker runs every 30 seconds")
+        Window:Hide()
+        check(ticker.cancelled and liveTickers() == base - 1, "the ticker is cancelled on hide")
+        local onUpdates = 0
+        for i = framesBefore + 1, #mock.frames do if mock.frames[i].__scripts.OnUpdate then onUpdates = onUpdates + 1 end end
+        check(onUpdates == 0, "the window sets no OnUpdate script")
+
+        -- screens: lazy creation, tab switching, dirty and refresh
+        check(Window.frames.overview and not Window.frames.probe, "a screen's frame is built when its tab is first shown")
+        Window:Show()
+        local probeTab = Window.tabs.buttons.probe
+        probeTab.__scripts.OnClick(probeTab)
+        check(Window.frames.probe and Window.current == "probe" and HonorLogDB.settings.windowTab == "probe", "selecting a tab builds its screen and saves the tab")
+        check(not Window.frames.overview:IsShown() and Window.frames.probe:IsShown(), "only the selected screen is shown")
+        local r0 = probeRefreshes
+        HL:Fire("HonorLog_GameRecorded", {})
+        check(probeRefreshes == r0 + 1, "HonorLog_GameRecorded refreshes the shown screen at once")
+        HL:Fire("HonorLog_RankUp", 4, {})
+        HL:Fire("HonorLog_GoalAcquired", 1)
+        check(probeRefreshes == r0 + 3, "HonorLog_RankUp and HonorLog_GoalAcquired refresh it too")
+        HL:OnDataUpdated()
+        check(probeRefreshes == r0 + 4, "the OnDataUpdated post-hook refreshes it")
+        Window:Hide()
+        HL:Fire("HonorLog_GameRecorded", {})
+        HL:OnDataUpdated()
+        check(probeRefreshes == r0 + 4 and Window.dirty, "while hidden a change only marks the window dirty")
+        Window:Show()
+        check(probeRefreshes == r0 + 5 and not Window.dirty, "the next show refreshes and clears the mark")
+        Window:Hide()
+        Window:Show()
+        check(probeRefreshes == r0 + 6, "every show refreshes")
+        probeTab.__scripts.OnClick(probeTab)
+        check(probeRefreshes == r0 + 7, "selecting a tab refreshes it")
+
+        -- position, scale and tab survive a reload
+        Window.frame:ClearAllPoints()
+        Window.frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 120, -80)
+        Window.frame.honorLogDrag.__scripts.OnDragStop(Window.frame.honorLogDrag)
+        local saved = HonorLogDB.settings.windowPoint
+        check(saved and saved[1] == "TOPLEFT" and saved[2] == "TOPLEFT" and saved[3] == 120 and saved[4] == -80, "dragging saves the position")
+        HonorLogDB.settings.windowScale = 1.25
+        Window:Hide()
+        mock.runShowScripts = false
+        mock.fireEvent("PLAYER_LOGOUT")
+        for i = #mock.frames, 1, -1 do mock.frames[i] = nil end
+        mock.timers = {}
+        LibStub.libs, LibStub.minors = {}, {}
+        _G.HonorLogWindow, _G.HonorLogContextMenu = nil, nil
+        for i = #UISpecialFrames, 1, -1 do UISpecialFrames[i] = nil end
+        HL = loadAddon()
+        mock.fireEvent("ADDON_LOADED", "HonorLog")
+        mock.fireEvent("PLAYER_LOGIN")
+        mock.fireEvent("PLAYER_ENTERING_WORLD")
+        Window = HL.Window
+        framesBefore = #mock.frames
+        check(Window.frame == nil and _G.HonorLogWindow == nil, "after a reload the window is not built until it is opened")
+        registerProbe()
+        mock.runShowScripts = true
+        SlashCmdList.HONORLOG("")
+        local lastPoint = Window.frame.__points[#Window.frame.__points]
+        check(lastPoint[1] == "TOPLEFT" and lastPoint[3] == "TOPLEFT" and lastPoint[4] == 120 and lastPoint[5] == -80, "the saved position is restored")
+        check(Window.frame:GetScale() == 1.25, "the saved scale is restored")
+        check(Window.current == "probe" and Window.frames.probe:IsShown(), "the last tab is restored")
+        Window:Hide()
+
+        -- ── Overview ────────────────────────────────────────────────────────────────
+        HL.db.settings.windowTab = "overview"
+        local char = HL.db.char
+        local saveChar = { history = char.history, goals = char.goals, session = char.session }
+        local saveRank = { level = mock.rank.level, earned = mock.rank.earned, threshold = mock.rank.threshold }
+        local saveState = { level = mock.level, faction = mock.faction, honor = mock.currencies[1792].quantity,
+            window = { cap = mock.rankWindow.cap, prevCap = mock.rankWindow.prevCap, week = mock.rankWindow.week }, noData = mock.rankWindow.noData }
+        mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
+        mock.level, mock.faction, mock.currencies[1792].quantity = 60, "Alliance", 8200
+        mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week, mock.rankWindow.noData = 5, 3, 2, false
+        local function commas(n) return HL.Rank.FormatNumber(n) end
+        local now = time()
+        local function game(bg, result, duration, honor, marks, pts, state, extra)
+            local g = { bgType = bg, result = result, win = result == "win", duration = duration, honor = honor, marks = marks,
+                rankPoints = pts, rankState = state, timestamp = now }
+            for k, v in pairs(extra or {}) do g[k] = v end
+            return g
+        end
+        local games = {
+            game("AB", "win", 600, 450, 3, 100, "earned"),
+            game("WSG", "loss", 305, 120, 1, 0, "zero"),
+            game("AV", "draw", 1800, 200, 0, nil, "unknown", { rankPoints = 0 }),
+            game("DI", "left", 90, 0, 0, 0, "zero"),
+            game("AB", "win", 720, 300, 5, 0, "capped", { honorCapped = true }),
+            game("WSG", "loss", 61, 10, 0, 0, "gated"),
+            game("AV", "win", 100, 1, 1, 5, "earned"),
+        }
+        char.history = games
+        Window:Show("overview")
+        local ov = Window.frames.overview
+        local parts = ov.honorLogParts
+        check(ov and parts and Window.current == "overview", "overview: built on its tab")
+        local left, tiles = parts.left, parts.tiles
+
+        -- left pane
+        local info = HL.Rank:GetInfo()
+        check(left.season:GetText() == "Season 2", "overview: season " .. tostring(left.season:GetText()))
+        check(left.rank:GetText() == "Rank 3 Sergeant", "overview: rank and title: " .. tostring(left.rank:GetText()))
+        check(left.ring.honorLogRank == 3 and math.abs(left.ring.honorLogProgress - info.totalPoints / info.weekCapTotal) < 1e-9, "overview: ring rank and progress")
+        local pts = left.points:GetText()
+        check(pts:find("Rank Points: ", 1, true) and pts:find(commas(info.totalPoints), 1, true) and pts:find(commas(HL.Rank:TotalForRank(4)), 1, true)
+            and pts:find("|cffffffff", 1, true), "overview: rank points line: " .. tostring(pts))
+        check(left.percent:GetText() == string.format("%d%% of this week's cap, Rank %d", math.floor(info.totalPoints / info.weekCapTotal * 100), info.weekCapRank),
+            "overview: percent of the cap: " .. tostring(left.percent:GetText()))
+        check(not left.gate:IsShown(), "overview: no gate warning at level 60")
+        check(left.honorValue:GetText():find("8,200", 1, true) and left.honorValue:GetText():find("25,000", 1, true), "overview: honor value")
+        check(left.honorBar:GetValue() == 8200 / 25000, "overview: honor bar fraction")
+        check(not left.cap:IsShown(), "overview: no cap line far from the cap")
+        mock.currencies[1792].quantity = 24000
+        ov:Refresh()
+        local capAdvice = HL:GetHonorCapAdvice()
+        check(capAdvice and capAdvice.gamesToCap and left.cap:IsShown() and left.cap:GetText() == string.format("Cap in about %d games", capAdvice.gamesToCap),
+            "overview: cap line " .. tostring(left.cap:GetText()))
+        mock.currencies[1792].quantity = 8200
+
+        -- tiles, normal case
+        local m = HL:GetTodayModel()
+        check(tiles[1].value:GetText() == "3 \226\128\147 2", "overview: today's wins and losses " .. tostring(tiles[1].value:GetText()))
+        check(tiles[1].note:GetText() == string.format("7 games in %s", HL.Rank.FormatSpan(m.duration)), "overview: games and time " .. tostring(tiles[1].note:GetText()))
+        check(tiles[2].value:GetText() == "+" .. commas(m.honor) and tiles[2].value.__textColor[1] == 1 and tiles[2].value.__textColor[3] == 0, "overview: honor today in gold")
+        check(tiles[2].note:GetText() == commas(m.honorPerHour) .. " an hour", "overview: honor per hour " .. tostring(tiles[2].note:GetText()))
+        check(tiles[3].value:GetText() == "+105", "overview: rank points today " .. tostring(tiles[3].value:GetText()))
+        check(tiles[4].value:GetText() == "+10", "overview: marks today " .. tostring(tiles[4].value:GetText()))
+        local row = tiles[4].noteRow
+        check(row:IsShown() and not tiles[4].note:IsShown(), "overview: the marks tile's note line is the icon row")
+        check(row.widgets.AB.icon:IsShown() and row.widgets.AB.count:GetText() == "8" and row.widgets.WSG.count:GetText() == "1"
+            and row.widgets.AV.count:GetText() == "1" and not row.widgets.DI.icon:IsShown(), "overview: mark counts per battleground")
+
+        -- tiles, gate case (level 35 holds rank points at rank 3)
+        char.history = { game("AB", "win", 600, 450, 3, 0, "gated"), game("WSG", "loss", 300, 100, 1, 0, "gated") }
+        mock.level = 35
+        ov:Refresh()
+        check(tiles[3].value:GetText() == "0" and tiles[3].value.__textColor[2] == 0.6 and tiles[3].note:GetText() == "Level 40 needed", "overview: rank tile in the gate case: " .. tostring(tiles[3].note:GetText()))
+        check(left.gate:IsShown() and left.gateTitle:GetText() == "Rank 4 needs level 40" and left.gateText:GetText() == HL.Rank:GateText(HL.Rank:GetInfo().gate),
+            "overview: the gate warning")
+        mock.level = 60
+        -- tiles, cap case
+        mock.rank.level, mock.rank.earned, mock.rank.threshold = 5, 10, 1350
+        char.history = { game("AB", "win", 600, 450, 3, 0, "capped") }
+        ov:Refresh()
+        check(tiles[3].value:GetText() == "0" and tiles[3].note:GetText() == "Weekly cap reached", "overview: rank tile in the cap case: " .. tostring(tiles[3].note:GetText()))
+        mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
+        -- no games today
+        char.history = {}
+        ov:Refresh()
+        check(tiles[1].value:GetText() == "0 \226\128\147 0" and tiles[1].note:GetText() == "No games yet today", "overview: no games today")
+        check(tiles[4].value:GetText() == "+0" and not row.widgets.AB.icon:IsShown(), "overview: no marks today")
+
+        -- recent games
+        char.history = games
+        ov:Refresh()
+        local g = parts.games
+        check(g.rows.count == 6 and not g.empty:IsShown(), "overview: six recent games")
+        local function cellText(i, key) return g.rows.frames[i].cells[key].text:GetText() end
+        local expectBg = { "AB", "WSG", "AV", "DI", "AB", "WSG" }
+        for i, bg in ipairs(expectBg) do
+            check(cellText(i, "bg") == HL:GetBGDisplayName(bg), "overview: row " .. i .. " battleground")
+        end
+        local words = { "Win", "Loss", "Draw", "Left early", "Win", "Loss" }
+        for i, word in ipairs(words) do check(cellText(i, "result") == word, "overview: row " .. i .. " result word " .. tostring(cellText(i, "result"))) end
+        local sym = function(i) return g.rows.frames[i].cells.result.symbol end
+        check(sym(1).__texture == "Interface\\RaidFrame\\ReadyCheck-Ready" and sym(1):IsShown(), "overview: a win has the tick")
+        check(sym(2).__texture == "Interface\\RaidFrame\\ReadyCheck-NotReady" and sym(2):IsShown(), "overview: a loss has the cross")
+        check(not sym(3):IsShown() and not sym(4):IsShown(), "overview: a draw and a left-early game have words only")
+        check(cellText(1, "length") == "10:00" and cellText(2, "length") == "5:05" and cellText(6, "length") == "1:01", "overview: lengths as m:ss")
+        check(cellText(1, "honor") == "+450" and cellText(5, "honor") == "+300 *", "overview: honor, with a marker when played at the cap")
+        local honorCell = g.rows.frames[5].cells.honor
+        honorCell.__scripts.OnEnter(honorCell)
+        check(mock.tip.lines[1].text == HL:DescribeHonor(games[5]) and mock.tip.shown, "overview: the honor cell's tooltip is DescribeHonor")
+        honorCell.__scripts.OnLeave(honorCell)
+        local tones = { "earned", "blocked", "unknown", "blocked", "blocked", "blocked" }
+        local colorOf = { earned = Kit.COLORS.white, blocked = Kit.COLORS.orange, unknown = Kit.COLORS.grey }
+        for i, tone in ipairs(tones) do
+            local text, t = HL:DescribeRankPoints(games[i])
+            check(t == tone and cellText(i, "rank") == text, "overview: row " .. i .. " rank points text and tone (" .. tostring(text) .. ")")
+            local tc = g.rows.frames[i].cells.rank.text.__textColor
+            check(tc[1] == colorOf[tone][1] and tc[2] == colorOf[tone][2] and tc[3] == colorOf[tone][3], "overview: row " .. i .. " rank points colour for " .. tone)
+        end
+        check(cellText(1, "marks") == "+3" and g.rows.frames[1].cells.marks.mark.honorLogBG == "AB", "overview: marks with their icon")
+        char.history = {}
+        ov:Refresh()
+        check(g.rows.count == 0 and g.empty:IsShown() and g.empty:GetText() == "No games recorded yet. Play a battleground and it will show here.", "overview: no games recorded")
+
+        -- what to do next
+        local realAdvice, realGoals = HL.GetAdvice, HL.GetAllGoalsProgress
+        local a = parts.advice
+        HL.GetAdvice = function() return {
+            { kind = "cap", head = "Honor is near the cap.", body = "Spend it.", itemID = vendorItem },
+            { kind = "bestbg", head = "AB pays best.", body = "412 honor a game.", bgType = "AB" },
+            { kind = "nogames", head = "No games recorded yet.", body = "Play one." },
+        } end
+        ov:Refresh()
+        check(a.rows.count == 3 and not a.empty:IsShown(), "overview: three advice rows")
+        local r1, r2, r3 = a.rows.frames[1], a.rows.frames[2], a.rows.frames[3]
+        check(r1.text:GetText() == "Honor is near the cap. |cffa8a297Spend it.|r" or r1.text:GetText():find("^Honor is near the cap%. |cff%x+Spend it%.|r$"), "overview: head then grey body: " .. tostring(r1.text:GetText()))
+        check(r1.item:IsShown() and r1.item.honorLogItemID == vendorItem and not r1.mark:IsShown(), "overview: an advice row with an item shows its icon")
+        check(r2.mark:IsShown() and r2.mark.honorLogBG == "AB" and not r2.item:IsShown(), "overview: an advice row with a battleground shows its mark")
+        check(not r3.item:IsShown() and not r3.mark:IsShown(), "overview: a plain advice row has no icon")
+        HL.GetAdvice = function() return {} end
+        ov:Refresh()
+        check(a.rows.count == 0 and a.empty:IsShown() and a.empty:GetText() == "Nothing pressing. Keep playing.", "overview: nothing pressing")
+        HL.GetAdvice = realAdvice
+        ov:Refresh()
+        check(a.rows.count == #HL:GetAdvice(4), "overview: the real advice list is drawn")
+
+        -- next goal
+        local goalPart = parts.goal
+        local pickerCalls, tabCalls = 0, {}
+        local realPicker, realSwitch = HL.ShowGoalPicker, HL.SwitchTab
+        HL.ShowGoalPicker = function() pickerCalls = pickerCalls + 1 end
+        HL.SwitchTab = function(_, tab) tabCalls[#tabCalls + 1] = tab end
+        HL.GetAllGoalsProgress = function() return {} end
+        ov:Refresh()
+        check(goalPart.none:IsShown() and goalPart.none:GetText() == "No goals yet" and goalPart.add:IsShown() and not goalPart.view:IsShown() and not goalPart.icon:IsShown(), "overview: no goals")
+        check(goalPart.add:GetText() == "Add a goal", "overview: the add button")
+        goalPart.add.__scripts.OnClick(goalPart.add)
+        check(pickerCalls == 1, "overview: Add a goal opens the goal picker")
+        local gp = { itemID = vendorItem, name = "Premier Test Cloak", isComplete = false, rows = {
+            { kind = "honor", needed = 5000, current = 1200, met = false },
+            { kind = "marks", bg = "AB", needed = 10, current = 10, met = true },
+            { kind = "rank", needed = 6, current = 3, met = false },
+            { kind = "level", needed = 55, current = 35, met = false },
+            { kind = "gold", needed = 15000, current = 20000, met = true },
+            { kind = "rep", needed = 5, current = 4, met = false, factionName = "The League of Arathor", standingName = "Friendly" },
+        } }
+        HL.GetAllGoalsProgress = function() return { gp } end
+        ov:Refresh()
+        check(goalPart.icon:IsShown() and goalPart.icon.honorLogItemID == vendorItem and goalPart.view:IsShown() and not goalPart.add:IsShown() and not goalPart.none:IsShown(), "overview: a goal is shown")
+        check(goalPart.name:GetText() == Kit:QualityHex(goalPart.icon.honorLogQuality) .. "Premier Test Cloak|r", "overview: the name in its quality colour")
+        check(goalPart.percent:GetText() == string.format("%d%% complete", math.floor(HL:GetGoalPercent(gp))), "overview: percent complete " .. tostring(goalPart.percent:GetText()))
+        local gr = goalPart.rows
+        local expect = {
+            { "Honor", "1,200 / 5,000", Kit.COLORS.white }, { HL:GetBGDisplayName("AB") .. " marks", "10 / 10", Kit.COLORS.green },
+            { "Rank", "3 / 6", Kit.COLORS.red }, { "Level", "35 / 55", Kit.COLORS.red },
+            { "Gold", "2g / 1g", Kit.COLORS.green }, { "The League of Arathor", "Neutral / Friendly", Kit.COLORS.white },
+        }
+        check(gr.count == 6, "overview: one line per requirement")
+        for i, e in ipairs(expect) do
+            local rf = gr.frames[i]
+            check(rf.label:GetText() == e[1] and rf.value:GetText() == e[2], "overview: goal row " .. i .. " reads " .. tostring(rf.label:GetText()) .. " " .. tostring(rf.value:GetText()))
+            local c = rf.value.__textColor
+            check(c[1] == e[3][1] and c[2] == e[3][2] and c[3] == e[3][3], "overview: goal row " .. i .. " colour")
+        end
+        check(gr.frames[2].mark:IsShown() and gr.frames[2].mark.honorLogBG == "AB" and not gr.frames[1].mark:IsShown(), "overview: the marks row has its mark icon")
+        check(goalPart.view:GetText() == "View goal", "overview: the view button")
+        local miniShown = HL.mainFrame:IsShown()
+        if miniShown then HL:ToggleMainFrame() end
+        goalPart.view.__scripts.OnClick(goalPart.view)
+        check(tabCalls[1] == "goals" and HL.mainFrame:IsShown(), "overview: View goal opens the goals panel in the small frame")
+        if not miniShown then HL:ToggleMainFrame() end
+        -- an unmet-rep-free goal and a goal whose rows are all requirements work with the real model too
+        HL.GetAllGoalsProgress = realGoals
+        HL.ShowGoalPicker, HL.SwitchTab = realPicker, realSwitch
+        ov:Refresh()
+        check(goalPart.none:IsShown() == (#HL:GetAllGoalsProgress() == 0), "overview: the real goal list is drawn")
+
+        -- no rank data, no games, and reads that return nothing or a secret
+        mock.rankWindow.noData = true
+        char.history = {}
+        ov:Refresh()
+        check(left.rank:GetText() == "No rank yet" and left.points:GetText() == "No rank yet" and left.ring.honorLogRank == 0 and not left.gate:IsShown() and left.season:GetText() == "",
+            "overview: without rank data it says so")
+        mock.rankWindow.noData = false
+        local errorsBefore = #mock.handledErrors
+        local secret = mock.newSecret
+        local savedReads = { UnitName = UnitName, UnitLevel = UnitLevel, UnitClass = UnitClass, UnitFactionGroup = UnitFactionGroup,
+            info = C_CurrencyInfo.GetCurrencyInfo, rank = C_MajorFactions.GetMajorFactionProgressionInfo, icon = C_Item.GetItemIconByID,
+            count = C_Item.GetItemCount, season = C_SeasonInfo.GetTimeUntilCurrentPVPSeasonEnd, reset = C_DateAndTime.GetSecondsUntilWeeklyReset }
+        _G.UnitName, _G.UnitLevel, _G.UnitClass, _G.UnitFactionGroup = function() return secret() end, function() return secret() end, function() return secret() end, function() return secret() end
+        C_CurrencyInfo.GetCurrencyInfo = function() return nil end
+        C_MajorFactions.GetMajorFactionProgressionInfo = function() return { renownLevel = secret(), renownReputationEarned = secret() } end
+        C_Item.GetItemIconByID, C_Item.GetItemCount = function() return nil end, function() return secret() end
+        C_SeasonInfo.GetTimeUntilCurrentPVPSeasonEnd, C_DateAndTime.GetSecondsUntilWeeklyReset = function() return secret() end, function() return secret() end
+        Window:UpdateTitleBar()
+        ov:Refresh()
+        HL:GetBGDisplayName("AB")
+        check(#mock.handledErrors == errorsBefore, "overview: no error when every client read is secret: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+        C_CurrencyInfo.GetCurrencyInfo = function() return secret() end
+        C_MajorFactions.GetMajorFactionProgressionInfo = function() return nil end
+        Window:UpdateTitleBar()
+        ov:Refresh()
+        check(#mock.handledErrors == errorsBefore, "overview: no error when the reads return nil or a secret: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+        _G.UnitName, _G.UnitLevel, _G.UnitClass, _G.UnitFactionGroup = savedReads.UnitName, savedReads.UnitLevel, savedReads.UnitClass, savedReads.UnitFactionGroup
+        C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo = savedReads.info, savedReads.rank
+        C_Item.GetItemIconByID, C_Item.GetItemCount = savedReads.icon, savedReads.count
+        C_SeasonInfo.GetTimeUntilCurrentPVPSeasonEnd, C_DateAndTime.GetSecondsUntilWeeklyReset = savedReads.season, savedReads.reset
+
+        -- a screen that raises costs a refresh, not the caller
+        local realTitle = HL.Rank.GetInfo
+        HL.Rank.GetInfo = function() error("boom") end
+        local before2 = #mock.handledErrors
+        mock.runShowScripts = true
+        ov:Refresh()
+        Window:OnDataChanged()
+        check(#mock.handledErrors >= before2, "a failing read is reported without stopping the caller")
+        HL.Rank.GetInfo = realTitle
+        for i = #mock.handledErrors, before2 + 1, -1 do mock.handledErrors[i] = nil end
+
+        -- ── Integration: every control, twice ───────────────────────────────────────
+        char.history = games
+        local function integration(label)
+            Window:Show("overview")
+            local n = 0
+            local list = {}
+            for i = framesBefore, #mock.frames do list[#list + 1] = mock.frames[i] end
+            for _, f in ipairs(list) do
+                if f.__scripts.OnEnter then f.__scripts.OnEnter(f); n = n + 1 end
+                if f.__scripts.OnLeave then f.__scripts.OnLeave(f) end
+                if f.__scripts.OnClick then
+                    f.__scripts.OnClick(f, "LeftButton"); n = n + 1
+                    if not Window:IsShown() then Window:Show() end -- the close button closed it
+                end
+            end
+            check(n > 20, label .. "integration clicked " .. n .. " controls")
+            Window:Hide()
+            Window:Show()
+            check(Window:IsShown(), label .. "the window reopens")
+            Window:Hide()
+        end
+        local before3 = #mock.handledErrors
+        integration("window: ")
+        -- the same with every template and atlas missing
+        mock.atlasMode, mock.missingTemplates = "none", { ["*"] = true }
+        mock.removeFonts()
+        Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+        framesBefore = #mock.frames
+        Window:Show("overview")
+        check(Window.frame.honorLogChrome == false and Window.frames.overview.honorLogParts.left.ring.honorLogFull == false, "window: built from plain drawing when nothing exists")
+        integration("window (plain): ")
+        mock.atlasMode, mock.missingTemplates = "default", {}
+        mock.restoreFonts()
+        check(#mock.handledErrors == before3, "window: the integration run raised no error: " .. tostring(mock.handledErrors[before3 + 1]))
+
+        -- put everything back
+        mock.runShowScripts = false
+        Window:Hide()
+        char.history, char.goals, char.session = saveChar.history, saveChar.goals, saveChar.session
+        mock.rank.level, mock.rank.earned, mock.rank.threshold = saveRank.level, saveRank.earned, saveRank.threshold
+        mock.level, mock.faction, mock.currencies[1792].quantity = saveState.level, saveState.faction, saveState.honor
+        mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = saveState.window.cap, saveState.window.prevCap, saveState.window.week
+        mock.rankWindow.noData = saveState.noData
+        mock.shift, mock.ctrl = false, false
+        HL:ClearMapPins()
     end
 
     -- The mock's registration rules are live: the restricted event raises.

@@ -173,6 +173,9 @@ local DEFAULTS = {
         frameScale = 1.0,
         frameSize = nil, -- nil = use default, or { width, height } for custom size
         frameResizable = true, -- Allow frame resizing
+        windowPoint = nil, -- { point, relativePoint, x, y } of the full window; nil = centred
+        windowScale = 1.0, -- scale of the full window
+        windowTab = "overview", -- the screen the full window opens on
         viewMode = "character", -- "character" or "account"
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,

@@ -1398,6 +1398,15 @@ local function InitializeMenu(frame, level, menuList)
         info.notCheckable = true
         UIDropDownMenu_AddButton(info, level)
 
+        -- The full window
+        info = UIDropDownMenu_CreateInfo()
+        info.text = HonorLog.L["Open HonorLog"]
+        info.notCheckable = true
+        info.func = function()
+            if HonorLog.Window then HonorLog.Window:Show() end
+        end
+        UIDropDownMenu_AddButton(info, level)
+
         -- Separator
         info = UIDropDownMenu_CreateInfo()
         info.text = ""

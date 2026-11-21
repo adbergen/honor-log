@@ -25,7 +25,7 @@ local methods = {}
 
 local FRAME_TYPES = {
     Frame = true, Button = true, ScrollFrame = true, Slider = true,
-    CheckButton = true, EditBox = true, StatusBar = true,
+    CheckButton = true, EditBox = true, StatusBar = true, Cooldown = true,
 }
 
 local function newObject(objType, parent, name)
@@ -78,8 +78,21 @@ function methods.SetWidth(self, w) self.__width = w; return self end
 function methods.SetHeight(self, h) self.__height = h; return self end
 function methods.SetSize(self, w, h) self.__width, self.__height = w, h; return self end
 function methods.GetNumPoints() return 0 end
-function methods.GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
-function methods.GetScale() return 1 end
+-- Points are remembered, so a test can read back where a frame was put.
+function methods.SetPoint(self, point, rel, relPoint, x, y)
+    if type(rel) ~= "table" then rel, relPoint, x, y = nil, rel, relPoint, x end
+    self.__points = self.__points or {}
+    self.__points[#self.__points + 1] = { point, rel, relPoint or point, x or 0, y or 0 }
+    return self
+end
+function methods.ClearAllPoints(self) self.__points = nil; return self end
+function methods.GetPoint(self, i)
+    local p = self.__points and self.__points[i or 1]
+    if p then return p[1], p[2], p[3], p[4], p[5] end
+    return "CENTER", nil, "CENTER", 0, 0
+end
+function methods.GetScale(self) return self.__scale or 1 end
+function methods.SetScale(self, v) self.__scale = v; return self end
 function methods.GetEffectiveScale() return 1 end
 function methods.GetCenter() return 400, 300 end
 function methods.GetFrameLevel() return 0 end
@@ -100,9 +113,27 @@ function methods.HasFocus() return false end
 function methods.IsForbidden() return false end
 function methods.IsShown(self) return self.__shown ~= false end
 function methods.IsVisible(self) return self.__shown ~= false end
-function methods.Show(self) self.__shown = true; return self end
-function methods.Hide(self) self.__shown = false; return self end
+-- With M.runShowScripts on, a change of shown state runs OnShow / OnHide, as the client does.
+function methods.Show(self)
+    local was = self.__shown ~= false
+    self.__shown = true
+    if M.runShowScripts and not was and self.__scripts.OnShow then self.__scripts.OnShow(self) end
+    return self
+end
+function methods.Hide(self)
+    local was = self.__shown ~= false
+    self.__shown = false
+    if M.runShowScripts and was and self.__scripts.OnHide then self.__scripts.OnHide(self) end
+    return self
+end
 function methods.SetShown(self, b) self.__shown = b and true or false; return self end
+
+-- Colours, textures and fonts are remembered so a test can read what was drawn.
+function methods.SetColorTexture(self, r, g, b, a) self.__color = { r, g, b, a }; self.__texture = nil; self.__atlas = nil; return self end
+function methods.SetVertexColor(self, r, g, b, a) self.__vertex = { r, g, b, a }; return self end
+function methods.SetTextColor(self, r, g, b, a) self.__textColor = { r, g, b, a }; return self end
+function methods.SetTexture(self, tex) self.__texture = tex; self.__atlas = nil; return self end
+function methods.SetFontObject(self, font) self.__font = font; return self end
 
 function methods.SetText(self, txt)
     self.__text = txt
@@ -141,7 +172,7 @@ function methods.RegisterForClicks() return end
 function methods.CreateTexture(self) return newObject("Texture", self) end
 function methods.CreateMaskTexture(self) return newObject("Texture", self) end
 function methods.SetRotation(self, r) self.__rotation = r; return self end
-function methods.SetAtlas(self, atlas) self.__atlas = atlas; return self end
+function methods.SetAtlas(self, atlas) self.__atlas = atlas; self.__color = nil; self.__texture = nil; return self end
 function methods.GetRotation(self) return self.__rotation end
 function methods.SetAlpha(self, a) self.__alpha = a; return self end
 function methods.GetAlpha(self) return self.__alpha or 1 end
@@ -152,8 +183,37 @@ function methods.SetScrollChild(self, c) self.__scrollchild = c; return self end
 
 -- ─── Globals ─────────────────────────────────────────────────────────
 
-function CreateFrame(objType, name, parent)
-    return newObject(objType or "Frame", parent, name)
+-- Templates: any template is accepted (as before) unless a test lists it in M.missingTemplates, which makes
+-- CreateFrame raise the way the client does for an unknown one. A few templates give the frame the children
+-- and methods the real ones have (M.templateInit), so the full window is built the way it is in the game.
+M.missingTemplates = {}
+M.templateInit = {
+    PortraitFrameTemplate = function(f)
+        rawset(f, "CloseButton", newObject("Button", f))
+        rawset(f, "SetTitle", function(self, text) self.__title = text end)
+        rawset(f, "SetPortraitToAsset", function(self, tex) self.__portrait = tex end)
+    end,
+    PortraitFrameBaseTemplate = function(f)
+        rawset(f, "SetTitle", function(self, text) self.__title = text end)
+        rawset(f, "SetPortraitToAsset", function(self, tex) self.__portrait = tex end)
+    end,
+}
+function CreateFrame(objType, name, parent, template)
+    if template then
+        for t in tostring(template):gmatch("[^,%s]+") do
+            if M.missingTemplates[t] or M.missingTemplates["*"] then
+                error("CreateFrame: Couldn't find inherited node \"" .. t .. "\"")
+            end
+        end
+    end
+    local f = newObject(objType or "Frame", parent, name)
+    if template then
+        for t in tostring(template):gmatch("[^,%s]+") do
+            if M.templateInit[t] then M.templateInit[t](f) end
+        end
+        f.__template = template
+    end
+    return f
 end
 
 function hooksecurefunc(arg1, arg2, arg3)
@@ -407,8 +467,11 @@ function GetCurrentArenaSeason() return M.arenaSeason end
 -- Atlases the texture mock knows; SetAtlas on an unknown one would show nothing on the client.
 -- Atlases the client knows besides the rank icons: M.atlases[name] = true.
 M.atlases = { ["UI-WorldMapArrow"] = true }
+-- M.atlasMode: "default" (the list above), "all" (every atlas exists) or "none" (no atlas exists).
+M.atlasMode = "default"
 C_Texture = { GetAtlasInfo = function(name)
-    if M.atlases[name] or name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") then return { width = 64 } end
+    if M.atlasMode == "none" then return nil end
+    if M.atlasMode == "all" or M.atlases[name] or name:find("^UI%-Character%-Info%-Honor%-Icon%-%d+$") then return { width = 64 } end
 end }
 local CURRENCIES = {
     [1792] = { name = "Honor", quantity = 8200, maxQuantity = 25000 },
@@ -430,8 +493,10 @@ C_SeasonInfo = {
     GetTimeUntilCurrentPVPSeasonEnd = function() return M.seasonSeconds end,
 }
 M.bagItems = { [20558] = 12, [20559] = 3 }
+M.itemQuality = {} -- item id -> quality, for C_Item.GetItemQualityByID
 C_Item = {
     GetItemIconByID = function(id) return 100000 + id % 1000 end,
+    GetItemQualityByID = function(id) return M.itemQuality[id] end,
     GetItemCount = function(id) return M.bagItems[id] or 0 end,
     GetItemInfo = function(id)
         return "Item " .. tostring(id), "|cff0070dd|Hitem:" .. tostring(id) .. "|h[Item " .. tostring(id) .. "]|h|r",
@@ -653,8 +718,9 @@ function PlaySound() end
 SOUNDKIT = { IG_MAINMENU_OPTION_CHECKBOX_ON = 856, IG_MAINMENU_OPTION_CHECKBOX_OFF = 857 }
 M.alt = false -- tests set it to simulate Alt held
 function IsAltKeyDown() return M.alt end
-function IsShiftKeyDown() return false end
-function IsControlKeyDown() return false end
+M.shift, M.ctrl = false, false -- tests set them to simulate a held modifier
+function IsShiftKeyDown() return M.shift end
+function IsControlKeyDown() return M.ctrl end
 function GetCursorPosition() return 0, 0 end
 function SetCursor() end
 function ResetCursor() end
@@ -734,6 +800,22 @@ Minimap:SetSize(140, 140)
 GameTooltip = CreateFrame("GameTooltip", "GameTooltip", UIParent)
 UIErrorsFrame = CreateFrame("Frame", "UIErrorsFrame", UIParent)
 DressUpFrame = CreateFrame("Frame", "DressUpFrame", UIParent)
+UISpecialFrames = {}
+
+-- The tooltip remembers what it was asked to show: M.tip.owner, .anchor, .itemID, .lines, .shown.
+M.tip = { lines = {} }
+rawset(GameTooltip, "SetOwner", function(_, owner, anchor) M.tip = { owner = owner, anchor = anchor, lines = {} } end)
+rawset(GameTooltip, "SetItemByID", function(_, id) M.tip.itemID = id end)
+rawset(GameTooltip, "AddLine", function(_, text, r, g, b) M.tip.lines[#M.tip.lines + 1] = { text = text, r = r, g = g, b = b } end)
+rawset(GameTooltip, "Show", function() M.tip.shown = true end)
+rawset(GameTooltip, "Hide", function() M.tip.shown = false end)
+
+-- Blizzard font objects the kit looks up by name; M.removeFonts() takes them away to test the fallbacks.
+M.fontNames = { "GameFontNormal", "GameFontNormalSmall", "GameFontHighlight", "GameFontDisableSmall",
+    "GameFontHighlightLarge", "GameFontHighlightHuge", "GameFontNormalHuge" }
+for _, n in ipairs(M.fontNames) do _G[n] = { name = n } end
+function M.removeFonts() for _, n in ipairs(M.fontNames) do _G[n] = nil end end
+function M.restoreFonts() for _, n in ipairs(M.fontNames) do _G[n] = { name = n } end end
 
 -- ─── Test helpers ────────────────────────────────────────────────────
 

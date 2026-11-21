@@ -6,6 +6,10 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **The HonorLog window**, with its first screen, the Overview: rank ring and honor on the left; today's
+  games, honor, rank points and marks; what to do next; your next goal; and your recent games. It opens
+  with `/honorlog`, the minimap button, a key binding (Key Bindings, AddOns) or the addon menu. The
+  small frame stays as the in-battleground tracker (`/honorlog mini`).
 - **Data layer for the new window** (nothing visible yet): today's numbers, advice, the season's
   week-by-week cap schedule, a table of the 14 ranks with what each unlocks, why each game paid what it
   did, vendor lists with each vendor's stock and sets, per-battleground summaries, honor by day, win rate
