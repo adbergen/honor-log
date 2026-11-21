@@ -41,7 +41,7 @@ is not meant for the TBC client.
   - **Battleground reputation gear:** the Arathi Basin, Alterac Valley and Warsong Gulch
     reputation items are listed with a "price unconfirmed" tag until a vendor scan has seen them.
   - **Vendors:** a goal and a picker row say who sells the item and where ("Sold by Samuel Hawke,
-    Refuge Pointe, Arathi Highlands"). Alt+Click puts the vendor on your map as a waypoint, or
+    Refuge Pointe, Arathi Highlands"). Alt+Click opens the map on the vendor with a pulsing pin and a distance arrow, or
     use `/honorlog vendor <item or goal number>`. Where a vendor's position is not known yet,
     opening that vendor once lets HonorLog remember it.
 - **Rank planner, measured:** each game saves why it gave the rank points it did, the Rank tab

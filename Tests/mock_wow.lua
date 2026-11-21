@@ -139,6 +139,11 @@ function methods.UnregisterEvent(self, e) self.__events[e] = nil; return self en
 function methods.RegisterForClicks() return end
 
 function methods.CreateTexture(self) return newObject("Texture", self) end
+function methods.CreateMaskTexture(self) return newObject("Texture", self) end
+function methods.SetRotation(self, r) self.__rotation = r; return self end
+function methods.GetRotation(self) return self.__rotation end
+function methods.SetAlpha(self, a) self.__alpha = a; return self end
+function methods.GetAlpha(self) return self.__alpha or 1 end
 function methods.CreateFontString(self) return newObject("FontString", self) end
 function methods.CreateAnimationGroup(self) return newObject("AnimationGroup", self) end
 function methods.CreateAnimation(self) return newObject("Animation", self) end
@@ -406,6 +411,7 @@ C_SeasonInfo = {
 }
 M.bagItems = { [20558] = 12, [20559] = 3 }
 C_Item = {
+    GetItemIconByID = function(id) return 100000 + id % 1000 end,
     GetItemCount = function(id) return M.bagItems[id] or 0 end,
     GetItemInfo = function(id)
         return "Item " .. tostring(id), "|cff0070dd|Hitem:" .. tostring(id) .. "|h[Item " .. tostring(id) .. "]|h|r",
@@ -511,7 +517,65 @@ C_Map = {
     end,
     CanSetUserWaypointOnMap = function() return not M.waypointBlocked end,
     SetUserWaypoint = function(point) M.waypoint = point end,
+    GetMapInfo = function(id) return M.mapNames[id] and { name = M.mapNames[id], mapID = id } or nil end,
+    -- Rectangles of a map on an ancestor: M.mapRects["child:top"] = { minX, maxX, minY, maxY }.
+    GetMapRectOnMap = function(id, top)
+        local r = M.mapRects[id .. ":" .. top]
+        if r then return r[1], r[2], r[3], r[4] end
+    end,
+    -- Target world positions: M.worldPos[mapId] = { instance, x, y } (a fixed point per map, ignoring the input).
+    GetWorldPosFromMapPos = function(id, v)
+        local w = M.worldPos[id]
+        if not w then return nil end
+        if M.worldPosFromInput then return w[1], CreateVector2D(w[2] + v.x * 1000, w[3] + v.y * 1000) end
+        return w[1], CreateVector2D(w[2], w[3])
+    end,
 }
+M.mapNames = { [1453] = "Stormwind City", [1454] = "Orgrimmar", [12] = "Kalimdor" }
+M.mapRects, M.worldPos = {}, {}
+function CreateVector2D(x, y)
+    return { x = x, y = y, GetXY = function() return x, y end }
+end
+
+-- Player state the map arrow reads.
+M.combat, M.inInstance = false, false
+M.unitPosition = { 100, 200, 0, 0 } -- first return, second return, height, instance (UnitPosition order)
+M.facing = 0
+M.bindings = { TOGGLEWORLDMAP = "M" }
+function InCombatLockdown() return M.combat end
+function IsInInstance() return M.inInstance, M.inInstance and "pvp" or "none" end
+function UnitPosition(unit)
+    if unit ~= "player" or not M.unitPosition then return nil end
+    local p = M.unitPosition
+    if M.positionSecret then return M.newSecret(), M.newSecret(), 0, 0 end
+    return p[1], p[2], p[3], p[4]
+end
+function GetPlayerFacing() return M.facing end
+function GetBindingKey(action) return M.bindings[action] end
+
+-- The world map: shown, the map it shows, and a canvas of known size and scale.
+M.worldMap = { mapID = 1, setCalls = {} }
+WorldMapFrame = CreateFrame("Frame", "WorldMapFrame", UIParent)
+WorldMapFrame:Hide()
+local worldCanvas = CreateFrame("Frame", nil, WorldMapFrame)
+worldCanvas:SetSize(1000, 500)
+M.worldCanvas = worldCanvas
+M.canvasScale = 1
+rawset(WorldMapFrame, "GetCanvas", function() return worldCanvas end)
+rawset(WorldMapFrame, "GetCanvasScale", function() return M.canvasScale end)
+rawset(WorldMapFrame, "GetMapID", function() return M.worldMap.mapID end)
+rawset(WorldMapFrame, "OnMapChanged", function() end)
+rawset(WorldMapFrame, "SetMapID", function(_, id)
+    M.worldMap.setCalls[#M.worldMap.setCalls + 1] = id
+    M.worldMap.mapID = id
+    WorldMapFrame:OnMapChanged()
+end)
+-- Like the client: showing a panel runs its OnShow.
+function ShowUIPanel(frame)
+    M.panelShown = (M.panelShown or 0) + 1
+    frame:Show()
+    if frame.__scripts.OnShow then frame.__scripts.OnShow(frame) end
+end
 UiMapPoint = { CreateFromCoordinates = function(map, x, y) return { uiMapID = map, position = { x = x, y = y } } end }
 C_SuperTrack = { SetSuperTrackedUserWaypoint = function(on) M.superTracked = on end }
 -- The instance the player is in; tests change it. mapID is the 8th return.

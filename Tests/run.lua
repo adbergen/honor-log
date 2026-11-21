@@ -52,7 +52,7 @@ local function run()
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
         "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
-        "UI/Theme.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
+        "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua",
     }
     local tocFiles = {}
@@ -1883,32 +1883,197 @@ local function run()
         mock.units.npc = nil
         mock.merchant.items = {}
 
-        -- The waypoint.
+        -- The map pin and arrow (UI/MapPin.lua); the game's user waypoint is never touched.
+        local MP = HL.MapPin
+        local canvas = mock.worldCanvas
         mock.waypoint, mock.superTracked = nil, nil
+        mock.worldMap.mapID, mock.worldMap.setCalls, mock.panelShown = 1, {}, nil
+        WorldMapFrame:Hide()
+        mock.deferTimers = true
         before = #printed
         v = HL:GetVendorFor(BLUE)
         check(HL:ShowVendorOnMap(v) == true, "ShowVendorOnMap with coordinates returns true")
-        check(mock.waypoint and mock.waypoint.uiMapID == 1453 and near(mock.waypoint.position.x, 0.744, 1e-6) and near(mock.waypoint.position.y, 0.675, 1e-6), "the waypoint is set at x / 100, y / 100")
-        check(mock.superTracked == true, "the waypoint is super-tracked")
-        check(table.concat(printed, "\n", before + 1):find("Captain Dirgehammer, Champions' Hall, Stormwind City", 1, true), "one line names the vendor and place")
-        mock.waypoint = nil
+        check(mock.waypoint == nil and mock.superTracked == nil, "C_Map.SetUserWaypoint and C_SuperTrack are never called")
+        check(MP:Count() == 1 and MP:GetPin(12777) and MP:GetPin(12777).name == "Captain Dirgehammer", "one pin, keyed by the npc id")
+        check(WorldMapFrame:IsShown() and mock.panelShown == 1 and mock.worldMap.mapID == 1453, "out of combat the map opens on the vendor's zone")
+        check(table.concat(printed, "\n", before + 1):find("Marked Captain Dirgehammer - Stormwind City on the map.", 1, true), "one line: marked name - map name")
+        local pinButton = MP:GetPin(12777).button
+        check(pinButton and pinButton:IsShown(), "the pin button is shown on its own map")
+        mock.advance(1)
+        check(#mock.worldMap.setCalls >= 3, "SetMapID is repeated shortly after, for a client that ignores the first call")
+        mock.deferTimers = false
+
+        -- Position: x / 100 of the canvas width, y / 100 of its height from the top-left, undoing the zoom.
+        local lastPoint
+        local realSetPoint = pinButton.SetPoint
+        pinButton.SetPoint = function(self, ...) lastPoint = { ... }; return realSetPoint(self, ...) end
+        MP:Refresh()
+        check(lastPoint[1] == "CENTER" and lastPoint[2] == canvas and lastPoint[3] == "TOPLEFT"
+            and near(lastPoint[4], 744, 1e-6) and near(lastPoint[5], -337.5, 1e-6), "the pin sits at x% of the canvas width and y% of its height")
+        mock.canvasScale = 2
+        MP:Refresh()
+        check(near(lastPoint[4], 1488, 1e-6) and near(lastPoint[5], -675, 1e-6), "zoomed canvas: offset follows the pin's own scale")
+        mock.canvasScale = 1
+        MP:Refresh()
+
+        -- Other maps: hidden, or projected through an ancestor's rectangle.
+        mock.worldMap.mapID = 1454
+        MP:Refresh()
+        check(not pinButton:IsShown(), "hidden on an unrelated map")
+        mock.mapRects["1453:12"] = { 0.2, 0.4, 0.5, 0.9 }
+        mock.worldMap.mapID = 12
+        MP:Refresh()
+        check(pinButton:IsShown() and near(lastPoint[4], (0.2 + 0.744 * 0.2) * 1000, 1e-6) and near(lastPoint[5], -(0.5 + 0.675 * 0.4) * 500, 1e-6), "an ancestor map: the position is projected into its rectangle")
+        mock.worldMap.mapID = 1453
+        MP:Refresh()
+
+        -- Tooltip.
+        tipLines = {}
+        pinButton:GetScript("OnEnter")(pinButton)
+        check(tipHas("Captain Dirgehammer") and tipHas("Armor Quartermaster") and tipHas("Right-click to remove"), "pin tooltip: name, role, how to remove")
+
+        -- Showing the same place again reuses its pin.
+        check(HL:ShowVendorOnMap(v) == true and MP:Count() == 1 and MP:GetPin(12777).button == pinButton, "the same place twice makes one pin")
+
+        -- The pin remembers what the player is buying: the item name and icon.
+        check(HL:ShowVendorForItem(BLUE) == true and MP:GetPin(12777).reason == HL:GetGearName(BLUE) and MP:GetPin(12777).icon == 100000 + BLUE % 1000, "ShowVendorForItem adds the item name and icon")
+        tipLines = {}
+        pinButton:GetScript("OnEnter")(pinButton)
+        check(tipHas("For: " .. HL:GetGearName(BLUE)), "pin tooltip: For: <item>")
+
+        -- Right-click removes the pin and the arrow that pointed at it.
+        check(MP:GetArrow() and MP:GetTarget() == 12777, "the arrow points at the new pin")
+        pinButton:GetScript("OnClick")(pinButton, "RightButton")
+        check(MP:Count() == 0 and not pinButton:IsShown() and MP:GetTarget() == nil, "right-click removes the pin and the arrow's target")
+        check(MP:GetArrow():GetScript("OnUpdate") == nil, "no target: no OnUpdate script")
+
+        -- A vendor with a map but no coordinates: the map opens, no pin, false, and a line says why.
         mock.faction = "Horde"
+        mock.worldMap.mapID, mock.panelShown = 1, nil
+        WorldMapFrame:Hide()
+        mock.map = { id = 1454 }
         before = #printed
-        check(HL:ShowVendorOnMap(HL:GetVendorFor(HORDE_ARMOR)) == false and mock.waypoint == nil, "no coordinates: false, no waypoint")
-        check(table.concat(printed, "\n", before + 1):find("Lady Palanseer, Hall of Legends, Orgrimmar: open this vendor once and HonorLog will remember where it stands.", 1, true), "…and the line says to open the vendor once")
+        local noXY = { name = "Lady Palanseer", map = 1454, place = "Hall of Legends, Orgrimmar" }
+        check(HL:ShowVendorOnMap(noXY) == false and MP:Count() == 0, "a map without coordinates: false, no pin")
+        check(mock.worldMap.mapID == 1454 and WorldMapFrame:IsShown(), "…but the map opens on that zone")
+        check(table.concat(printed, "\n", before + 1):find("Lady Palanseer is in Orgrimmar. Open the vendor once and HonorLog will remember exactly where it stands.", 1, true), "…and the line says to open the vendor once")
+        mock.map = { id = 1453, x = 0.744, y = 0.675 }
+        before = #printed
+        check(HL:ShowVendorOnMap(HL:GetVendorFor(HORDE_ARMOR)) == false and MP:Count() == 0 and mock.waypoint == nil, "a built-in vendor with a map and no position: false, no pin")
+        check(table.concat(printed, "\n", before + 1):find("Lady Palanseer is in ", 1, true), "…and the line names the vendor and the zone")
+        before = #printed
+        check(HL:ShowVendorOnMap({ name = "Lady Palanseer", place = "Hall of Legends, Orgrimmar" }) == false and MP:Count() == 0, "no map at all: false, no pin")
+        check(table.concat(printed, "\n", before + 1):find("Lady Palanseer, Hall of Legends, Orgrimmar: open this vendor once and HonorLog will remember where it stands.", 1, true), "…the older line is kept")
         mock.faction = "Alliance"
-        mock.waypointBlocked = true
-        check(HL:ShowVendorOnMap(v) == false and mock.waypoint == nil, "a map that cannot take a waypoint: false")
-        mock.waypointBlocked = false
-        local savedSuper = C_SuperTrack
-        C_SuperTrack = nil
-        check(HL:ShowVendorOnMap(v) == true and mock.waypoint ~= nil, "without C_SuperTrack the waypoint is still set")
-        C_SuperTrack = savedSuper
-        local savedMapAPI = C_Map
-        C_Map = nil
-        check(HL:ShowVendorOnMap(v) == false, "without C_Map: false, no error")
-        C_Map = savedMapAPI
         check(HL:ShowVendorOnMap(nil) == false, "no vendor: false")
+
+        -- Combat: the pin is kept, the map is not opened, and the line names the key.
+        mock.worldMap.mapID, mock.panelShown = 1, nil
+        WorldMapFrame:Hide()
+        mock.combat = true
+        before = #printed
+        check(HL:ShowVendorOnMap(v) == true and MP:Count() == 1, "combat: the pin is still placed")
+        check(not WorldMapFrame:IsShown() and mock.panelShown == nil and mock.worldMap.mapID == 1, "combat: the map is not opened")
+        check(table.concat(printed, "\n", before + 1):find("The map can't open during combat. Press M to see the marked spot.", 1, true) and MP:GetJumpKey() == 12777, "combat: the line names the key, and the jump is remembered")
+        mock.combat = false
+        ShowUIPanel(WorldMapFrame)
+        check(mock.worldMap.mapID == 1453 and MP:GetJumpKey() == nil, "the next time the map shows it jumps to the pin once")
+        WorldMapFrame:Hide()
+        mock.worldMap.mapID = 1
+        ShowUIPanel(WorldMapFrame)
+        check(mock.worldMap.mapID == 1, "…and only once")
+
+        -- The arrow: distance, arrival, instances, secret and missing reads. UnitPosition's first return is
+        -- the north-south axis, which C_Map's vector calls x.
+        local arrowFrame = MP:GetArrow()
+        check(arrowFrame:GetScript("OnUpdate") ~= nil, "with a target the arrow has an OnUpdate")
+        mock.worldPos[1453] = { 0, 1000, 2000 }
+        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 0 } -- first return = y-ish, second = x-ish: swapped on purpose
+        mock.facing = 0
+        MP:GetPin(12777).world = nil
+        MP:UpdateArrow()
+        check(MP.arrowInfo.state == "ready" and near(MP.arrowInfo.distance, 50, 1e-6) and MP.arrowInfo.text == "50 yds", "the arrow reports 50 yards for a 30/40 offset")
+        check(arrowFrame.honorLogDistance:GetText() == "50 yds" and arrowFrame.honorLogName:GetText() == "Captain Dirgehammer", "the arrow shows the name and the distance")
+        check(arrowFrame.honorLogTexture:GetRotation() ~= nil, "the arrow graphic is rotated")
+        mock.unitPosition = { 2000, 1000 - 10, 0, 0 }
+        MP:UpdateArrow()
+        check(near(arrowFrame.honorLogTexture:GetRotation(), 0, 1e-6), "a target straight ahead: no rotation")
+        mock.unitPosition = { 2000 - 10, 1000, 0, 0 }
+        MP:UpdateArrow()
+        check(near(math.abs(arrowFrame.honorLogTexture:GetRotation()), math.pi / 2, 1e-6), "a target to the side: a quarter turn")
+        -- Another continent: no rotation, "In <map>".
+        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 530 }
+        MP:UpdateArrow()
+        check(MP.arrowInfo.state == "far" and arrowFrame.honorLogDistance:GetText() == "In Stormwind City", "another continent: the target's map name")
+        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 0 }
+        -- Secret or missing reads never raise, and just hide the graphic.
+        mock.positionSecret = true
+        check(pcall(MP.UpdateArrow, MP) and MP.arrowInfo.state == "unknown", "a secret position: no error, the graphic is hidden")
+        mock.positionSecret = false
+        local savedPos = mock.unitPosition
+        mock.unitPosition = nil
+        check(pcall(MP.UpdateArrow, MP) and MP.arrowInfo.state == "unknown", "a missing position: no error")
+        mock.unitPosition = savedPos
+        local savedFacing = mock.facing
+        mock.facing = nil
+        check(pcall(MP.UpdateArrow, MP) and MP.arrowInfo.state == "no-facing", "no facing: no error")
+        mock.facing = savedFacing
+        -- Inside an instance the arrow waits, then comes back.
+        mock.inInstance = true
+        MP:UpdateArrow()
+        check(MP.arrowInfo.state == "instance" and arrowFrame:GetAlpha() == 0 and MP:Count() == 1, "inside an instance the arrow is hidden")
+        mock.inInstance = false
+        MP:UpdateArrow()
+        check(arrowFrame:GetAlpha() == 1 and MP.arrowInfo.state == "ready", "…and returns outside")
+        -- The throttled OnUpdate: ticks under 0.1 s do nothing.
+        mock.unitPosition = { 2000 - 40, 1000 - 30, 0, 0 }
+        MP.arrowInfo.text = "stale"
+        arrowFrame:GetScript("OnUpdate")(arrowFrame, 0.05)
+        check(MP.arrowInfo.text == "stale", "OnUpdate is throttled")
+        arrowFrame:GetScript("OnUpdate")(arrowFrame, 0.06)
+        check(MP.arrowInfo.text == "50 yds", "…and updates after 0.1 s")
+        -- Right-click on the arrow hides it and keeps the pin; left-click opens the map.
+        arrowFrame:GetScript("OnClick")(arrowFrame, "LeftButton")
+        check(mock.worldMap.mapID == 1453 and WorldMapFrame:IsShown(), "left-click on the arrow opens the map on the pin")
+        arrowFrame:GetScript("OnDragStop")(arrowFrame)
+        check(type(HL.db.settings.mapArrowPoint) == "table", "dragging saves the arrow's position")
+        arrowFrame:GetScript("OnClick")(arrowFrame, "RightButton")
+        check(MP:Count() == 1 and not arrowFrame:IsShown() and arrowFrame:GetScript("OnUpdate") == nil, "right-click on the arrow: arrow gone, pin kept, no OnUpdate")
+        -- Arrival.
+        check(HL:ShowVendorOnMap(v) == true and arrowFrame:GetScript("OnUpdate") ~= nil, "showing the place again brings the arrow back")
+        mock.unitPosition = { 2000 - 3, 1000 - 4, 0, 0 }
+        MP:UpdateArrow()
+        check(MP.arrowInfo.state == "arrived" and not arrowFrame:IsShown() and arrowFrame:GetScript("OnUpdate") == nil and MP:Count() == 1, "within 8 yards the arrow goes away and the pin stays")
+
+        -- Opening the pinned vendor clears the pin.
+        mock.units.npc = { name = "Somebody Else" }
+        mock.npcGuid = "Creature-0-3-1-0-99999-0000ABCDEF"
+        mock.fireEvent("MERCHANT_SHOW"); mock.flushTimers()
+        check(MP:Count() == 1, "another vendor's window leaves the pin")
+        mock.units.npc = { name = "Captain Dirgehammer" }
+        mock.npcGuid = "Creature-0-3-1-0-12777-0000ABCDEF"
+        mock.fireEvent("MERCHANT_SHOW"); mock.flushTimers()
+        check(MP:Count() == 0, "MERCHANT_SHOW for the pinned vendor clears its pin")
+        -- Without an npc id the name decides.
+        HL:ShowPlaceOnMap({ map = 1453, x = 50, y = 50, name = "Nameless Vendor", kind = "vendor" })
+        check(MP:Count() == 1, "a vendor pin without an npc is keyed by map and position")
+        mock.npcGuid = nil
+        mock.units.npc = { name = "Nameless Vendor" }
+        mock.fireEvent("MERCHANT_SHOW"); mock.flushTimers()
+        check(MP:Count() == 0, "…and cleared by name when the npc id is unknown")
+        mock.units.npc = nil
+        mock.merchant.items = {}
+        MerchantFrame:Hide()
+        -- A place that is not a vendor stays when a vendor opens; /honorlog vendor clear removes it.
+        HL:ShowPlaceOnMap({ map = 1453, x = 10, y = 20, name = "Kill spot", kind = "place" })
+        check(HL:ShowPlaceOnMap({ map = 1453, name = "Broken" }) == false and HL:ShowPlaceOnMap(nil) == false, "an incomplete place is refused")
+        check(MP:Count() == 1, "a place pin is made for any place")
+        before = #printed
+        -- (the file-level slash handler belongs to the first load; use the current one)
+        SlashCmdList.HONORLOG("vendor clear")
+        check(MP:Count() == 0 and MP:GetTarget() == nil and table.concat(printed, "\n", before + 1):find("Cleared the map pins and the arrow.", 1, true), "/honorlog vendor clear clears the pins and the arrow")
+        check(HL:ClearMapPins("nothing") == 0, "clearing an unknown key removes nothing")
+        mock.worldMap.mapID, mock.map = 1, { id = 1453, x = 0.744, y = 0.675 }
 
         -- Tooltips and Alt+Click on a goal card and a picker row.
         HL:AddGoal(BLUE)
@@ -1917,12 +2082,12 @@ local function run()
         tipLines = {}
         card:GetScript("OnEnter")(card)
         check(tipHas("Sold by Captain Dirgehammer, Champions' Hall, Stormwind City") and tipHas("Alt+Click to show the vendor on the map"), "goal card tooltip: sold by, and the Alt+Click hint")
-        mock.waypoint = nil
         card:GetScript("OnMouseUp")(card, "LeftButton")
-        check(mock.waypoint == nil, "a plain click on a card sets no waypoint")
+        check(MP:Count() == 0, "a plain click on a card marks nothing")
         mock.alt = true
         card:GetScript("OnMouseUp")(card, "LeftButton")
-        check(mock.waypoint and mock.waypoint.uiMapID == 1453, "Alt+Click on a goal card sets the waypoint")
+        check(MP:Count() == 1 and MP:GetPin(12777), "Alt+Click on a goal card marks the vendor on the map")
+        HL:ClearMapPins()
         mock.alt = false
         HL:RemoveGoal(BLUE)
         picker.filters.class = "WARRIOR"
@@ -1932,27 +2097,27 @@ local function run()
         tipLines = {}
         prow:GetScript("OnEnter")(prow)
         check(tipHas("Sold by Captain Dirgehammer, Champions' Hall, Stormwind City") and tipHas("Alt+Click to show the vendor on the map"), "picker row tooltip: sold by, and the Alt+Click hint")
-        mock.waypoint, mock.alt = nil, true
+        mock.alt = true
         prow:GetScript("OnMouseUp")(prow, "LeftButton")
-        check(mock.waypoint and mock.waypoint.uiMapID == 1453, "Alt+Click on a picker row sets the waypoint")
+        check(MP:Count() == 1 and MP:GetPin(12777), "Alt+Click on a picker row marks the vendor on the map")
+        HL:ClearMapPins()
         mock.alt = false
         picker:Hide()
 
         -- /honorlog vendor
         HL:AddGoal(EPIC)
-        mock.waypoint = nil
         before = #printed
-        slash("vendor 1")
-        check(mock.waypoint and mock.waypoint.uiMapID == 1453, "/honorlog vendor 1: the first goal's vendor")
-        mock.waypoint = nil
-        slash("vendor item " .. BLUE)
-        check(mock.waypoint and table.concat(printed, "\n", before + 1):find("Waypoint set for Captain Dirgehammer", 1, true), "/honorlog vendor <item name>: any gear item")
-        mock.waypoint = nil
-        slash("vendor zzz no such thing")
-        check(mock.waypoint == nil and table.concat(printed, "\n", before + 1):find("No gear item matches", 1, true), "/honorlog vendor: an unknown name says so")
-        slash("vendor")
+        SlashCmdList.HONORLOG("vendor 1")
+        check(MP:Count() == 1 and MP:GetPin(12777), "/honorlog vendor 1: the first goal's vendor")
+        HL:ClearMapPins()
+        SlashCmdList.HONORLOG("vendor item " .. BLUE)
+        check(MP:Count() == 1 and table.concat(printed, "\n", before + 1):find("Marked Captain Dirgehammer", 1, true), "/honorlog vendor <item name>: any gear item")
+        HL:ClearMapPins()
+        SlashCmdList.HONORLOG("vendor zzz no such thing")
+        check(MP:Count() == 0 and table.concat(printed, "\n", before + 1):find("No gear item matches", 1, true), "/honorlog vendor: an unknown name says so")
+        SlashCmdList.HONORLOG("vendor")
         check(table.concat(printed, "\n", before + 1):find("Usage: /honorlog vendor", 1, true), "/honorlog vendor with nothing prints the usage")
-        slash("goal vendor 1")
+        SlashCmdList.HONORLOG("goal vendor 1")
         HL:RemoveGoal(EPIC)
 
         -- 5. Honor cap advice -----------------------------------------------------

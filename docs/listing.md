@@ -63,8 +63,8 @@ numbers honest by measuring them instead of guessing.
 - **Reputation forecast.** Reputation goals show your standing with amounts and a date
   based on the reputation your own recent games gave. Until a game has measured it, no
   date is shown.
-- **Vendor locations.** A goal says who sells the item and where, and Alt+Click puts the
-  vendor on your map.
+- **Vendor locations.** A goal says who sells the item and where, and Alt+Click opens
+  your map on the vendor with a pin, and an arrow shows the way.
 - **Honor cap advice.** If the cap is near and nothing on your list can be bought yet,
   HonorLog says why and lists what you could buy now.
 - **Every battleground:** Alterac Valley, Warsong Gulch, Arathi Basin and Darkspear
@@ -94,7 +94,7 @@ WoW Forever (client 1.60.1) only.
 | `/honorlog` | Show or hide the stats frame |
 | `/honorlog rank [n]` | Rank summary, or the plan to rank n |
 | `/honorlog goal` | Open the gear goals |
-| `/honorlog vendor [item or goal number]` | Show the vendor that sells an item on the map |
+| `/honorlog vendor [item or goal number]` | Show the vendor that sells an item on the map (`clear` removes the pins) |
 | `/honorlog export` | Export games as text or CSV |
 | `/honorlog config` | Open settings |
 | `/honorlog help` | List commands |

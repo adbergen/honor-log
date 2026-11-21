@@ -63,7 +63,11 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
   - The Arathi Basin, Alterac Valley and Warsong Gulch reputation items are listed by
     default, tagged "price unconfirmed" until a vendor scan has seen them.
   - Goals and picker rows say who sells the item and where. Alt+Click, or
-    `/honorlog vendor <item or goal number>`, sets a map waypoint. A vendor scan now also
+    `/honorlog vendor <item or goal number>`, opens the map on the vendor's zone, marks the
+    exact spot with HonorLog's own pulsing pin and shows a small arrow with the vendor's name
+    and the distance in yards. The pin and arrow clear themselves when you open that vendor;
+    right-click removes them, and `/honorlog vendor clear` removes all of them. During combat the
+    pin is kept and the map jumps to it the next time you open it. A vendor scan now also
     records the vendor's NPC id, map and position.
   - When the honor cap is near (or 20 games away) and nothing on your list can be bought
     because of level, rank or reputation, the advice says so and `/honorlog goal advice`
