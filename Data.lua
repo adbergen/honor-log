@@ -903,12 +903,20 @@ function HonorLog:AddHonorGain(amount)
     log.session = log.session + amount
 end
 
+-- The honor currency's record, or nil when the client gives none, raises, or hides it as a secret value
+-- (a secret must not be indexed, compared or added).
+local function HonorCurrency()
+    local info = C_CurrencyInfo and Util.call(C_CurrencyInfo.GetCurrencyInfo, HONOR_CURRENCY)
+    if type(info) ~= "table" or Util.isSecret(info) then return nil end
+    return info
+end
+
 -- Today, this week, this session, the hourly rate and the cap.
 function HonorLog:GetHonorSummary()
     local log = RollHonorLog(self)
-    local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(HONOR_CURRENCY)
-    local cap = info and info.maxQuantity or 0
-    local current = info and info.quantity or 0
+    local info = HonorCurrency()
+    local cap = info and Util.num(info.maxQuantity) or 0
+    local current = info and Util.num(info.quantity) or 0
     return {
         today = log.today, week = log.week, session = log.session,
         perHour = self:GetTotalSessionStats().hourlyRate,
@@ -925,8 +933,8 @@ CURRENCY APIs - For Gear Goal Tracking
 
 -- Get current honor points (currency 1792 on Forever)
 function HonorLog:GetCurrentHonor()
-    local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(HONOR_CURRENCY)
-    return type(info) == "table" and tonumber(info.quantity) or 0
+    local info = HonorCurrency()
+    return info and Util.num(info.quantity) or 0
 end
 
 -- Get current marks for a specific BG type
@@ -1363,8 +1371,8 @@ function HonorLog:IsGearAvailable(itemID)
 end
 
 function HonorLog:GetHonorCap()
-    local info = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(HONOR_CURRENCY)
-    local cap = type(info) == "table" and tonumber(info.maxQuantity) or nil
+    local info = HonorCurrency()
+    local cap = info and Util.num(info.maxQuantity) or nil
     if cap and cap > 0 then return cap end
     return nil
 end

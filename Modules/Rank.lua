@@ -177,7 +177,8 @@ function Rank:GetInfo()
     local api = C_MajorFactions
     if not (api and api.GetMajorFactionProgressionInfo) then return nil end
     local p = call(api.GetMajorFactionProgressionInfo, RANK_FACTION)
-    if type(p) ~= "table" then return nil end
+    -- a secret answer must not be indexed: it counts as no rank data
+    if type(p) ~= "table" or isSecret(p) then return nil end
     local rank, earned = num(p.renownLevel), num(p.renownReputationEarned)
     if not rank or not earned then return nil end
 
