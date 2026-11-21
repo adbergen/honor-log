@@ -322,6 +322,14 @@ function Weeks:Current()
 end
 Weeks.GetCurrent = Weeks.Current
 
+-- A character's reset: no weeks, and the one-time fill counts as done (no saved games are left to rebuild from).
+function Weeks:Reset()
+    local c = char()
+    if not c then return end
+    c.weeks, c.weeksFilled = {}, true
+    confirmFor, confirmed = nil, nil
+end
+
 --------------------------------------------------------------------------------
 -- Filling it as things happen
 --------------------------------------------------------------------------------

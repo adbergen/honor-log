@@ -1021,7 +1021,8 @@ local function ResolveKill(step, msg, enemy)
     local name = (msg and msg.name) or (enemy and enemy.name) or (party and party.name)
     local class = (enemy and enemy.class) or (name and ClassForName(name)) or (party and party.class)
     if name then credited[name] = GetTime() end
-    HonorLog:RecordWorldKill(name, class, party ~= nil)
+    local detail = msg and { rank = msg.rank, honor = msg.honor } or nil
+    HonorLog:RecordWorldKill(name, class, party ~= nil, detail)
     dbg("World kill:", tostring(name), "killing blow:", tostring(party ~= nil))
 end
 
@@ -1204,6 +1205,8 @@ function HonorLog:HandleSlashCommand(msg)
             self.db.char.worldPvP = self.NewWorldStats()
             self.db.char.opponents = {}
             self.db.char.history = {}
+            if self.WorldLog then self.WorldLog:Reset() end
+            if self.Weeks then self.Weeks:Reset() end
             self:ResetSession()
             if self.UpdateMainFrame then
                 self:UpdateMainFrame()

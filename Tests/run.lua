@@ -51,7 +51,7 @@ local function run()
         "Data/Vendors.lua", "Data/Quests.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
-        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/WorldLog.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
@@ -7437,6 +7437,365 @@ local function run()
 
             HL.UnregisterCallback(listener, "HonorLog_WeekEnded")
             check(#mock.handledErrors == errorsBefore, "weeks section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            restoreStores(kept)
+        end)()
+
+        --------------------------------------------------------------------
+        -- World log: the two events, the stored log, its readers, the weeks and the resets
+        --------------------------------------------------------------------
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+            local WorldLog = HL.WorldLog
+            local DAY = 86400
+            local T0 = realTime({ year = 2026, month = 11, day = 18, hour = 10, min = 0, sec = 0 })
+            local saved = { zone = mock.zone, subzone = mock.subzone, map = { id = mock.map.id, x = mock.map.x, y = mock.map.y, restricted = mock.map.restricted },
+                instance = mock.instance, target = mock.units.target, recap = mock.recap, hk = mock.pvp.sessionHK, clock = clock }
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            local c = HL.db.char
+            mock.playerName = "Alpha"
+            clock = T0
+            mock.weeklyReset = 3 * DAY
+            mock.zone, mock.subzone = "Hillsbrad Foothills", "Southshore"
+            mock.map.id, mock.map.x, mock.map.y, mock.map.restricted = 1424, 0.5, 0.25, nil
+            mock.units.target = nil
+            mock.recap = {}
+            mock.setInstance("Hillsbrad Foothills", "none", 0)
+
+            check(type(c.worldLog) == "table" and #c.worldLog == 0 and WorldLog.KEPT == 500, "world log: a fresh character has an empty log, limit 500")
+
+            local kills, deaths = {}, {}
+            local listener = {}
+            HL.RegisterCallback(listener, "HonorLog_WorldKill", function(_, entry) kills[#kills + 1] = entry end)
+            HL.RegisterCallback(listener, "HonorLog_WorldDeath", function(_, entry) deaths[#deaths + 1] = entry end)
+
+            -- the client's own sequence: a killing blow, the kill message, then the counter step
+            mock.deferTimers = true
+            mock.timers = {}
+            mock.fireEvent("PLAYER_ENTERING_WORLD")
+            local function step() mock.pvp.sessionHK = mock.pvp.sessionHK + 1; mock.fireEvent("PLAYER_PVP_KILLS_CHANGED"); mock.advance(3) end
+            local function message(name, rank, honor)
+                local text = rank and string.format(COMBATLOG_HONORGAIN, name, rank, honor) or string.format(COMBATLOG_HONORAWARD, honor)
+                mock.fireEvent("CHAT_MSG_COMBAT_HONOR_GAIN", text)
+            end
+            local w = c.worldPvP
+
+            -- a killing blow with a kill message
+            mock.units.target = { name = "Evk", class = "MAGE", enemy = true, dead = false }
+            mock.fireEvent("PARTY_KILL", "Player-1-1", "Player-2-77")
+            message("Evk", "Corporal", 21)
+            step()
+            local e = kills[1]
+            check(#kills == 1 and e.name == "Evk" and e.class == "MAGE" and e.kb == true and e.rank == "Corporal" and e.honor == 21, "events: a kill paired with its message carries name, class, killing blow, rank and honor")
+            check(w.kills == 1 and w.killingBlows == 1 and w.honorKill == 21 and c.opponents.Evk.kills == 1, "events: the counters, the honor split and the opponents are as before")
+            -- no killing blow
+            message("Evl", "Private", 12)
+            step()
+            e = kills[2]
+            check(e.name == "Evl" and e.kb == nil and e.rank == "Private" and e.honor == 12 and e.class == nil, "events: a kill without a killing blow has no kb, and no class when nobody in sight")
+            -- no message: the dead enemy in sight
+            mock.units.target = { name = "Evm", class = "ROGUE", enemy = true, dead = true }
+            step()
+            e = kills[3]
+            check(e.name == "Evm" and e.class == "ROGUE" and e.rank == nil and e.honor == nil and e.kb == nil, "events: a kill with no message has no rank and honor")
+            -- nobody
+            mock.units.target = nil
+            step()
+            e = kills[4]
+            check(#kills == 4 and e.name == nil and e.class == nil and e.rank == nil and e.honor == nil and w.unknownKills == 1, "events: a kill nobody could be named for has no name")
+            -- an honor award is no kill
+            message(nil, nil, 15)
+            mock.advance(3)
+            check(#kills == 4 and #deaths == 0 and w.honorAward == 15, "events: an honor award with no kill fires nothing")
+            -- the direct call with no detail still works
+            HL:RecordWorldKill("Direct", "WARRIOR", false)
+            check(kills[5].name == "Direct" and kills[5].class == "WARRIOR" and kills[5].rank == nil and kills[5].honor == nil, "events: RecordWorldKill with no detail fires the entry without rank and honor")
+
+            -- deaths
+            mock.recap = { { timestamp = 103, sourceGUID = "Player-2-99", sourceName = "Evn" } }
+            mock.fireEvent("PLAYER_DEAD")
+            mock.advance(1.5)
+            check(#deaths == 1 and deaths[1].name == "Evn" and deaths[1].class == "WARRIOR" and w.deaths == 1, "events: a death carries the killer's name and class")
+            mock.recap = { { timestamp = 104, sourceGUID = "Player-2-98" } }
+            mock.fireEvent("PLAYER_DEAD")
+            mock.advance(1.5)
+            check(#deaths == 2 and deaths[2].name == nil and deaths[2].class == "WARRIOR" and w.deaths == 2, "events: a death whose killer's name is unknown has no name")
+            mock.recap = {}
+
+            -- inside a battleground nothing fires
+            mock.setInstance("Warsong Gulch", "pvp", 489)
+            local killsBefore, deathsBefore, wKills, wDeaths = #kills, #deaths, w.kills, w.deaths
+            mock.units.target = { name = "Evp", class = "MAGE", enemy = true, dead = true }
+            mock.recap = { { timestamp = 105, sourceGUID = "Player-2-97", sourceName = "Evq" } }
+            message("Evp", "Private", 10)
+            step()
+            mock.fireEvent("PARTY_KILL", "Player-1-1", "Player-2-77")
+            mock.fireEvent("PLAYER_DEAD")
+            mock.advance(5)
+            check(#kills == killsBefore and #deaths == deathsBefore and w.kills == wKills and w.deaths == wDeaths, "events: inside a battleground nothing fires and nothing is counted")
+            mock.recap, mock.units.target = {}, nil
+            mock.setInstance("Hillsbrad Foothills", "none", 0)
+
+            -- the log: every field of a kill and of a death
+            local log = c.worldLog
+            check(#log == #kills + #deaths and #log == 7, "log: one entry per kill and death: " .. #log)
+            local first = log[#log] -- Evk, the oldest
+            check(first.kind == "kill" and first.t == T0 and first.kb == true and first.name == "Evk" and first.class == "MAGE" and first.rank == "Corporal" and first.honor == 21, "log: a kill entry holds time, kind, killing blow, name, class, rank and honor")
+            check(first.map == 1424 and first.x == 50 and first.y == 25 and first.zone == "Hillsbrad Foothills" and first.subzone == "Southshore", "log: and the place the client gave")
+            local unnamed = log[#log - 3]
+            check(unnamed.kind == "kill" and unnamed.name == nil and unnamed.kb == nil and unnamed.rank == nil and unnamed.honor == nil, "log: a kill nobody could be named for has no name, rank or honor")
+            local death = log[2]
+            check(death.kind == "death" and death.name == "Evn" and death.class == "WARRIOR" and death.kb == nil and death.rank == nil and death.honor == nil and death.zone == "Hillsbrad Foothills", "log: a death entry holds name, class and place only")
+            check(log[1].kind == "death" and log[1].name == nil, "log: newest first")
+
+            -- a place with no position, no map, no names
+            mock.map.restricted = true
+            mock.subzone = ""
+            HL:RecordWorldKill("Nopos", "MAGE", false)
+            e = log[1]
+            check(e.name == "Nopos" and e.map == 1424 and e.x == nil and e.y == nil and e.zone == "Hillsbrad Foothills" and e.subzone == nil, "log: no position is left out, an empty subzone too")
+            mock.map.restricted = nil
+            withGlobals({
+                GetRealZoneText = function() return mock.newSecret() end, GetSubZoneText = function() return mock.newSecret() end,
+                C_Map = { GetBestMapForUnit = function() return mock.newSecret() end, GetPlayerMapPosition = function() return mock.newSecret() end },
+            }, function()
+                check(pcall(HL.RecordWorldKill, HL, "Secretplace", "MAGE", true), "log: a secret place raises nothing")
+            end)
+            e = log[1]
+            check(e.name == "Secretplace" and e.kb == true and e.map == nil and e.x == nil and e.zone == nil and e.subzone == nil and e.t == T0, "log: a secret place is left out")
+            local readLocation = HL.ReadVendorLocation
+            HL.ReadVendorLocation = function() error("no reading") end
+            check(pcall(HL.RecordWorldKill, HL, "Noread", "MAGE", false) and log[1].name == "Noread" and log[1].map == nil, "log: a failing place read still logs the entry")
+            HL.ReadVendorLocation = nil
+            check(pcall(HL.RecordWorldKill, HL, "Nofn", "MAGE", false) and log[1].name == "Nofn", "log: no place reader still logs the entry")
+            HL.ReadVendorLocation = readLocation
+
+            -- secret and wrong-typed entries
+            local count = #log
+            check(pcall(HL.Fire, HL, "HonorLog_WorldKill", { name = mock.newSecret(), class = mock.newSecret(), kb = mock.newSecret(), rank = mock.newSecret(), honor = mock.newSecret() }), "log: a kill of secrets raises nothing")
+            e = log[1]
+            check(#log == count + 1 and e.kind == "kill" and e.name == nil and e.class == nil and e.kb == nil and e.rank == nil and e.honor == nil, "log: secret values are left out")
+            HL:Fire("HonorLog_WorldKill", { name = 5, class = {}, kb = "yes", rank = 7, honor = "12" })
+            e = log[1]
+            check(e.name == nil and e.class == nil and e.kb == nil and e.rank == nil and e.honor == nil, "log: values of the wrong type are left out")
+            HL:Fire("HonorLog_WorldKill", mock.newSecret())
+            HL:Fire("HonorLog_WorldKill", nil)
+            HL:Fire("HonorLog_WorldDeath", mock.newSecret())
+            HL:Fire("HonorLog_WorldDeath", { name = "", class = "" })
+            check(#log == count + 6 and log[1].kind == "death" and log[1].name == nil and log[1].class == nil, "log: a secret or missing entry is a bare entry with the time and kind, an empty name is no name")
+
+            -- the limit of 500, newest first
+            for i = 1, 520 do HL:Fire("HonorLog_WorldKill", { name = "L" .. i }) end
+            check(#log == 500 and log[1].name == "L520" and log[500].name == "L21", "log: at most 500 entries, the oldest dropped")
+            HL:Fire("HonorLog_WorldDeath", { name = "Last" })
+            check(#log == 500 and log[1].name == "Last" and log[500].name == "L22", "log: a death at the limit drops the oldest too")
+
+            -- a listener that fails does not stop the counters, the tally or the log
+            local errors = #mock.handledErrors
+            local bad = {}
+            HL.RegisterCallback(bad, "HonorLog_WorldKill", function() error("a failing listener") end)
+            HL.RegisterCallback(bad, "HonorLog_WorldDeath", function() error("a failing listener") end)
+            local k0, d0 = w.kills, w.deaths
+            check(pcall(HL.RecordWorldKill, HL, "Failer", "MAGE", false), "failing listener: RecordWorldKill does not raise")
+            check(pcall(HL.RecordWorldDeath, HL, "Failer", "MAGE"), "failing listener: RecordWorldDeath does not raise")
+            check(w.kills == k0 + 1 and w.deaths == d0 + 1 and c.opponents.Failer.kills == 1 and c.opponents.Failer.deaths == 1, "failing listener: the counters and the opponents tally are updated")
+            HL.UnregisterCallback(bad, "HonorLog_WorldKill")
+            HL.UnregisterCallback(bad, "HonorLog_WorldDeath")
+            HL.UnregisterCallback(listener, "HonorLog_WorldKill")
+            HL.UnregisterCallback(listener, "HonorLog_WorldDeath")
+            for i = #mock.handledErrors, errors + 1, -1 do table.remove(mock.handledErrors, i) end -- the failures above were on purpose
+
+            -- the log's own handlers report a failure and never raise
+            local failing = setmetatable({}, { __index = function() error("unreadable") end })
+            local before = #mock.handledErrors
+            check(pcall(HL.Fire, HL, "HonorLog_WorldKill", failing), "log: an entry that cannot be read raises nothing")
+            check(#mock.handledErrors >= before, "log: the failure is for the error handler")
+            for i = #mock.handledErrors, before + 1, -1 do table.remove(mock.handledErrors, i) end
+
+            ----------------------------------------------------------------
+            -- Readers, over a log made by hand
+            ----------------------------------------------------------------
+            local function at(t, kind, fields)
+                local entry = { t = t, kind = kind }
+                for k, v in pairs(fields or {}) do entry[k] = v end
+                return entry
+            end
+            c.worldLog = {
+                at(T0 - 60, "kill", { kb = true, name = "Alpha", honor = 20, zone = "Hillsbrad", subzone = "Tarren Mill", map = 1424, x = 50, y = 60 }),
+                at(T0 - 120, "death", { name = "Bravo", zone = "Arathi", map = 1417 }),
+                at(T0 - 180, "kill", { honor = 10, zone = "Hillsbrad", map = 1424, x = 40, y = 41 }),
+                at(T0 - 240, "death", { name = "alphonse", zone = "Hillsbrad" }),
+                at(T0 - DAY, "kill", { name = "Alpha", honor = 99, zone = "Arathi", subzone = "Refuge Pointe" }),
+                at(T0 - DAY - 100, "death", { name = "Alpha" }),
+                at(T0 - 2 * DAY, "kill", { name = "Charlie", subzone = "Lonely Hut" }),
+                at(T0 - 3 * DAY, "death", { zone = "Alterac" }),
+                at(T0 - 3 * DAY - 10, "death", { zone = "Alterac" }),
+            }
+            c.opponents = { Alpha = { class = "WARRIOR", kills = 3, deaths = 1, lastSeen = 1234 } }
+            clock = T0
+
+            -- GetToday
+            local today = WorldLog:GetToday()
+            check(today.kills == 2 and today.killingBlows == 1 and today.deaths == 2 and today.honor == 30 and today.named == 1, "today: kills, killing blows, deaths, honor and named kills")
+            check(#today.deathZones == 2 and today.deathZones[1] == "Hillsbrad" and today.deathZones[2] == "Arathi", "today: the zones of today's deaths, in the order they happened")
+            c.worldLog[3].kb = true
+            check(WorldLog:GetToday().killingBlows == 2, "today: a second killing blow")
+            c.worldLog[3].kb = nil
+            -- the same zone twice is one zone; a death with no zone adds none
+            table.insert(c.worldLog, 1, at(T0 - 30, "death", { zone = "Arathi" }))
+            table.insert(c.worldLog, 1, at(T0 - 20, "death", {}))
+            today = WorldLog:GetToday()
+            check(today.deaths == 4 and #today.deathZones == 2, "today: each zone once, none for a death with no zone")
+            table.remove(c.worldLog, 1); table.remove(c.worldLog, 1)
+            -- midnight, with no reload
+            clock = realTime({ year = 2026, month = 11, day = 18, hour = 23, min = 59, sec = 59 })
+            check(WorldLog:GetToday().kills == 2, "today: one second before midnight it is still the same day")
+            clock = clock + 1
+            today = WorldLog:GetToday()
+            check(today.kills == 0 and today.killingBlows == 0 and today.deaths == 0 and today.honor == 0 and today.named == 0 and #today.deathZones == 0, "today: at midnight the numbers start again")
+            HL:RecordWorldKill("Newday", "MAGE", true, { rank = "Private", honor = 8 })
+            today = WorldLog:GetToday()
+            check(today.kills == 1 and today.killingBlows == 1 and today.honor == 8 and today.named == 1, "today: and count the new day's kill")
+            table.remove(c.worldLog, 1)
+            clock = T0
+
+            -- GetList
+            local rows = WorldLog:GetList()
+            check(#rows == 9 and rows[1].name == "Alpha" and rows[9].zone == "Alterac" and rows[1].t > rows[2].t, "list: all rows, newest first")
+            rows[1].name = "changed"
+            check(c.worldLog[1].name == "Alpha", "list: rows are copies")
+            check(#WorldLog:GetList({ kind = "all" }) == 9 and #WorldLog:GetList({ kind = "nonsense" }) == 9, "list: kind all, and an unknown kind is all")
+            rows = WorldLog:GetList({ kind = "kill" })
+            check(#rows == 4 and rows[1].kind == "kill" and rows[4].name == "Charlie", "list: kills only")
+            rows = WorldLog:GetList({ kind = "death" })
+            check(#rows == 5 and rows[1].name == "Bravo", "list: deaths only")
+            rows = WorldLog:GetList({ name = "ALP" })
+            check(#rows == 4 and rows[1].name == "Alpha" and rows[2].name == "alphonse", "list: a part of a name, in any case; unnamed rows never match")
+            rows = WorldLog:GetList({ name = "alp", kind = "kill" })
+            check(#rows == 2 and rows[1].t == T0 - 60 and rows[2].t == T0 - DAY, "list: kind and name together")
+            check(#WorldLog:GetList({ name = "al.ha" }) == 0, "list: the name is not a pattern")
+            check(#WorldLog:GetList({ name = "" }) == 9, "list: an empty name filters nothing")
+            check(#WorldLog:GetList({ limit = 2 }) == 2 and #WorldLog:GetList({ limit = 0 }) == 0 and #WorldLog:GetList({ limit = 1000 }) == 9, "list: the limit")
+            for i = 1, 150 do table.insert(c.worldLog, { t = T0 - 10 * DAY - i, kind = "kill" }) end
+            check(#WorldLog:GetList() == 100 and #WorldLog:GetList({ limit = "x" }) == 100, "list: the default limit is 100")
+            for _ = 1, 150 do table.remove(c.worldLog) end
+            rows = WorldLog:GetList()
+            check(rows[1].where == "Tarren Mill, Hillsbrad" and rows[2].where == "Arathi" and rows[7].where == "Lonely Hut" and rows[6].where == nil, "list: where as subzone and zone, either alone, or nothing")
+            check(rows[1].place and rows[1].place.map == 1424 and rows[1].place.x == 50 and rows[1].place.y == 60 and rows[1].place.name == "Alpha" and rows[1].place.kind == "place" and rows[1].place.detail == "Tarren Mill, Hillsbrad", "list: a place with a map, a position and the player's name")
+            check(rows[3].place and rows[3].place.name == "Unknown player", "list: an unnamed opponent is the unknown player")
+            check(rows[2].place == nil and rows[4].place == nil and rows[5].place == nil, "list: no place without a position")
+            check(HL:ShowPlaceOnMap(rows[1].place) == true, "list: the place is one the map pin accepts")
+            HL:ClearMapPins()
+            c.worldLog[2].x = mock.newSecret()
+            check(WorldLog:GetList()[2].place == nil, "list: a position that is a secret is no place")
+            c.worldLog[2].x = nil
+
+            -- GetZones
+            local zones = WorldLog:GetZones()
+            check(#zones == 3 and zones[1].zone == "Hillsbrad" and zones[1].kills == 2 and zones[1].deaths == 1 and zones[1].total == 3, "zones: the zone with most fights first")
+            check(zones[2].zone == "Alterac" and zones[2].total == 2 and zones[2].kills == 0 and zones[2].deaths == 2 and zones[3].zone == "Arathi" and zones[3].kills == 1 and zones[3].deaths == 1, "zones: equal fights by name; entries with no zone are in no row")
+            check(#WorldLog:GetZones(1) == 1 and WorldLog:GetZones(1)[1].zone == "Hillsbrad" and #WorldLog:GetZones(0) == 0 and #WorldLog:GetZones(10) == 3, "zones: the limit")
+
+            -- GetTotals
+            c.since = T0 - 30 * DAY
+            c.worldPvP = { kills = 7, deaths = 3, honor = 0, killingBlows = 4, unknownKills = 2 }
+            HL.db.global.worldPvP = { kills = 70, deaths = 30, honor = 0, killingBlows = 40, unknownKills = 20 }
+            local totals = WorldLog:GetTotals("character")
+            check(totals.kills == 7 and totals.deaths == 3 and totals.killingBlows == 4 and totals.unknownKills == 2 and totals.since == T0 - 30 * DAY, "totals: the character's counters and since")
+            totals = WorldLog:GetTotals("account")
+            check(totals.kills == 70 and totals.deaths == 30 and totals.killingBlows == 40 and totals.unknownKills == 20 and totals.since == T0 - 30 * DAY, "totals: the account's counters, with this character's since")
+            HL.db.settings.viewMode = "account"
+            check(WorldLog:GetTotals().kills == 70, "totals: no scope is the saved view mode")
+            HL.db.settings.viewMode = "character"
+            check(WorldLog:GetTotals().kills == 7, "totals: ... character too")
+            HL.db.char.worldPvP = {}
+            check(WorldLog:GetTotals("character").kills == 0 and WorldLog:GetTotals("character").deaths == 0, "totals: a counter that is missing is zero")
+
+            -- GetWith
+            local with = WorldLog:GetWith("Alpha")
+            check(with.name == "Alpha" and with.class == "WARRIOR" and with.kills == 3 and with.deaths == 1 and with.lastSeen == 1234, "with: the opponents tally")
+            check(#with.rows == 3 and with.rows[1].t == T0 - 60 and with.rows[3].kind == "death" and with.rows[2].kind == "kill", "with: the log's rows with exactly that name, newest first")
+            with = WorldLog:GetWith("Bravo")
+            check(with.name == "Bravo" and with.kills == nil and with.deaths == nil and with.class == nil and with.lastSeen == nil and #with.rows == 1, "with: log rows but no tally")
+            with = WorldLog:GetWith("Nobody")
+            check(with.name == "Nobody" and with.kills == nil and #with.rows == 0, "with: nobody")
+            check(#WorldLog:GetWith(nil).rows == 0 and #WorldLog:GetWith(5).rows == 0 and #WorldLog:GetWith(mock.newSecret()).rows == 0, "with: no usable name is nobody")
+            c.opponents.Alpha = nil
+
+            ----------------------------------------------------------------
+            -- The weeks fill from the same two events
+            ----------------------------------------------------------------
+            c.weeks, c.weeksFilled, c.history = {}, nil, {}
+            c.worldLog = {}
+            c.worldPvP = HL.NewWorldStats()
+            local week = HL.Weeks:Current()
+            local wk0, wkb0, wd0 = week.kills, week.killingBlows, week.deaths
+            mock.units.target = { name = "Wk1", class = "MAGE", enemy = true, dead = false }
+            mock.fireEvent("PARTY_KILL", "Player-1-1", "Player-2-77")
+            message("Wk1", "Private", 11)
+            step()
+            check(week.kills == wk0 + 1 and week.killingBlows == wkb0 + 1 and week.deaths == wd0, "weeks: a simulated kill with a killing blow is in the current week")
+            message("Wk2", "Private", 11)
+            step()
+            check(week.kills == wk0 + 2 and week.killingBlows == wkb0 + 1, "weeks: a kill without a killing blow is a kill only")
+            mock.recap = { { timestamp = 106, sourceGUID = "Player-2-96", sourceName = "Wk3" } }
+            mock.fireEvent("PLAYER_DEAD")
+            mock.advance(1.5)
+            mock.recap = {}
+            check(week.deaths == wd0 + 1 and HL.Weeks:Current() == week and #c.worldLog == 3, "weeks: a simulated death is in the current week, and the log has all three")
+            mock.units.target = nil
+
+            ----------------------------------------------------------------
+            -- Resets
+            ----------------------------------------------------------------
+            c.history = { { timestamp = T0 - 10 * DAY, bgType = "AB", result = "win", honor = 100, marks = 1 } }
+            check(#c.worldLog == 3 and #c.weeks >= 1, "resets: there is a log and there are weeks to reset")
+            SlashCmdList.HONORLOG("reset character")
+            check(#c.worldLog == 0 and #c.weeks == 0 and c.weeksFilled == true, "resets: /honorlog reset character empties the log and the weeks")
+            c.history = { { timestamp = T0 - 10 * DAY, bgType = "AB", result = "win", honor = 100, marks = 1 } }
+            local fresh = HL.Weeks:Current()
+            check(#c.weeks == 1 and c.weeks[1] == fresh and fresh.games == 0 and not fresh.filled, "resets: no rebuild from saved games follows")
+            -- the account reset leaves both
+            HL:RecordWorldKill("Keep", "MAGE", false)
+            local weekCount = #c.weeks
+            SlashCmdList.HONORLOG("reset account")
+            check(#c.worldLog == 1 and #c.weeks == weekCount, "resets: /honorlog reset account leaves the log and the weeks")
+            -- today's reset too
+            SlashCmdList.HONORLOG("reset today")
+            check(#c.worldLog == 1 and #c.weeks == weekCount, "resets: /honorlog reset today leaves them as well")
+
+            -- the small frame's menu
+            local function entry(text)
+                local list = {}
+                mock.ddCollect = list
+                _G.HonorLogContextMenu.__ddInit(_G.HonorLogContextMenu, 2, "RESET_STATS")
+                mock.ddCollect = nil
+                for _, info in ipairs(list) do if info.text == text then return info end end
+                error("no menu entry " .. text)
+            end
+            HL:ShowContextMenu()
+            c.history = {}
+            HL.Weeks:Current()
+            check(#c.worldLog == 1 and #c.weeks >= 1, "resets: the menu test starts with a log and weeks")
+            entry("Account Stats").func()
+            check(#c.worldLog == 1 and #c.weeks >= 1, "resets: the menu's account entry leaves both")
+            entry("Character Stats").func()
+            check(#c.worldLog == 0 and #c.weeks == 0 and c.weeksFilled == true, "resets: the menu's character entry empties the log and the weeks")
+            c.history = { { timestamp = T0 - 10 * DAY, bgType = "AB", result = "win", honor = 100, marks = 1 } }
+            fresh = HL.Weeks:Current()
+            check(#c.weeks == 1 and not fresh.filled and fresh.games == 0, "resets: no rebuild follows the menu's reset either")
+
+            -- with no database a reset and the readers do nothing and raise nothing
+            local db = HL.db
+            HL.db = nil
+            check(pcall(WorldLog.Reset, WorldLog) and pcall(HL.Weeks.Reset, HL.Weeks) and #WorldLog:GetList() == 0 and WorldLog:GetToday().kills == 0, "resets: with no saved data they do nothing")
+            HL.db = db
+
+            check(#mock.handledErrors == errorsBefore, "world log section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            mock.zone, mock.subzone = saved.zone, saved.subzone
+            mock.map.id, mock.map.x, mock.map.y, mock.map.restricted = saved.map.id, saved.map.x, saved.map.y, saved.map.restricted
+            mock.instance, mock.units.target, mock.recap, mock.pvp.sessionHK, clock = saved.instance, saved.target, saved.recap, saved.hk, saved.clock
             restoreStores(kept)
         end)()
         setGlobal("time", realTime)
