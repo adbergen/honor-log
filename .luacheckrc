@@ -89,5 +89,7 @@ files["Tests/"] = {
         "C_Map", "C_SuperTrack", "UiMapPoint", "GetSubZoneText", "IsAltKeyDown",
         "WorldMapFrame", "ShowUIPanel", "InCombatLockdown", "IsInInstance", "UnitPosition", "GetPlayerFacing",
         "GetBindingKey", "CreateVector2D",
+        "GetQuestID", "GetTitleText", "GetRewardMoney", "GetRewardXP", "GetRewardHonor", "GetNumQuestRewards",
+        "GetNumQuestChoices", "GetQuestItemInfo", "C_QuestInfoSystem", "C_QuestOffer",
     },
 }
