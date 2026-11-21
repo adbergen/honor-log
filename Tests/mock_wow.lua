@@ -196,17 +196,26 @@ function methods.SetScrollChild(self, c) self.__scrollchild = c; return self end
 -- CreateFrame raise the way the client does for an unknown one. A few templates give the frame the children
 -- and methods the real ones have (M.templateInit), so the full window is built the way it is in the game.
 M.missingTemplates = {}
+function M.portraitMixin(f)
+    local title = newObject("FontString", f)
+    rawset(f, "GetTitleText", function() return title end)
+    rawset(f, "SetTitle", function(self, text)
+        if M.titleRaises then error("SetTitle: forced failure") end
+        local fs = self:GetTitleText()
+        fs:SetText(text) -- raises when GetTitleText was replaced by something that is not a FontString
+        self.__title = text
+    end)
+    rawset(f, "SetPortraitToAsset", function(self, tex) self.__portrait = tex end)
+end
 M.hollowTemplates = {}
 M.templateInit = {
+    -- Like Blizzard's PortraitFrameMixin: SetTitle goes through the frame's own GetTitleText, so an addon
+    -- that puts another GetTitleText on the frame breaks it ("attempt to call a nil value", seen in game).
     PortraitFrameTemplate = function(f)
         rawset(f, "CloseButton", newObject("Button", f))
-        rawset(f, "SetTitle", function(self, text) self.__title = text end)
-        rawset(f, "SetPortraitToAsset", function(self, tex) self.__portrait = tex end)
+        M.portraitMixin(f)
     end,
-    PortraitFrameBaseTemplate = function(f)
-        rawset(f, "SetTitle", function(self, text) self.__title = text end)
-        rawset(f, "SetPortraitToAsset", function(self, tex) self.__portrait = tex end)
-    end,
+    PortraitFrameBaseTemplate = function(f) M.portraitMixin(f) end,
 }
 function CreateFrame(objType, name, parent, template)
     if template then
