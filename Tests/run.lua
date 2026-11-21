@@ -4216,11 +4216,18 @@ local function run()
                 "per game: a row of zeros is orange")
             local zero = Rank:GetZeroPointBattlegrounds()[1]
             check(zero and pg.zero:IsShown() and pg.zero:GetText() == Rank:ZeroPointText(zero) and same(textColor(pg.zero), Kit.COLORS.orange), "per game: the zero-point note in orange")
-            check(pg.quest:GetText() == "Field of Honor: Week 2: reward not measured yet" and same(textColor(pg.quest), GREYC), "per game: the quest with no measurement: " .. tostring(pg.quest:GetText()))
+            check(pg.quest:GetText() == "Field of Honor: Week 2\nreward not measured yet" and same(textColor(pg.quest), GREYC), "per game: the quest with no measurement: " .. tostring(pg.quest:GetText()))
+            mock.questsDone[96913] = true
+            Window:RefreshCurrent()
+            check(pg.quest:GetText() == "Field of Honor: Week 2\ndone this week" and same(textColor(pg.quest), GREYC), "per game: the quest done, not measured: " .. tostring(pg.quest:GetText()))
+            mock.questsDone[96913] = nil
+            HonorLogDB.probe.quests[96913] = { last = { rank = 90, t = 0 } }
+            Window:RefreshCurrent()
+            check(pg.quest:GetText() == "Field of Honor: Week 2\n+90 rank points (measured)" and same(textColor(pg.quest), Kit.COLORS.white), "per game: the measured quest: " .. tostring(pg.quest:GetText()))
             HonorLogDB.probe.quests[96913] = { last = { rank = 90, t = 0 } }
             mock.questsDone[96913] = true
             Window:RefreshCurrent()
-            check(pg.quest:GetText() == "Field of Honor: Week 2: +90 rank points (measured) \194\183 done this week" and same(textColor(pg.quest), Kit.COLORS.white), "per game: the measured quest, done: " .. tostring(pg.quest:GetText()))
+            check(pg.quest:GetText() == "Field of Honor: Week 2\ndone this week, +90 rank points" and same(textColor(pg.quest), Kit.COLORS.white), "per game: the measured quest, done: " .. tostring(pg.quest:GetText()))
             mock.rankWindow.week = 11
             Window:RefreshCurrent()
             check(not pg.quest:IsShown() and pg.quest:GetText() == "", "per game: no quest line outside weeks 1 to 10")

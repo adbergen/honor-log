@@ -55,7 +55,7 @@ local PLOT = { left = 44, right = 14, bottom = 22, top = 8 }
 local CAP_COLOR = { 1, 0.82, 0 }
 local POINTS_COLOR = { 0.88, 0.28, 0.25 }
 local PROJECTED_COLOR = { 0.78, 0.76, 0.71 }
-local GUIDE_GUIDES = { 8, 12, 14 } -- ranks with a faint guide and a label at the left
+local GUIDE_RANKS = { 8, 12, 14 } -- ranks with a faint guide and a label at the left
 
 local function buildChart(col)
     local inset = Kit:Inset(col)
@@ -125,7 +125,7 @@ local function refreshChart(c, info, pace)
     -- faint guides at rank 8, 12 and 14, and the zero line
     chart:Line(PLOT.left, PLOT.bottom, PLOT.left + plotW, PLOT.bottom, 1, line[1], line[2], line[3], 0.8)
     chart:Label(PLOT.left - 6, PLOT.bottom, "0", "grey", "RIGHT")
-    for _, rank in ipairs(GUIDE_GUIDES) do
+    for _, rank in ipairs(GUIDE_RANKS) do
         local y = yOf(Rank:TotalForRank(rank))
         chart:Line(PLOT.left, y, PLOT.left + plotW, y, 1, line[1], line[2], line[3], 0.28)
         chart:Label(PLOT.left - 6, y, "R" .. rank, "grey", "RIGHT")
@@ -404,7 +404,7 @@ local function buildPlan(side)
     p.title:SetWordWrap(false)
 
     p.pairs = {}
-    local labels = { L["Points to go"], L["Games at your pace"], L["Cap allows it from"], L["Unlocks"] }
+    local labels = { L["Points to go"], L["At your pace"], L["Cap opens"], L["Unlocks"] }
     for i, text in ipairs(labels) do
         local y = -70 - (i - 1) * 15
         local label = Kit:Text(inset, "labelSmall")
@@ -586,7 +586,7 @@ local function buildPerGame(side)
     g.quest = Kit:Text(inset, "grey")
     g.quest:SetWidth(SIDE_WIDTH - 24)
     g.quest:SetWordWrap(true)
-    g.quest:SetMaxLines(2)
+    g.quest:SetMaxLines(3)
     g.quest:SetJustifyV("TOP")
     return g
 end
@@ -614,14 +614,18 @@ local function refreshPerGame(g, info)
     local quest = info and safe(Rank.GetWeeklyQuest, Rank, info)
     g.quest:ClearAllPoints()
     if quest then
+        -- the title on its own line: it carries a colon of its own ("Field of Honor: Week 3")
         local title = str(quest.title) or ""
         local text, name
-        if quest.measured then
-            text, name = string.format(L["%s: +%d rank points (measured)"], title, quest.measured), "white"
+        if quest.measured and quest.done == true then
+            text, name = string.format(L["%s\ndone this week, +%d rank points"], title, quest.measured), "white"
+        elseif quest.measured then
+            text, name = string.format(L["%s\n+%d rank points (measured)"], title, quest.measured), "white"
+        elseif quest.done == true then
+            text, name = string.format(L["%s\ndone this week"], title), "grey"
         else
-            text, name = string.format(L["%s: reward not measured yet"], title), "grey"
+            text, name = string.format(L["%s\nreward not measured yet"], title), "grey"
         end
-        if quest.done == true then text = text .. L[" · done this week"] end
         g.quest:SetPoint("TOPLEFT", g.inset, "TOPLEFT", 12, -y)
         g.quest:SetText(text)
         color(g.quest, name)
