@@ -7080,11 +7080,11 @@ local function run()
             betaChar.goals.items = {}
             betaChar.battlegrounds = { WSG = { played = 5, wins = 4 } }
             HL.db.char = betaChar
-            mock.playerName, mock.level, mock.faction = "Beta", 40, "Alliance"
+            mock.playerName, mock.level, mock.faction, mock.playerGuid = "Beta", 40, "Alliance", "Player-1-2"
             mock.currencies[1792].quantity = 700
             Characters:Snapshot()
             HL.db.char = alphaChar
-            mock.playerName = "Alpha"
+            mock.playerName, mock.playerGuid = "Alpha", nil
             local beta = HonorLogDB.characters["Beta-TestRealm"]
             check(beta and beta.name == "Beta" and beta.level == 40 and beta.faction == "Alliance" and beta.honor == 700 and beta.games == 5 and beta.wins == 4,
                 "characters: a second character has its own record")
@@ -7123,6 +7123,61 @@ local function run()
             check(Characters:Forget(key) == false and store[key] ~= nil, "characters: forget refuses the current character")
             check(Characters:Forget("Nobody") == false and Characters:Forget(nil) == false, "characters: forget of nothing does nothing")
             check(Characters:Forget("Zed-TestRealm") == true, "characters: a stub can be forgotten")
+
+            -- one character, one record: the realm comes and goes between sessions, the GUID says who it is
+            do
+            for k in pairs(store) do store[k] = nil end
+            local function records() local n = 0 for _ in pairs(store) do n = n + 1 end return n end
+            mock.twoWordNames, mock.playerName, mock.realm, mock.playerGuid = true, "Fenwick Tally", "Shard Nine", "Player-9-AB"
+            mock.currencies[1792].quantity = 12345
+            local withRealm = HL:GetCharacterKey()
+            Characters:Snapshot()
+            check(withRealm == "Fenwick Tally-Shard Nine" and store[withRealm].guid == "Player-9-AB" and store[withRealm].honor == 12345, "one record: a snapshot keeps the character's GUID")
+            store["Beta-TestRealm"] = { name = "Beta", guid = "Player-1-2", lastSeen = clock - 100, honor = 200 }
+            store["Fenwick-Shard Nine"] = true -- what a build before 2.0 wrote: the first word of the name
+            store["Fenwick-Other Shard"] = { name = "Fenwick-Other Shard" }
+            store["Fenwick Other"] = { name = "Fenwick Other" } -- another character whose name starts alike
+            mock.realm = ""
+            local bare = HL:GetCharacterKey()
+            store[bare] = { name = bare } -- the stub the load makes under the key of this session
+            mock.currencies[1792].quantity = 500
+            clock = clock + 60
+            Characters:Snapshot()
+            check(bare == "Fenwick Tally" and store[withRealm] == nil and store[bare].guid == "Player-9-AB" and store[bare].honor == 500 and store[bare].lastSeen == clock,
+                "one record: with the realm gone the record moves to the new key")
+            check(store["Fenwick-Shard Nine"] == nil and store["Fenwick-Other Shard"] == nil, "one record: stubs under the first word of the name are dropped")
+            check(type(store["Fenwick Other"]) == "table" and store["Beta-TestRealm"].honor == 200 and records() == 3, "one record: another character's stub and record are untouched")
+            list = Characters:GetList()
+            check(#list == 3 and list[1].current and list[1].key == bare and list[1].name == "Fenwick Tally", "one record: the list shows the character once")
+            mock.realm = "Shard Nine"
+            Characters:Snapshot()
+            check(store[bare] == nil and store[withRealm].honor == 500 and records() == 3, "one record: with the realm back it moves again")
+            -- two snapshotted records of one character: the newer one is kept
+            store[bare] = { name = "Fenwick Tally", guid = "Player-9-AB", lastSeen = clock + 30, nextGoal = 4242 }
+            store[withRealm].nextGoal = 1
+            clock = clock + 60
+            local keepGoals = HL.GetAllGoalsProgress
+            HL.GetAllGoalsProgress = nil -- so the snapshot leaves nextGoal as stored
+            Characters:Snapshot()
+            HL.GetAllGoalsProgress = keepGoals
+            check(store[bare] == nil and store[withRealm].nextGoal == 4242 and store[withRealm].lastSeen == clock, "one record: of two snapshots of one character the newer is kept")
+            -- the GUID unreadable (it is secret while unit identity is restricted): no fold by GUID, no error
+            mock.realm, mock.playerGuidSecret = "", true
+            clock = clock + 60
+            Characters:Snapshot()
+            check(store[bare] and store[bare].guid == nil and store[bare].lastSeen == clock and store[withRealm] and store[withRealm].guid == "Player-9-AB",
+                "one record: a secret GUID folds nothing and is not stored")
+            mock.playerGuidSecret, mock.playerGuid = false, false
+            Characters:Snapshot()
+            check(store[bare].guid == nil and store[withRealm] ~= nil, "one record: no GUID at all folds nothing")
+            mock.playerGuid = "Player-9-AB"
+            clock = clock + 60
+            Characters:Snapshot()
+            check(store[withRealm] == nil and store[bare].guid == "Player-9-AB" and store[bare].lastSeen == clock and records() == 3, "one record: once the GUID is readable the two become one")
+            for k in pairs(store) do store[k] = nil end
+            mock.twoWordNames, mock.playerName, mock.realm, mock.playerGuid = false, "Alpha", nil, nil
+            store[key] = { name = "Alpha", lastSeen = clock }
+            end
 
             -- every client read nil, then every one a secret: nothing raises
             local nothing = function() end

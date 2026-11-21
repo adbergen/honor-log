@@ -677,9 +677,13 @@ end
 function UnitRace() return "Human", "Human" end
 -- UnitGUID("npc") is the open vendor's GUID (nil when no test sets one); M.npcGuidSecret makes it secret.
 M.npcGuid, M.npcGuidSecret = nil, false
+-- The player's own GUID: M.playerGuid overrides it (false = none), M.playerGuidSecret makes it secret.
+M.playerGuid, M.playerGuidSecret = nil, false
 function UnitGUID(unit)
     if unit == "npc" then return M.npcGuidSecret and M.newSecret() or M.npcGuid end
-    return "Player-1-1"
+    if M.playerGuidSecret then return M.newSecret() end
+    if M.playerGuid == false then return nil end
+    return M.playerGuid or "Player-1-1"
 end
 function GetRealmName() return M.realm or "TestRealm" end
 M.zone, M.subzone = "Stormwind City", ""
