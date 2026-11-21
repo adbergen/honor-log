@@ -162,10 +162,11 @@ local function buildCard(parent, bgType, index, count, onClick)
     c.none = Kit:FixedText(face, "grey", CARD_INNER)
     c.none:SetPoint("TOPLEFT", face, "TOPLEFT", 10, -38)
     c.none:SetText(L["No games yet."])
-    c.record = Kit:FixedText(face, "big", 86)
+    -- the record takes the width it needs ("17 - 12" or "123 - 104"); the extras get what is left beside it
+    c.record = Kit:Text(face, "big")
     c.record:SetPoint("TOPLEFT", face, "TOPLEFT", 10, -30)
+    c.record:SetWordWrap(false)
     c.extras = Kit:FixedText(face, "grey", 99)
-    c.extras:SetPoint("TOPLEFT", face, "TOPLEFT", 102, -38)
     c.seq = Kit:Sequence(face, 10)
     c.seq:SetPoint("TOPLEFT", face, "TOPLEFT", 10, -56)
     c.lines = {}
@@ -186,6 +187,7 @@ local function buildCard(parent, bgType, index, count, onClick)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(c.fullName or bgType, 1, 0.82, 0)
         GameTooltip:AddLine(L["Click to show only these games"], 1, 1, 1, true)
+        if c.extrasText and c.extrasText ~= "" then GameTooltip:AddLine(c.extrasText, 0.66, 0.64, 0.59, true) end
         if c.rankText then GameTooltip:AddLine(c.rankText, 0.66, 0.64, 0.59, true) end
         GameTooltip:Show()
     end)
@@ -217,17 +219,26 @@ local function refreshCard(c, chosenBg)
         line.value:SetShown(has)
     end
     c.rank:SetShown(has)
-    c.rankText = nil
+    c.rankText, c.extrasText = nil, nil
     if not has then
         c.seq:SetResults({})
         return
     end
-    c.record:SetText(string.format("%d - %d", num(m.wins) or 0, num(m.losses) or 0))
+    local record = string.format("%d - %d", num(m.wins) or 0, num(m.losses) or 0)
+    c.record:SetText(record)
     local extra = {}
     local draws, left = num(m.draws) or 0, num(m.left) or 0
     if draws > 0 then extra[#extra + 1] = draws == 1 and L["1 draw"] or string.format(L["%d draws"], draws) end
     if left > 0 then extra[#extra + 1] = string.format(L["%d left"], left) end
-    c.extras:SetText(table.concat(extra, ", "))
+    -- beside the record when there is room for them; the card's tooltip has them either way
+    c.extrasText = table.concat(extra, ", ")
+    local used = math.min(CARD_INNER, num(c.record:GetStringWidth()) or #record * 12)
+    local room = CARD_INNER - used - 8
+    c.extras:ClearAllPoints()
+    c.extras:SetPoint("TOPLEFT", c.face, "TOPLEFT", 10 + used + 8, -38)
+    c.extras:SetWidth(math.max(1, room))
+    c.extras:SetText(c.extrasText)
+    c.extras:SetShown(room >= 40 and c.extrasText ~= "")
     c.seq:SetResults(m.sequence)
 
     local rate, honor, length = num(m.winRate), num(m.honorPerGame), num(m.avgDuration)

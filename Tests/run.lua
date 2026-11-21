@@ -5243,7 +5243,20 @@ local function run()
             av.held.__scripts.OnEnter(av.held)
             check(tipText() == "In your bags", "cards: the marks tooltip: " .. tipText())
             check(av.record:GetText() == "17 - 12" and av.record:IsShown() and not av.none:IsShown(), "cards: the record, large")
-            check(av.extras.honorLogStyle == "grey" and av.extras:GetText() == "1 draw, 1 left" and av.extras.__wrapWidth == 99, "cards: draws and games left early in grey after it")
+            check(av.extras.honorLogStyle == "grey" and av.extras:GetText() == "1 draw, 1 left" and av.extras:IsShown() and av.extras.__wrapWidth == 191 - av.record:GetStringWidth() - 8,
+                "cards: draws and games left early in grey beside the record, in the room it leaves")
+            -- a long record is never cut: the extras give way and the tooltip keeps them (the mock measures a
+            -- text at 6 px a character, so the record has to be very long to need the width)
+            local avWins, avLosses = models.AV.wins, models.AV.losses
+            models.AV.wins, models.AV.losses = 12345678901, 1234567890
+            Window:RefreshCurrent()
+            check(av.record:GetText() == "12345678901 - 1234567890" and av.record.__wrapWidth == nil and not av.extras:IsShown(), "cards: a record that needs the width is whole and hides the extras beside it")
+            av.button.__scripts.OnEnter(av.button)
+            check(tipText():find("1 draw, 1 left", 1, true), "cards: ...and the card's tooltip still has them: " .. tipText())
+            av.button.__scripts.OnLeave(av.button)
+            models.AV.wins, models.AV.losses = avWins, avLosses
+            Window:RefreshCurrent()
+            check(av.record:GetText() == "17 - 12" and av.extras:IsShown(), "cards: the extras come back when there is room")
             check(av.seq.honorLogShown == 10 and av.seq.honorLogSquares[1].honorLogLetter:GetText() == "W" and av.seq.honorLogSquares[5].honorLogLetter:GetText() == "X", "cards: the last results as a sequence")
             check(av.lines[1].label:GetText() == "Win rate" and av.lines[1].value:GetText() == "59%" and av.lines[2].label:GetText() == "Honor a game" and av.lines[2].value:GetText() == "1,234"
                 and av.lines[3].label:GetText() == "Average length" and av.lines[3].value:GetText() == HL:FormatDuration(1352), "cards: win rate, honor a game, average length")
