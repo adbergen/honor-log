@@ -34,7 +34,7 @@ OUT = ROOT / "Data" / "GearDatabase.lua"
 
 MIRROR = "https://wago.tools"
 PRODUCT = "wowf"
-USER_AGENT = "HonorLog-gear-build/1.0 (+https://github.com/adbergen/honor-log)"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 TOOLTIP_URL = "https://nether.wowhead.com/forever/tooltip/item/%d"
 XML_URL = "https://www.wowhead.com/forever/item=%d&xml"
 DELAY = 0.3  # seconds between network requests

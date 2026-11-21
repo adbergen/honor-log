@@ -19,6 +19,7 @@ Util.lua
 
 # Data
 Data\GearDatabase.lua
+Data\Vendors.lua
 
 # Core
 Data.lua

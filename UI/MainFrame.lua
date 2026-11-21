@@ -209,8 +209,15 @@ local function CreateMainFrame()
     header:SetBackdropBorderColor(unpack(COLORS.borderLight))
     header:EnableMouse(true)
     header:RegisterForDrag("LeftButton")
-    header:SetScript("OnDragStart", function() frame:StartMoving() end)
+    local headerMoving = false
+    header:SetScript("OnDragStart", function()
+        if HonorLog.db.settings.frameLocked then return end -- "Lock Frame Position"
+        headerMoving = true
+        frame:StartMoving()
+    end)
     header:SetScript("OnDragStop", function()
+        if not headerMoving then return end
+        headerMoving = false
         frame:StopMovingOrSizing()
         local point, _, relPoint, x, y = frame:GetPoint()
         HonorLog.db.settings.framePoint = { point, nil, relPoint, x, y }
@@ -714,10 +721,6 @@ local function CreateMainFrame()
                 frame:UpdateScrollContentWidth()
             end
 
-            -- Update content layout
-            if HonorLog.UpdateFrameLayout then
-                HonorLog:UpdateFrameLayout()
-            end
         end
     end)
 
@@ -885,21 +888,6 @@ function HonorLog:InitializeMainFrame()
 
     -- Initial update
     self:UpdateMainFrame()
-
-    -- Real-time update timer for live hourly rate during BGs
-    local updateTimer = CreateFrame("Frame")
-    local timeSinceUpdate = 0
-    local UPDATE_INTERVAL = 1 -- Update every second while in BG for "alive" feel
-    updateTimer:SetScript("OnUpdate", function(_, elapsed)
-        timeSinceUpdate = timeSinceUpdate + elapsed
-        if timeSinceUpdate >= UPDATE_INTERVAL then
-            timeSinceUpdate = 0
-            -- Only update if in BG, frame is visible, and on stats tab
-            if self:IsInBG() and self.mainFrame and self.mainFrame:IsShown() and self.currentTab == "stats" then
-                self:UpdateMainFrame()
-            end
-        end
-    end)
 end
 
 -- Reset frame size to defaults

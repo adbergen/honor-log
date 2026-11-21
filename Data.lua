@@ -188,6 +188,8 @@ local DEFAULTS = {
 }
 
 local DeepCopy, DeepMerge = HonorLog.Util.DeepCopy, HonorLog.Util.DeepMerge
+local L = HonorLog.L
+local Util = HonorLog.Util
 
 -- Battleground keys Forever tracks. Anything else in an old save (EotS, arena
 -- aggregates) moves under `legacy`; its history entries stay in the history list.
@@ -418,7 +420,8 @@ local RESULTS = { win = "wins", loss = "losses", draw = "draws", left = "left" }
 -- Record a completed game. `won` stays for older callers; extra.result
 -- ("win" | "loss" | "draw" | "left") wins over it. extra also carries the
 -- optional history fields: joinedInProgress, kb, hk, deaths, damage, healing,
--- objectives, rankPoints, rankState, rankCappedDuring, honorCapped, teams, scoreboard.
+-- objectives, rankPoints, rankState, rankCappedDuring, honorCapped, teams, scoreboard, rep
+-- ({ faction, gained }: reputation the game gave with its battleground's own faction).
 function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
     extra = extra or {}
     local result = extra.result or (won and "win" or "loss")
@@ -481,6 +484,7 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
         honorCapped = extra.honorCapped,
         teams = extra.teams,
         scoreboard = extra.scoreboard,
+        rep = extra.rep,
     }
 
     -- Character history
@@ -1276,16 +1280,50 @@ function HonorLog:GetGearItem(itemID)
             for bgType, count in pairs(scan.marks) do item.marks[bgType] = count end
         end
         item.scanned, item.stocked, item.seen = true, true, scan.seen
+    elseif self:IsBGReputationGear(base) then
+        item.unconfirmed = true -- sold, players say, but no scan of yours has seen it yet
     end
     return item
 end
 
--- Items the client may have retired stay in the database as `legacy` and count
--- as available only once a vendor scan has seen them stocked.
+-- The battleground faction ids by battleground and side, in one place. Each game records the
+-- reputation it gave with its own battleground's faction.
+HonorLog.BG_REP_FACTIONS = {
+    AB = { Horde = 510, Alliance = 509 },
+    AV = { Horde = 729, Alliance = 730 },
+    WSG = { Horde = 889, Alliance = 890 },
+    DI = { Horde = 2798, Alliance = 2799 },
+}
+
+-- Faction id -> battleground, for the three old battlegrounds whose reputation gear is sold again.
+local BG_OF_REP_FACTION = {}
+for bgType, sides in pairs(HonorLog.BG_REP_FACTIONS) do
+    for _, factionID in pairs(sides) do BG_OF_REP_FACTION[factionID] = bgType end
+end
+HonorLog.BG_OF_REP_FACTION = BG_OF_REP_FACTION
+
+-- The reputation faction of a battleground for the player's side, or nil.
+function HonorLog:GetBGRepFaction(bgType)
+    local sides = self.BG_REP_FACTIONS[bgType]
+    local faction = Util.str(UnitFactionGroup and UnitFactionGroup("player"))
+    return sides and faction and sides[faction] or nil
+end
+
+-- Arathi Basin, Alterac Valley and Warsong Gulch reputation items the generated data calls legacy.
+function HonorLog:IsBGReputationGear(base)
+    if not (base and base.legacy and base.source == "REP" and base.rep and base.rep.faction) then return false end
+    local bgType = BG_OF_REP_FACTION[base.rep.faction]
+    return bgType == "AB" or bgType == "AV" or bgType == "WSG"
+end
+
+-- Items the client may have retired stay in the database as `legacy` and count as available only
+-- once a vendor scan has seen them stocked. The battleground reputation items are the exception:
+-- players confirm those vendors sell on Forever, so they are available at once (item.unconfirmed
+-- until a scan has seen them).
 function HonorLog:IsGearAvailable(itemID)
     local base = self.GearDB and self.GearDB[itemID]
     if not base then return false end
-    return not base.legacy or ScannedEntry(itemID) ~= nil
+    return not base.legacy or ScannedEntry(itemID) ~= nil or self:IsBGReputationGear(base)
 end
 
 function HonorLog:GetHonorCap()
@@ -1295,15 +1333,208 @@ function HonorLog:GetHonorCap()
     return nil
 end
 
--- Reputation standing id (4 Neutral .. 8 Exalted) with a faction, or nil when
--- the client cannot say. A faction the client has not met reads as 0.
-function HonorLog:GetReputationStanding(factionID)
+-- Standing, amount and thresholds with a faction, from the client, or nil when it cannot say.
+-- standing is the reaction id (4 Neutral .. 8 Exalted; 0 for a faction the client has not met);
+-- current, floor and ceiling are the client's absolute numbers, so current - floor is the amount
+-- into the standing and ceiling - floor the standing's span. A number the client withholds is nil.
+function HonorLog:GetReputationProgress(factionID)
     if not (C_Reputation and C_Reputation.GetFactionDataByID) then return nil end
     local ok, data = pcall(C_Reputation.GetFactionDataByID, factionID)
     if not ok then return nil end
-    if type(data) ~= "table" then return 0 end
-    if issecretvalue and issecretvalue(data.reaction) then return nil end
-    return tonumber(data.reaction) or 0
+    if type(data) ~= "table" then return { standing = 0 } end
+    local standing = Util.num(data.reaction)
+    if not standing then return nil end
+    return {
+        standing = standing,
+        current = Util.num(data.currentStanding),
+        floor = Util.num(data.currentReactionThreshold),
+        ceiling = Util.num(data.nextReactionThreshold),
+    }
+end
+
+-- Reputation standing id (4 Neutral .. 8 Exalted) with a faction, or nil when the client cannot
+-- say. A faction the client has not met reads as 0.
+function HonorLog:GetReputationStanding(factionID)
+    local progress = self:GetReputationProgress(factionID)
+    return progress and progress.standing or nil
+end
+
+-- Reputation a standing takes to finish, by standing id (Neutral .. Revered).
+HonorLog.STANDING_SPANS = { [4] = 3000, [5] = 6000, [6] = 12000, [7] = 21000 }
+
+-- Reputation still needed to reach `needed` from a standing with `into` reputation gained inside it.
+-- Standings below Neutral are counted from Neutral's start.
+function HonorLog:ReputationRemaining(standing, into, needed)
+    standing = math.max(4, standing or 0)
+    if standing >= needed then return 0 end
+    local total = 0
+    for s = standing, needed - 1 do total = total + (self.STANDING_SPANS[s] or 0) end
+    return math.max(0, total - (into or 0))
+end
+
+local REP_SAMPLE = 20 -- newest games that recorded a faction
+
+-- Average reputation per game with a faction over the newest games that recorded it, or nil.
+function HonorLog:GetRepPerGame(factionID)
+    local history = self.db and self.db.char and self.db.char.history or {}
+    local sum, n = 0, 0
+    for _, game in ipairs(history) do
+        local rep = game.rep
+        if type(rep) == "table" and rep.faction == factionID and type(rep.gained) == "number" then
+            sum, n = sum + rep.gained, n + 1
+            if n >= REP_SAMPLE then break end
+        end
+    end
+    if n == 0 then return nil end
+    return sum / n
+end
+
+--[[
+============================================================================
+VENDORS
+============================================================================
+Where an item is sold. A vendor the player's own scan saw selling it wins; otherwise the built-in
+table (Data/Vendors.lua) is searched by the item's source, slot and the player's faction.
+--]]
+
+local WEAPON_VENDOR_SLOTS = { MAIN_HAND = true, OFF_HAND = true, TWO_HAND = true, RANGED = true }
+
+-- Position text for a scanned vendor: "Subzone, Zone", whichever the scan recorded.
+local function ScannedPlace(rec)
+    local zone, sub = Util.str(rec.zone), Util.str(rec.subzone)
+    if zone and zone ~= "" and sub and sub ~= "" and sub ~= zone then return sub .. ", " .. zone end
+    if sub and sub ~= "" then return sub end
+    if zone and zone ~= "" then return zone end
+    return nil
+end
+
+local function BuiltinVendorByName(self, name)
+    for _, v in ipairs(self.VENDORS or {}) do
+        if v.name == name then return v end
+    end
+    return nil
+end
+
+-- Which built-in vendor kind sells an item, and for a supply officer which faction.
+local function VendorKindFor(base)
+    if base.slot == "MOUNT" then return "mount" end
+    if base.slot == "TOKEN" then return "accessories" end
+    if base.source == "REP" then
+        return base.rep and base.rep.faction and "supply" or nil, base.rep and base.rep.faction
+    end
+    if base.source == "HONOR" or base.source == "UPGRADE" then
+        return WEAPON_VENDOR_SLOTS[base.slot] and "weapons" or "armor"
+    end
+    if base.source == "RANK" then
+        return WEAPON_VENDOR_SLOTS[base.slot] and "weapons" or "accessories"
+    end
+    return nil
+end
+
+-- { name, role, place, map, x, y, npc, source = "scan" | "builtin" } for the vendor that sells an
+-- item, or nil. x and y are percent of the map and may be missing.
+function HonorLog:GetVendorFor(itemID)
+    local base = self.GearDB and self.GearDB[itemID]
+    if not base then return nil end
+
+    local scan = ScannedEntry(itemID)
+    local scannedName = scan and Util.str(scan.npc)
+    if scannedName then
+        local rec = type(HonorLogDB) == "table" and type(HonorLogDB.scannedVendors) == "table"
+            and HonorLogDB.scannedVendors[scannedName]
+        rec = type(rec) == "table" and rec or {}
+        local known = BuiltinVendorByName(self, scannedName)
+        local vendor = { name = scannedName, source = "scan", npc = rec.npc, role = known and known.role or nil }
+        vendor.map, vendor.x, vendor.y = rec.map, rec.x, rec.y
+        vendor.place = ScannedPlace(rec)
+        if known then
+            -- A scan from before positions were recorded keeps working: borrow the built-in ones.
+            if not vendor.map then vendor.map, vendor.x, vendor.y = known.map, known.x, known.y end
+            vendor.place = vendor.place or known.place
+            vendor.npc = vendor.npc or known.npc
+        end
+        return vendor
+    end
+
+    local kind, repFaction = VendorKindFor(base)
+    if not kind then return nil end
+    local faction = Util.str(UnitFactionGroup and UnitFactionGroup("player"))
+    for _, v in ipairs(self.VENDORS or {}) do
+        if v.kind == kind and (not faction or v.faction == faction)
+            and (kind ~= "supply" or v.repFaction == repFaction) then
+            return { name = v.name, role = v.role, place = v.place, map = v.map, x = v.x, y = v.y, npc = v.npc, source = "builtin" }
+        end
+    end
+    return nil
+end
+
+-- Put a vendor on the map as the user waypoint. Returns true when a waypoint was set.
+function HonorLog:ShowVendorOnMap(vendor)
+    if type(vendor) ~= "table" then
+        self:Say(L["HonorLog does not know where this item is sold yet."])
+        return false
+    end
+    local where = vendor.place and (vendor.name .. ", " .. vendor.place) or vendor.name
+    local canSet = vendor.map and vendor.x and vendor.y and C_Map and C_Map.SetUserWaypoint
+        and UiMapPoint and UiMapPoint.CreateFromCoordinates
+    if canSet and C_Map.CanSetUserWaypointOnMap and C_Map.CanSetUserWaypointOnMap(vendor.map) == false then
+        canSet = false
+    end
+    if not canSet then
+        self:Say(string.format(L["%s: open this vendor once and HonorLog will remember where it stands."], where))
+        return false
+    end
+    local point = UiMapPoint.CreateFromCoordinates(vendor.map, vendor.x / 100, vendor.y / 100)
+    if not point then
+        self:Say(string.format(L["%s: open this vendor once and HonorLog will remember where it stands."], where))
+        return false
+    end
+    C_Map.SetUserWaypoint(point)
+    if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then C_SuperTrack.SetSuperTrackedUserWaypoint(true) end
+    self:Say(string.format(L["Waypoint set for %s."], where))
+    return true
+end
+
+-- Alt+Click on a goal or a picker row.
+function HonorLog:ShowVendorForItem(itemID)
+    return self:ShowVendorOnMap(itemID and self:GetVendorFor(itemID) or nil)
+end
+
+-- /honorlog vendor <goal number | item name | item link>: the goal first, then any item the picker lists.
+function HonorLog:ShowVendorForArg(arg)
+    arg = (arg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if arg == "" then
+        self:Say(L["Usage: /honorlog vendor [item name or goal number]"])
+        return false
+    end
+    local goals = self:GetGoals()
+    local itemID = tonumber(arg:match("item:(%d+)"))
+    local n = tonumber(arg)
+    if not itemID and n and goals[n] then itemID = goals[n].itemID end
+    local needle = arg:lower()
+    if not itemID then
+        for _, goal in ipairs(goals) do
+            local name = (self:GetGearName(goal.itemID) or ""):lower()
+            if name ~= "" and name:find(needle, 1, true) then itemID = goal.itemID break end
+        end
+    end
+    if not itemID then
+        local found = self:GetPickerItems({ search = needle, showUnverified = true })
+        itemID = found[1] and found[1].itemID or nil
+    end
+    if not itemID then
+        self:Say(string.format(L["No gear item matches '%s'."], arg))
+        return false
+    end
+    return self:ShowVendorForItem(itemID)
+end
+
+-- "Sold by Brave Stonehide, Hall of Legends, Orgrimmar", or nil when the vendor is not known.
+function HonorLog:GetVendorLine(itemID)
+    local vendor = self:GetVendorFor(itemID)
+    if not vendor then return nil end
+    if vendor.place then return string.format(L["Sold by %s, %s"], vendor.name, vendor.place) end
+    return string.format(L["Sold by %s"], vendor.name)
 end
 
 function HonorLog:FormatMoney(copper)
@@ -1422,6 +1653,8 @@ local function NewContext(self)
         cap = self:GetHonorCap(),
         money = GetMoney and GetMoney() or 0,
         marks = self:GetAllCurrentMarks(),
+        level = Util.num(UnitLevel and UnitLevel("player")),
+        faction = Util.str(UnitFactionGroup and UnitFactionGroup("player")),
         info = info,
         pace = Rank and Rank.GetPace and Rank:GetPace() or { gamesPerDay = 0, pointsPerGame = 0 },
         plans = {},
@@ -1471,17 +1704,33 @@ end
 
 -- When honor and marks at the measured rate and the rank plan allow the purchase.
 -- Returns date (or nil), limitedBy, games.
-local function ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow)
+local function ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow, repRow)
     local games, detail = self:EstimateGames(honorMissing, marksMissing)
     local now = ctx.now
     local gpd = ctx.pace and ctx.pace.gamesPerDay or 0
 
+    -- Reputation is earned in the same games as marks; it needs its own measured rate. Games for
+    -- everything are the longest of the two. Without a rate there is no date: never "ready today".
+    local rateLimitOverride, noRep
+    if repRow and repRow.known and not repRow.met and repRow.faction and (repRow.remainingRep or 0) > 0 then
+        if repRow.games then
+            if repRow.games > games then
+                games = repRow.games
+                rateLimitOverride = "rep"
+            end
+        else
+            noRep = true
+        end
+    end
+
     local rateDate, rateLimit
-    if games == 0 then
+    if games == 0 and not noRep then
         rateDate = now
+    elseif noRep then
+        rateLimit = "norep"
     elseif gpd > 0 then
         rateDate = now + math.floor(games / gpd * DAY)
-        rateLimit = detail.marksGames >= detail.honorGames and "marks" or "honor"
+        rateLimit = rateLimitOverride or (detail.marksGames >= detail.honorGames and "marks" or "honor")
     else
         rateLimit = "nopace"
     end
@@ -1499,6 +1748,8 @@ local function ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow)
     if rankUnmet and not rankDate then
         -- no date: the level gate, a pace of 0 rank points, or the season ends first
         limitedBy = (rankLimit == "level" or rankLimit == "nopoints") and rankLimit or "season"
+    elseif rateLimit == "norep" then
+        limitedBy = "norep" -- no game has measured the reputation rate yet
     elseif rateLimit == "nopace" then
         limitedBy = "nopace" -- no recent games to measure a rate from
     elseif rankUnmet and rankDate > rateDate then
@@ -1520,6 +1771,7 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
     local need = { honor = item.honor or 0, gold = item.gold or 0, marks = {} }
     for bgType, count in pairs(item.marks or {}) do need.marks[bgType] = count end
     local rankNeeded = item.rank
+    local levelNeeded = item.reqLevel
     local parts
     if item.source == "UPGRADE" and type(item.parts) == "table" then
         local list = {}
@@ -1529,16 +1781,17 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
                 list[#list + 1] = {
                     itemID = partID, name = part.name, role = i == 1 and "blue" or "seal",
                     owned = self:IsItemInInventory(partID), honor = part.honor or 0, gold = part.gold or 0,
-                    marks = part.marks, rank = part.rank, scanned = part.scanned,
+                    marks = part.marks, rank = part.rank, scanned = part.scanned, reqLevel = part.reqLevel,
                 }
             end
         end
         if #list > 0 then
             parts = list
             need = { honor = 0, gold = 0, marks = {} }
-            rankNeeded = nil
+            rankNeeded, levelNeeded = nil, nil -- each part still to buy names its own
             for _, part in ipairs(list) do
                 if not part.owned then
+                    levelNeeded = math.max(levelNeeded or 0, part.reqLevel or 0)
                     need.honor = need.honor + part.honor
                     need.gold = need.gold + part.gold
                     for bgType, count in pairs(part.marks or {}) do
@@ -1553,7 +1806,7 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
     local result = {
         itemID = itemID, name = item.name, slot = item.slot, item = item, source = item.source,
         parts = parts, marks = {}, rows = {}, missing = {}, unverified = {},
-        isComplete = true, totalGamesNeeded = 0, scanned = item.scanned,
+        isComplete = true, totalGamesNeeded = 0, scanned = item.scanned, unconfirmed = item.unconfirmed,
     }
     local function addRow(row)
         row.remaining = math.max(0, row.needed - (row.current or 0))
@@ -1592,6 +1845,13 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
     -- Gold
     result.gold = addRow({ kind = "gold", needed = need.gold, current = take("gold", nil, need.gold) })
 
+    -- Level: shown only while unmet. An unmet level means no ready date.
+    local levelRow
+    if levelNeeded and levelNeeded > 1 then
+        levelRow = addRow({ kind = "level", needed = levelNeeded, current = ctx.level, known = ctx.level ~= nil })
+        result.level = levelRow
+    end
+
     -- Rank
     local rankRow
     if rankNeeded and rankNeeded > 0 then
@@ -1622,15 +1882,30 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
         result.rank = row
     end
 
-    -- Reputation: the standing needed, with progress only when the item names one faction.
+    -- Reputation: the standing needed, with progress only when the item names one faction. current is
+    -- the standing id; amount and ceiling are the reputation into that standing and its span.
+    local repRow
     local rep = item.rep
     if rep and rep.standing then
         local row = { kind = "rep", needed = rep.standing, faction = rep.faction, standingName = HonorLog.STANDING_NAMES[rep.standing] }
         if rep.faction then
             row.factionName = self.REP_FACTIONS and self.REP_FACTIONS[rep.faction]
-            row.current = self:GetReputationStanding(rep.faction)
+            local progress = self:GetReputationProgress(rep.faction)
+            row.current = progress and progress.standing or nil
             row.known = row.current ~= nil
             row.met = row.known and row.current >= rep.standing
+            if row.known and progress.current and progress.floor and progress.ceiling and progress.ceiling > progress.floor then
+                row.amount = math.max(0, progress.current - progress.floor)
+                row.ceiling = progress.ceiling - progress.floor
+            end
+            if row.known and not row.met then
+                row.remainingRep = self:ReputationRemaining(row.current, row.amount, rep.standing)
+                row.perGame = self:GetRepPerGame(rep.faction)
+                row.repBG = BG_OF_REP_FACTION[rep.faction]
+                if row.perGame and row.perGame > 0 then
+                    row.games = math.ceil(row.remainingRep / row.perGame)
+                end
+            end
         else
             row.known = false -- several factions qualify: shown as a requirement, never as progress
             row.met = false
@@ -1645,6 +1920,7 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
             result.isComplete = false
         end
         result.rep = row
+        repRow = row
     end
 
     -- Per-requirement games, for the old "games" labels
@@ -1667,7 +1943,14 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
         honorMissing, marksMissing = pool.shortHonor, pool.shortMarks
     end
     result.readyDate, result.readyLimitedBy, result.totalGamesNeeded, result.estimated =
-        ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow)
+        ReadyEstimate(self, ctx, honorMissing, marksMissing, rankRow, repRow)
+    if result.readyLimitedBy == "norep" and repRow then
+        local bgName = repRow.repBG and self:GetBGDisplayName(repRow.repBG) or L["battleground"]
+        result.readyText = string.format(L["play a %s game to measure reputation"], bgName)
+    end
+    if levelRow and levelRow.known and not levelRow.met then
+        result.readyDate, result.readyLimitedBy = nil, "level"
+    end
     if result.isComplete then
         result.readyDate, result.readyLimitedBy = ctx.now, "ready"
     elseif #result.missing > 0 then
@@ -1777,8 +2060,94 @@ function HonorLog:GetGoalsTotals(goals)
     return T
 end
 
+local CAP_ADVICE_GAMES = 20 -- the cap advice also fires when the cap is this many games away
+
+-- What the character could buy this minute: level, rank, reputation, faction and class met, honor,
+-- marks and gold in hand, not owned. Most expensive first, at most `limit` entries of
+-- { itemID, name, honor, marks, gold }. Epics (two purchases) and consumables are left out.
+function HonorLog:GetBuyableNow(limit)
+    local ctx = NewContext(self)
+    local _, class = UnitClass("player")
+    local list = {}
+    for _, entry in ipairs(self:GetPickerItems({ class = Util.str(class), hideOwned = true })) do
+        local base = entry.data
+        local item = base.source ~= "UPGRADE" and base.slot ~= "CONSUMABLE" and self:GetGearItem(entry.itemID) or nil
+        local ok = item ~= nil
+        if ok and (item.reqLevel or 0) > 1 then ok = ctx.level ~= nil and ctx.level >= item.reqLevel end
+        if ok and item.rank then ok = ctx.info ~= nil and ctx.info.rank ~= nil and ctx.info.rank >= item.rank end
+        if ok and item.rep and item.rep.standing then
+            local standing = item.rep.faction and self:GetReputationStanding(item.rep.faction)
+            ok = standing ~= nil and standing >= item.rep.standing
+        end
+        if ok then ok = (item.honor or 0) <= ctx.honor and (item.gold or 0) <= ctx.money end
+        if ok then
+            for bgType, count in pairs(item.marks or {}) do
+                if (ctx.marks[bgType] or 0) < count then ok = false end
+            end
+        end
+        if ok then
+            local weight = (item.honor or 0) + (item.gold or 0) / 1000
+            for _, count in pairs(item.marks or {}) do weight = weight + count * 100 end
+            list[#list + 1] = { itemID = entry.itemID, name = item.name, honor = item.honor or 0, marks = item.marks,
+                gold = item.gold or 0, weight = weight }
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.weight ~= b.weight then return a.weight > b.weight end
+        if (a.name or "") ~= (b.name or "") then return (a.name or "") < (b.name or "") end
+        return a.itemID < b.itemID
+    end)
+    local out = {}
+    for i = 1, math.min(limit or 3, #list) do out[i] = list[i] end
+    return out
+end
+
+-- True when every goal waits on level, rank or reputation (and none is ready). Second result: the
+-- lowest level the goals wait for when every goal waits on a level, else nil.
+local function GoalsBlockedByGate(goals)
+    if #goals == 0 then return false end
+    local allLevel, lowest = true, nil
+    for _, goal in ipairs(goals) do
+        if goal.isComplete then return false end
+        local gated, levelGated = false, false
+        for _, row in ipairs(goal.missing) do
+            if row.kind == "level" then
+                gated, levelGated = true, true
+                lowest = math.min(lowest or row.needed, row.needed)
+            elseif row.kind == "rank" or row.kind == "rep" then
+                gated = true
+            end
+        end
+        if not gated then return false end
+        if not levelGated then allLevel = false end
+    end
+    return true, allLevel and lowest or nil
+end
+
+local function GamesPhrase(n)
+    return string.format(n == 1 and L["%d game"] or L["%d games"], n)
+end
+
+-- The "you will cap with nothing to buy" sentence.
+local function BlockedCapText(cap, gamesToCap, level)
+    local capText = BreakUpLargeNumbers(cap)
+    if gamesToCap == nil then
+        if level then return string.format(L["You are near the %s honor cap and nothing on your list can be bought before level %d."], capText, level) end
+        return string.format(L["You are near the %s honor cap and nothing on your list can be bought yet because of level, rank or reputation."], capText)
+    elseif gamesToCap == 0 then
+        if level then return string.format(L["You are at the %s honor cap and nothing on your list can be bought before level %d."], capText, level) end
+        return string.format(L["You are at the %s honor cap and nothing on your list can be bought yet because of level, rank or reputation."], capText)
+    end
+    if level then
+        return string.format(L["You'll reach the %s honor cap in about %s and nothing on your list can be bought before level %d."], capText, GamesPhrase(gamesToCap), level)
+    end
+    return string.format(L["You'll reach the %s honor cap in about %s and nothing on your list can be bought yet because of level, rank or reputation."], capText, GamesPhrase(gamesToCap))
+end
+
 -- "Spend before you cap": honor that the next game would push past the cap (or already sits at the
--- warning percentage), and the first goal that can be bought now.
+-- warning percentage), and the first goal that can be bought now. When every goal waits on level,
+-- rank or reputation and the cap is near (or within 20 games at the measured honor per game), the
+-- advice says so and lists up to three things the character could buy right now (advice.buyable).
 function HonorLog:GetHonorCapAdvice(goals)
     local settings = self.db and self.db.settings
     if not settings or settings.honorCapWarning == false or settings.goalCapAdvice == false then return nil end
@@ -1787,10 +2156,28 @@ function HonorLog:GetHonorCapAdvice(goals)
     local current = self:GetCurrentHonor()
     local expected = self:GetAverageHonorPerGame()
     local pct = settings.honorCapWarnPct or 90
-    if current + expected <= cap and current < cap * pct / 100 then return nil end
+    local near = not (current + expected <= cap and current < cap * pct / 100)
+    local gamesToCap
+    if current >= cap then
+        gamesToCap = 0
+    elseif expected > 0 then
+        gamesToCap = math.ceil((cap - current) / expected)
+    end
+    local soon = gamesToCap ~= nil and gamesToCap <= CAP_ADVICE_GAMES
+    if not near and not soon then return nil end
 
     goals = goals or self:GetAllGoalsProgress()
-    local advice = { current = current, cap = cap, expected = expected, text = "spend before you cap" }
+    local advice = { current = current, cap = cap, expected = expected, gamesToCap = gamesToCap, text = "spend before you cap" }
+
+    local blocked, level = GoalsBlockedByGate(goals)
+    if blocked then
+        advice.blocked = true
+        advice.text = BlockedCapText(cap, gamesToCap, level)
+        advice.buyable = self:GetBuyableNow(3)
+        return advice
+    end
+    if not near then return nil end
+
     for _, goal in ipairs(goals) do
         if goal.isComplete then advice.goal = goal break end
     end

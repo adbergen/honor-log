@@ -17,14 +17,15 @@ jobs:
       - name: Create addon package
         run: |
           mkdir -p release
-          rsync -av --exclude='.git*' --exclude='.github' --exclude='release' --exclude='*.md' --exclude='ROADMAP.md' --exclude='/tools/' --exclude='/Tests/' ./ release/HonorLog/
+          rsync -av --exclude='.git*' --exclude='.github' --exclude='release' --exclude='*.md' --exclude='ROADMAP.md' --exclude='.luacheckrc' --exclude='/tools/' --exclude='/Tests/' ./ release/HonorLog/
           cd release && zip -r HonorLog-${{ github.ref_name }}.zip HonorLog
 
       - name: Extract changelog
         id: changelog
         run: |
-          # Use full changelog (skip the "# Changelog" header line)
-          CHANGELOG=$(tail -n +3 CHANGELOG.md)
+          # Only the newest version's section: the lines after the first "## [" heading,
+          # up to the next one.
+          CHANGELOG=$(awk '/^## \[/ { n++; next } n == 1 { print }' CHANGELOG.md)
           # Handle multi-line output for GitHub Actions
           echo "content<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT

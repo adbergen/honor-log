@@ -53,7 +53,24 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 - **Fuller export:** text and CSV now hold every saved game (date, battleground, result,
   joined in progress, duration, kills, honorable kills, deaths, damage, healing,
   objectives, honor, marks, rank points), a world PvP section and your opponents.
+- **Gear goals tell the truth.**
+  - A goal shows the character level its item needs: "Level 35 / 55" in the requirement
+    line, and "Ready at level 55" instead of a date while you are under it.
+  - Reputation goals show amounts ("Honored 4,200 / 12,000"). Each battleground game now
+    saves the reputation it gave with its own faction, and the date comes from your
+    average over your last 20 games. Without a measured rate there is no date, and the
+    goal asks you to play a game of that battleground.
+  - The Arathi Basin, Alterac Valley and Warsong Gulch reputation items are listed by
+    default, tagged "price unconfirmed" until a vendor scan has seen them.
+  - Goals and picker rows say who sells the item and where. Alt+Click, or
+    `/honorlog vendor <item or goal number>`, sets a map waypoint. A vendor scan now also
+    records the vendor's NPC id, map and position.
+  - When the honor cap is near (or 20 games away) and nothing on your list can be bought
+    because of level, rank or reputation, the advice says so and `/honorlog goal advice`
+    lists up to three items you could buy now.
 - `/honorlog probe`, a diagnostic that records which PvP data the client gives addons.
+  It also logs whether a vendor's NPC id and position can be read, and the reputation
+  change after each game.
 
 ### Changed
 - The theme drops the arena and Eye of the Storm leftovers, and Darkspear Islands uses its
@@ -69,6 +86,17 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 - The history limit stopped at 100 although the slider offers 500.
 - Debug messages appeared on every right-click.
 - The bundled Data Broker library could replace the real one for other addons.
+- The export window opened empty, `/honorlog export csv` showed plain text under a CSV
+  label, and the Export Format option was never read. CSV is now real comma-separated
+  values with quoting.
+- The two export format dropdowns shared one frame name.
+- The gear picker's slot, source, class and armor filters did nothing, and "Any class"
+  did not clear the class filter.
+- Dragging the frame by its header ignored "Lock Frame Position".
+- The rank goals' status said "not reachable this season" when the real reason was the
+  level gate or a rank pace of 0 points.
+- The release zip no longer ships `.luacheckrc`, and the release notes are only the
+  newest version's changelog section.
 
 ## [1.2.3] - 2025-02-05
 

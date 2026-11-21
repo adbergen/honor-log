@@ -411,6 +411,26 @@ function Probe:LogGateObservation(gateRank, gateLevel, level, rank)
     push("RANK_GATE_DISPROVED", gateRank, gateLevel, level, rank)
 end
 
+-- A vendor window opened: could the addon read the NPC's GUID, and was a map position available?
+-- One log entry, only while the probe is armed. loc is HonorLog:ReadVendorLocation().
+function Probe:LogMerchantRead(loc)
+    if not db().armed or type(loc) ~= "table" then return end
+    local entry = push("MERCHANT_READ", loc.guidReadable == true, loc.positionAvailable == true)
+    entry.npc, entry.map, entry.x, entry.y = loc.npc, loc.map, loc.x, loc.y
+end
+
+-- A game was recorded: the reputation read at its start and end, and the delta kept. One log entry,
+-- only while the probe is armed.
+function Probe:LogRepRead(bgType, startRep, endRep, rep)
+    if not db().armed then return end
+    local entry = push("REP_DELTA", bgType)
+    entry.faction = (rep and rep.faction) or (startRep and startRep.faction)
+    entry.startAmount = startRep and startRep.amount
+    entry.endAmount = endRep and endRep.amount
+    entry.gained = rep and rep.gained
+    entry.readable = rep ~= nil
+end
+
 -- PARTY_KILL: are the GUIDs secret, in or out of a battleground?
 local function onPartyKill(attacker, target)
     local entry = { t = time(), gt = GetTime(), event = "PARTY_KILL" }
