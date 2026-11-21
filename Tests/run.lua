@@ -3712,8 +3712,20 @@ local function run()
         local function integration(label)
             Window:Show("overview")
             local n = 0
+            -- Only what belongs to the window: a click on "Add a goal" opens the old picker, whose own rows and
+            -- cards are not this run's business (and need templates the "nothing exists" pass takes away).
+            local function inWindow(f)
+                local hops = 0
+                while f and hops < 40 do
+                    if f == Window.frame then return true end
+                    f, hops = f.__parent, hops + 1
+                end
+                return false
+            end
             local list = {}
-            for i = framesBefore, #mock.frames do list[#list + 1] = mock.frames[i] end
+            for i = framesBefore, #mock.frames do
+                if inWindow(mock.frames[i]) then list[#list + 1] = mock.frames[i] end
+            end
             for _, f in ipairs(list) do
                 if f.__scripts.OnEnter then f.__scripts.OnEnter(f); n = n + 1 end
                 if f.__scripts.OnLeave then f.__scripts.OnLeave(f) end
@@ -3786,6 +3798,79 @@ local function run()
             check(Window.frame ~= nil and Window.tabs ~= nil and Window:IsShown(), "window: the next try builds it")
             mock.handledErrors[#mock.handledErrors] = nil
             mock.handledErrors[#mock.handledErrors] = nil
+        end
+
+        -- What the first screenshot showed (2026-11-21): the ring fell back to the plain icon although
+        -- Blizzard's own tab uses that art, a day without games showed its 0 in warning orange, and the
+        -- left pane had a large empty stretch.
+        do
+            local Kit = HL.Kit
+            -- An atlas the client has but GetAtlasInfo does not report is found by setting it and reading it back.
+            mock.atlases["Blind-Test-Atlas"] = true
+            mock.atlasInfoBlind["Blind-Test-Atlas"] = true
+            check(C_Texture.GetAtlasInfo("Blind-Test-Atlas") == nil and Kit:HasAtlas("Blind-Test-Atlas") == true, "kit: an atlas GetAtlasInfo does not report is still found")
+            check(Kit:HasAtlas("No-Such-Atlas") == false and Kit:HasAtlas(nil) == false, "kit: a missing atlas is missing both ways")
+            mock.atlases["Blind-Test-Atlas"], mock.atlasInfoBlind["Blind-Test-Atlas"] = nil, nil
+            -- The ring takes either name of its art.
+            local holder = CreateFrame("Frame", nil, UIParent)
+            mock.atlases["pvpqueue-sidebar-honorbar-background"] = true
+            check(Kit:Ring(holder, 150).honorLogFull == true, "kit: the ring is drawn with the older ring art when only that exists")
+            mock.atlases["pvpqueue-sidebar-honorbar-background"] = nil
+            mock.atlases["UI-Character-Info-Honor-Bar"], mock.atlasInfoBlind["UI-Character-Info-Honor-Bar"] = true, true
+            check(Kit:Ring(holder, 150).honorLogFull == true, "kit: the ring is drawn when its art is only found by reading it back")
+            mock.atlases["UI-Character-Info-Honor-Bar"], mock.atlasInfoBlind["UI-Character-Info-Honor-Bar"] = nil, nil
+            check(Kit:Ring(holder, 150).honorLogFull == false, "kit: without ring art the plain version is drawn")
+
+            -- No rank, no games: a white 0, and the next rank's unlocks as icons where the gate note would be.
+            local saveRankLevel, saveEarned, saveHistory, saveLevel = mock.rank.level, mock.rank.earned, HL.db.char.history, mock.level
+            mock.rank.level, mock.rank.earned, HL.db.char.history, mock.level = 0, 0, {}, 60
+            Window:Show("overview")
+            Window:RefreshCurrent()
+            local parts = Window.frames.overview.honorLogParts
+            local white = Kit.COLORS.white
+            local c = parts.tiles[3].value.__textColor
+            check(parts.tiles[3].value:GetText() == "0" and c[1] == white[1] and c[2] == white[2] and c[3] == white[3], "overview: a day without games shows a plain white 0 for rank points")
+            local expectRank, expectItems
+            for n = 1, 14 do
+                local list = HL:GetRankUnlocks(n)
+                if #list > 0 then expectRank, expectItems = n, list break end
+            end
+            local left = parts.left
+            check(expectRank ~= nil and left.unlockRank == expectRank and left.unlockShown == math.min(#expectItems, 5)
+                and left.unlockLabel:IsShown() and left.unlockLabel:GetText() == "Rank " .. expectRank .. " unlocks", "overview: the next rank's unlocks are named: " .. tostring(left.unlockLabel:GetText()))
+            check(left.unlockIcons[1]:IsShown() and left.unlockIcons[1].honorLogItemID == expectItems[1] and left.unlockIcons[5]:IsShown() == (#expectItems >= 5),
+                "overview: the unlocks are item icons")
+            local _, _, _, _, yNoGate = left.unlockLabel:GetPoint(1)
+            mock.level = 35
+            mock.rank.level, mock.rank.earned = 3, 0
+            Window:RefreshCurrent()
+            local _, _, _, _, yGate = left.unlockLabel:GetPoint(1)
+            check(left.gate:IsShown() and yGate < yNoGate, "overview: with the gate note showing the unlocks sit under it")
+            mock.rank.level, mock.rank.earned, HL.db.char.history, mock.level = saveRankLevel, saveEarned, saveHistory, saveLevel
+            Window:RefreshCurrent()
+        end
+
+        -- The UI audit: what the client has, asked of the client.
+        do
+            mock.missingTemplates = { InsetFrameTemplate = true }
+            mock.atlases["UI-Character-Info-General-BG"] = true
+            local at = #printed
+            SlashCmdList.HONORLOG("probe ui")
+            mock.missingTemplates = {}
+            mock.atlases["UI-Character-Info-General-BG"] = nil
+            local ui = HonorLogDB.probe.ui
+            check(type(ui) == "table" and ui.atlases["UI-Character-Info-General-BG"].info == true and ui.atlases["UI-Character-Info-General-BG"].readBack == true
+                and ui.atlases["common-framedivider"].info == false and ui.atlases["common-framedivider"].readBack == false, "probe ui: atlases are recorded both ways")
+            check(ui.templates.PortraitFrameTemplate.ok == true and ui.templates.PortraitFrameTemplate.regions >= 1
+                and ui.templates.InsetFrameTemplate.ok == false and ui.templates.InsetFrameTemplate.error:find("Couldn't find", 1, true), "probe ui: templates are tried, a missing one keeps its error")
+            local methods = table.concat(ui.templates.PortraitFrameTemplate.methods, ",")
+            check(methods:find("GetTitleText", 1, true) and methods:find("SetTitle", 1, true) and table.concat(ui.templates.PortraitFrameTemplate.parts, ","):find("CloseButton", 1, true),
+                "probe ui: a template's own parts and methods are listed: " .. methods)
+            check(ui.templates["Cooldown (no template)"].ok == true and type(ui.fonts) == "table" and ui.globals.UISpecialFrames == "table" and ui.globals.SetItemButtonQuality ~= nil,
+                "probe ui: frame kinds without a template, fonts and helpers are recorded")
+            check(type(ui.names) == "table" and ui.names.UnitName ~= nil and ui.names.GetRealmName ~= nil and type(ui.screen) == "table" and type(ui.kit) == "table" and type(ui.window) == "table",
+                "probe ui: names, screen, the kit's own ring check and the window are recorded")
+            check(table.concat(printed, "\n", at + 1):find("UI audit saved", 1, true), "probe ui: says it is saved")
         end
 
         -- put everything back
