@@ -49,5 +49,7 @@ UI\GoalsPanel.lua
 UI\Options.lua
 UI\Export.lua
 UI\Kit.lua
+UI\RankPane.lua
 UI\Window.lua
 UI\Screens\Overview.lua
+UI\Screens\RankPlan.lua

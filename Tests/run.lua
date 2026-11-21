@@ -54,7 +54,7 @@ local function run()
         "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
-        "UI/Export.lua", "UI/Kit.lua", "UI/Window.lua", "UI/Screens/Overview.lua",
+        "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3292,16 +3292,16 @@ local function run()
         local probeRefreshes
         local function registerProbe()
             probeRefreshes = 0
-            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 2, create = function(parent)
+            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 3, create = function(parent)
                 local f = CreateFrame("Frame", nil, parent)
                 function f:Refresh() probeRefreshes = probeRefreshes + 1 end
                 return f
             end })
         end
         registerProbe()
-        check(#Window.screens == 2 and Window.screens[1].key == "overview" and Window.screens[2].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 3 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
-        check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview", "window: the new settings have defaults")
+        check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
         mock.runShowScripts = true
         local function closed() return not Window:IsShown() end
@@ -3710,6 +3710,7 @@ local function run()
         -- ── Integration: every control, twice ───────────────────────────────────────
         char.history = games
         local function integration(label)
+            Window:Show("rank")
             Window:Show("overview")
             local n = 0
             -- Only what belongs to the window: a click on "Add a goal" opens the old picker, whose own rows and
@@ -3903,6 +3904,401 @@ local function run()
             check(ring.Badge:IsShown() and ring.Badge.Label:GetText() == "3", "kit: the badge shows from rank 1 on")
             mock.atlasMode = "default"
         end
+
+        -- ═══ Rank plan: the model, the chart, the table, the planner and the shared pane ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Rank, Kit = HL.Rank, HL.Kit
+            local realPace, realUnlocks, realPlan = Rank.GetPace, HL.GetRankUnlocks, Rank.PlanToRank
+            local saveProbe = HonorLogDB.probe
+            local saveWeeks, saveHistory, saveTarget = char.rankWeeks, char.history, HonorLogDB.settings.windowRankTarget
+            local saveLevel, saveSeasonMax = mock.level, mock.rankWindow.seasonMax
+            mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
+            mock.level, mock.faction = 60, "Alliance"
+            mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week, mock.rankWindow.noData = 5, 3, 2, false
+            char.history = games
+            char.rankWeeks = { [1] = { startTotal = 0, endTotal = 900, games = 3, capRank = 3 } }
+            local function fakePace(ppg, gpd, noPoints)
+                return { pointsPerGame = ppg, gamesPerDay = gpd, noPoints = noPoints or false, estimated = false, measuredGames = 0,
+                    pointsPerWin = ppg, pointsPerLoss = ppg, winRate = 0.5 }
+            end
+            local info = Rank:GetInfo()
+
+            -- ── GetSeasonSeries ──
+            local s = Rank:GetSeasonSeries(info, fakePace(100, 2))
+            check(#s.weeks == 10 and s.maxTotal == Rank:TotalForRank(14) and s.currentWeek == 2 and s.currentTotal == info.totalPoints, "series: weeks, maximum, current week and total")
+            check(#s.actual == 2 and s.actual[1].week == 1 and s.actual[1].total == 900 and s.actual[2].week == 2 and s.actual[2].total == info.totalPoints,
+                "series: actual is the week log's end totals, then the running total of the current week")
+            check(s.gateLevel == nil, "series: no gate level when nothing blocks")
+            check(#s.projected == 9 and s.projected[1].week == 2 and s.projected[9].week == 10, "series: the projection runs from the current week on")
+            local perWeek, ok = 100 * 2 * 7, true
+            for i, p in ipairs(s.projected) do
+                if p.total > s.weeks[p.week].capTotal or (s.projected[i - 1] and p.total < s.projected[i - 1].total) then ok = false end
+            end
+            check(ok, "series: the projection never passes a week's cap and never falls")
+            check(s.projected[2].total == math.min(s.projected[1].total + perWeek, s.weeks[3].capTotal), "series: a later week adds a week at the pace, up to its cap")
+            local fast = Rank:GetSeasonSeries(info, fakePace(100000, 50))
+            check(fast.projected[1].total == fast.weeks[2].capTotal and fast.projected[5].total == fast.weeks[6].capTotal, "series: a very fast pace sits on the cap")
+            check(#Rank:GetSeasonSeries(info, fakePace(0, 2, true)).projected == 0 and #Rank:GetSeasonSeries(info, fakePace(100, 0)).projected == 0
+                and #Rank:GetSeasonSeries(info, fakePace(0, 3)).projected == 0, "series: no projection when the pace is unknown or gives no points")
+            mock.level = 35
+            local gated = Rank:GetSeasonSeries(Rank:GetInfo(), fakePace(100, 2))
+            check(gated.gateLevel == 40 and #gated.projected == 9, "series: a blocking gate names its level")
+            local flat = true
+            for _, p in ipairs(gated.projected) do if p.total ~= gated.currentTotal then flat = false end end
+            check(flat, "series: under a blocking gate the projection stays flat")
+            mock.level = 60
+            mock.rankWindow.noData = true
+            local none = Rank:GetSeasonSeries()
+            check(#none.weeks == 0 and #none.actual == 0 and #none.projected == 0 and none.maxTotal == 0 and none.currentWeek == nil and none.gateLevel == nil, "series: empty tables without rank data")
+            mock.rankWindow.noData = false
+
+            -- ── GetWeeklyQuest ──
+            HonorLogDB.probe = { quests = {} }
+            local q = Rank:GetWeeklyQuest()
+            check(q.week == 2 and q.questID == 96913 and q.title == "Field of Honor: Week 2" and q.measured == nil and q.done == false, "quest: week 2, fallback title, nothing measured")
+            mock.questTitles[96913] = "Field of Honor: Week 2 (client)"
+            check(Rank:GetWeeklyQuest().title == "Field of Honor: Week 2 (client)", "quest: the client's title wins")
+            mock.questTitles[96913] = nil
+            HonorLogDB.probe.quests[96915] = { last = { rank = 0, t = 5 } }
+            check(Rank:GetWeeklyQuest().measured == nil, "quest: a hand-in that gave 0 is not a measurement")
+            HonorLogDB.probe.quests[96912] = { last = { rank = 75, t = 1 } }
+            check(Rank:GetWeeklyQuest().measured == 75, "quest: a hand-in of another week's quest counts")
+            HonorLogDB.probe.quests[96913] = { last = { rank = 90, t = 0 } }
+            check(Rank:GetWeeklyQuest().measured == 90, "quest: this week's own hand-in wins")
+            mock.questsDone[96913] = true
+            check(Rank:GetWeeklyQuest().done == true, "quest: the completed flag")
+            local realQL = _G.C_QuestLog
+            _G.C_QuestLog = nil
+            local noQL = Rank:GetWeeklyQuest()
+            check(noQL.done == nil and noQL.title == "Field of Honor: Week 2", "quest: no quest API leaves done empty and the title to the fallback")
+            _G.C_QuestLog = realQL
+            mock.questsDone[96913] = nil
+            mock.rankWindow.week = 11
+            check(Rank:GetWeeklyQuest() == nil, "quest: nil outside weeks 1 to 10")
+            mock.rankWindow.week = 2
+
+            -- ── The screen ──
+            mock.runShowScripts = true
+            Window:Show("rank")
+            local rp = Window.frames.rank
+            local parts = rp.honorLogParts
+            check(rp and parts and Window.current == "rank" and HonorLogDB.settings.windowTab == "rank", "rank plan: built on its tab")
+            Rank.GetPace = function() return fakePace(100, 2) end
+            Window:RefreshCurrent()
+            local chartPart = parts.chart
+            local chart = chartPart.chart
+            local function shownLines()
+                local out = {}
+                for _, l in ipairs(chart.honorLogLines) do if l:IsShown() then out[#out + 1] = l end end
+                return out
+            end
+            local function colorIs(f, rgb) local c = f.__color return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local CAP, RED, GREY = { 1, 0.82, 0 }, { 0.88, 0.28, 0.25 }, { 0.78, 0.76, 0.71 }
+            local function count(rgb, thick)
+                local n = 0
+                for _, l in ipairs(shownLines()) do if colorIs(l, rgb) and l.__thickness == thick then n = n + 1 end end
+                return n
+            end
+            local function labels()
+                local out = {}
+                for _, list in pairs(chart.honorLogLabels) do
+                    for _, fs in ipairs(list) do if fs:IsShown() then out[#out + 1] = fs:GetText() end end
+                end
+                return out
+            end
+            local function hasLabel(text) for _, t in ipairs(labels()) do if t == text then return true end end return false end
+            check(count(CAP, 2) == 19, "chart: the cap steps are drawn for every week (10 levels and 9 steps), got " .. count(CAP, 2))
+            local levels = 0
+            for _, l in ipairs(shownLines()) do if colorIs(l, CAP) and l.__start[4] == l.__end[4] then levels = levels + 1 end end
+            check(levels == 10, "chart: ten level cap segments")
+            check(count(RED, 3) == 1, "chart: one red segment from week 1 to the current week")
+            local ring, inner = 0, 0
+            for i = 1, chart.honorLogRectsUsed do
+                local r = chart.honorLogRects[i]
+                if r:IsShown() and r.__width == 12 then ring = ring + 1 end
+                if r:IsShown() and r.__width == 8 and colorIs(r, RED) then inner = inner + 1 end
+            end
+            check(ring == 1 and inner == 1, "chart: a ringed dot at the current week")
+            check(count(GREY, 2) > 5, "chart: the projection is drawn as dashes")
+            check(count(Kit.COLORS.orange, 2) == 0 and not hasLabel("Rank points start at level 40"), "chart: no gate marker without a blocking gate")
+            for _, t in ipairs({ "Week 1", "2", "10", "R8", "R12", "R14", "0" }) do check(hasLabel(t), "chart: label " .. t) end
+            local whites = 0
+            for _, list in pairs(chart.honorLogLabels) do
+                for _, fs in ipairs(list) do
+                    if fs:IsShown() and fs.__textColor and fs.__textColor[1] == 1 and fs.__textColor[2] == 1 and fs.__textColor[3] == 1 and fs:GetText() == "2" then whites = whites + 1 end
+                end
+            end
+            check(whites == 1, "chart: the current week's label is white")
+            check(not chartPart.none:IsShown(), "chart: no empty-state text with data")
+            -- gate
+            mock.level = 35
+            Window:RefreshCurrent()
+            check(count(Kit.COLORS.orange, 2) > 3 and hasLabel("Rank points start at level 40"), "chart: a blocking gate draws the orange marker and its words")
+            mock.level = 60
+            -- pooling
+            Window:RefreshCurrent()
+            local function pool() return #chart.honorLogLines + #chart.honorLogRects + (function() local n = 0 for _, l in pairs(chart.honorLogLabels) do n = n + #l end return n end)() end
+            local before = pool()
+            for _ = 1, 10 do Window:RefreshCurrent() end
+            check(pool() == before, "chart: pooled pieces do not grow across ten refreshes (" .. before .. " -> " .. pool() .. ")")
+            -- no data
+            mock.rankWindow.noData = true
+            Window:RefreshCurrent()
+            check(#shownLines() == 0 and chartPart.none:IsShown() and chartPart.none:GetText() == "No rank data yet. Play a battleground to start your season.", "chart: without rank data only the words show")
+            mock.rankWindow.noData = false
+            -- no CreateLine
+            mock.noCreateLine = true
+            local plain = Kit:Chart(UIParent)
+            check(plain:Line(0, 5, 40, 5, 2, 1, 1, 1, 1) == true and plain:Line(7, 0, 7, 30, 2, 1, 1, 1, 1) == true and plain:Line(0, 0, 10, 10, 2, 1, 1, 1, 1) == false,
+                "chart: without CreateLine level and upright lines are boxes and slanted ones are skipped")
+            check(#plain.honorLogLines == 0 and plain.honorLogRectsUsed == 2, "chart: the fallback makes boxes, not lines")
+            local errs = #mock.handledErrors
+            Window:RefreshCurrent()
+            check(#mock.handledErrors == errs, "chart: the whole screen refreshes without CreateLine")
+            mock.noCreateLine = false
+            Window:RefreshCurrent()
+
+            -- ── The rank table ──
+            local rows = parts.rankTable.rows
+            local tbl = Rank:GetRankTable(Rank:GetInfo(), fakePace(100, 2))
+            check(rows.count == 14 and #tbl == 14, "table: fourteen rows")
+            local GREYC, GOLD = Kit.COLORS.grey, Kit.COLORS.gold
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            check(rows.frames[1].cell.text:GetText() == "Reached" and same(textColor(rows.frames[1].cell.text), GREYC) and same(textColor(rows.frames[1].title), GREYC),
+                "table: a reached rank reads Reached in grey")
+            check(rows.frames[3].cell.text:GetText() == "You are here" and same(textColor(rows.frames[3].cell.text), GOLD) and rows.frames[3].wash:IsShown()
+                and not rows.frames[1].wash:IsShown() and not rows.frames[4].wash:IsShown(), "table: the current rank says so in gold, on a red wash")
+            check(rows.frames[4].cell.text:GetText() == tbl[4].when and same(textColor(rows.frames[4].cell.text), GREYC) and same(textColor(rows.frames[4].title), Kit.COLORS.white),
+                "table: a rank ahead shows its date in grey, the rank in white: " .. tostring(rows.frames[4].cell.text:GetText()))
+            for n = 1, 14 do
+                local f, items = rows.frames[n], HL:GetRankUnlocks(n)
+                local shown = 0
+                for i = 1, 3 do if f.icons[i]:IsShown() then shown = shown + 1 end end
+                check(f.badge.number:GetText() == tostring(n) and f.title:GetText() == Rank:TitleForRank(n) and f.points:GetText() == commas(Rank:TotalForRank(n)), "table: row " .. n .. " badge, title and points")
+                check(shown == math.min(3, #items) and (f.icons[1]:IsShown() == (#items > 0)) and (#items == 0 or f.icons[1].honorLogItemID == items[1]), "table: row " .. n .. " icons")
+                check((f.more:GetText() or "") == (#items > 3 and ("+" .. (#items - 3)) or ""), "table: row " .. n .. " +N")
+            end
+            HL.GetRankUnlocks = function(self, n)
+                if n == 9 then return { vendorItem, vendorItem, vendorItem, vendorItem, vendorItem } end
+                return realUnlocks(self, n)
+            end
+            Window:RefreshCurrent()
+            check(rows.frames[9].icons[3]:IsShown() and rows.frames[9].more:GetText() == "+2" and rows.frames[9].more:IsShown(), "table: more than three unlocks show three icons and +2")
+            HL.GetRankUnlocks = realUnlocks
+            mock.level = 35
+            Window:RefreshCurrent()
+            check(rows.frames[4].cell.text:GetText() == "after level 40" and same(textColor(rows.frames[4].cell.text), Kit.COLORS.orange), "table: a level-limited rank is orange")
+            Rank.GetPace = function() return fakePace(0, 2, true) end
+            mock.level = 60
+            Window:RefreshCurrent()
+            check(same(textColor(rows.frames[4].cell.text), Kit.COLORS.orange) and rows.frames[4].cell.text:GetText():find("no estimate", 1, true), "table: no points is orange too")
+            Rank.GetPace = function() return fakePace(100, 1) end
+            Window:RefreshCurrent()
+            check(rows.frames[14].cell.text:GetText() ~= "ahead" and rows.frames[14].cell.text:GetText() ~= "", "table: a rank with no date never shows the model's word ahead")
+            local cell = rows.frames[4].cell
+            cell.__scripts.OnEnter(cell)
+            check(mock.tip.shown, "table: the earliest cell has a tooltip")
+            cell.__scripts.OnLeave(cell)
+            Rank.GetPace = function() return fakePace(100, 2) end
+
+            -- ── The planner ──
+            local plan = parts.plan
+            local function expectTargets(rank, seasonMax)
+                local top, out, seen = math.min(seasonMax, 14), {}, {}
+                local cands = {}
+                for n = rank + 1, top do if #realUnlocks(HL, n) > 0 then cands[#cands + 1] = n break end end
+                for _, n in ipairs({ 8, 11, 14 }) do cands[#cands + 1] = n end
+                for _, n in ipairs(cands) do if n > rank and n <= top and not seen[n] then seen[n] = true out[#out + 1] = n end end
+                table.sort(out)
+                return out
+            end
+            local function offeredNow()
+                local out = {}
+                for i, b in ipairs(plan.buttons) do if b:IsShown() then out[#out + 1] = tonumber(b:GetText():match("%d+")) end end
+                return out
+            end
+            for _, case in ipairs({ { 0, 14 }, { 7, 14 }, { 14, 14 }, { 7, 10 } }) do
+                mock.rank.level, mock.rank.earned, mock.rankWindow.seasonMax = case[1], 0, case[2]
+                mock.rankWindow.cap = math.max(3, case[1])
+                Window:RefreshCurrent()
+                local want, got = expectTargets(case[1], case[2]), offeredNow()
+                check(table.concat(got, ",") == table.concat(want, ","), "planner: rank " .. case[1] .. " (season top " .. case[2] .. ") offers " .. table.concat(want, ",") .. ", got " .. table.concat(got, ","))
+            end
+            mock.rank.level, mock.rank.earned, mock.rankWindow.seasonMax = 14, 0, 14
+            Window:RefreshCurrent()
+            check(plan.done:IsShown() and plan.done:GetText() == "Top rank reached." and not plan.title:IsShown() and not plan.holdBack:IsShown(), "planner: every rank reached")
+            mock.rank.level, mock.rank.earned, mock.rankWindow.cap = 3, 120, 5
+            -- saved target, its fallback
+            Window:RefreshCurrent()
+            local offered = offeredNow()
+            check(#offered >= 3 and offered[#offered] == 14, "planner: a rank 3 character is offered several targets")
+            HonorLogDB.settings.windowRankTarget = 11
+            Window:RefreshCurrent()
+            check(plan.target == 11 and plan.title:GetText() == "Rank 11 " .. Rank:TitleForRank(11), "planner: the saved target is planned: " .. tostring(plan.title:GetText()))
+            local b14
+            for i, b in ipairs(plan.buttons) do if b:IsShown() and plan.targets[i] == 14 then b14 = b end end
+            b14.__scripts.OnClick(b14)
+            check(HonorLogDB.settings.windowRankTarget == 14 and plan.target == 14 and plan.title:GetText() == "Rank 14 " .. Rank:TitleForRank(14), "planner: a button chooses the target and saves it")
+            check(plan.underline:IsShown(), "planner: the chosen target is underlined")
+            HonorLogDB.settings.windowRankTarget = 2
+            Window:RefreshCurrent()
+            check(plan.target == offered[1] and HonorLogDB.settings.windowRankTarget == 2, "planner: a target no longer offered falls back to the first button")
+            HonorLogDB.settings.windowRankTarget = 8
+            Window:RefreshCurrent()
+            local p8 = Rank:PlanToRank(8, Rank:GetInfo(), fakePace(100, 2))
+            check(plan.pairs[1].value:GetText() == commas(p8.pointsNeeded) and plan.pairs[2].value:GetText() == Rank.PlanGames(p8), "planner: points to go and games at the pace")
+            check(plan.pairs[3].value:GetText() == string.format("%s (week %d)", Rank.FormatDate(p8.earliestDateByCap), p8.earliestWeekByCap), "planner: the cap date with its week: " .. tostring(plan.pairs[3].value:GetText()))
+            -- cap row says now when the cap already allows it
+            HonorLogDB.settings.windowRankTarget = 5
+            mock.rank.level = 2
+            Window:RefreshCurrent()
+            local firstTarget = plan.target
+            local pn = Rank:PlanToRank(firstTarget, Rank:GetInfo(), fakePace(100, 2))
+            check((pn.earliestDateByCap <= time()) == (plan.pairs[3].value:GetText() == "now"), "planner: now when the cap allows it already")
+            mock.rank.level = 3
+            -- unlock icons
+            HonorLogDB.settings.windowRankTarget = 14
+            HL.GetRankUnlocks = function(self, n)
+                if n == 14 then return { vendorItem, vendorItem, vendorItem, vendorItem, vendorItem, vendorItem } end
+                return realUnlocks(self, n)
+            end
+            Window:RefreshCurrent()
+            check(plan.unlockIcons[4]:IsShown() and plan.unlockIcons[4].honorLogItemID == vendorItem and plan.unlockMore:GetText() == "+2" and plan.unlockMore:IsShown(), "planner: four unlock icons and +2")
+            HL.GetRankUnlocks = function(self, n) if n == 14 then return { vendorItem } end return realUnlocks(self, n) end
+            Window:RefreshCurrent()
+            check(plan.unlockIcons[1]:IsShown() and not plan.unlockIcons[2]:IsShown() and not plan.unlockMore:IsShown(), "planner: one unlock, one icon")
+            HL.GetRankUnlocks = realUnlocks
+            -- every limitedBy line
+            HonorLogDB.settings.windowRankTarget = 8
+            local function holdText(pace, level)
+                mock.level = level or 60
+                Rank.GetPace = function() return pace end
+                Window:RefreshCurrent()
+                mock.level = 60
+                return plan.holdBack:GetText(), plan.pairs[2].value:GetText()
+            end
+            check(holdText(fakePace(100, 2), 35) == "Held back by level 40 first.", "planner: held back by level")
+            check(holdText(fakePace(1000, 20)) == "Held back by the weekly cap.", "planner: held back by the cap")
+            local t, g = holdText(fakePace(0, 2, true))
+            check(t == "Your recent games gave no rank points." and g == "not measured yet", "planner: no points, games not measured")
+            check(holdText(fakePace(100, 1)) == "Not reachable this season.", "planner: not reachable this season")
+            local pt = holdText(fakePace(100, 4))
+            local p4 = Rank:PlanToRank(8, Rank:GetInfo(), fakePace(100, 4))
+            check(p4.limitedBy == "pace" and pt == "At your pace: " .. Rank.PlanWhen(p4) .. ".", "planner: at your pace: " .. tostring(pt))
+            Rank.PlanToRank = function() return { target = 8, reached = true, limitedBy = "reached", pointsNeeded = 0, gamesNeeded = 0 } end
+            Window:RefreshCurrent()
+            check(plan.holdBack:GetText() == "", "planner: a reached plan has no held-back line")
+            Rank.PlanToRank = realPlan
+            Rank.GetPace = function() return fakePace(100, 2) end
+
+            -- ── Rank points per game ──
+            Rank.GetPace = realPace
+            char.history = {
+                game("WSG", "win", 300, 10, 0, 0, "zero"), game("WSG", "loss", 300, 10, 0, 0, "zero"), game("WSG", "loss", 300, 10, 0, 0, "zero"),
+                game("AB", "win", 600, 450, 3, 100, "earned"),
+            }
+            mock.questsDone[96913], HonorLogDB.probe.quests = nil, {}
+            Window:RefreshCurrent()
+            local pg = parts.perGame
+            local per = Rank:GetPointsPerResult()
+            check(pg.rows.count == #per and #per == 2, "per game: one row per battleground with measured games")
+            for i, e in ipairs(per) do
+                local f = pg.rows.frames[i]
+                check(f.name:GetText() == e.name and f.win:GetText() == (e.perWin and tostring(math.floor(e.perWin + 0.5)) or "-")
+                    and f.loss:GetText() == (e.perLoss and tostring(math.floor(e.perLoss + 0.5)) or "-"), "per game: row " .. i .. " reads " .. tostring(f.name:GetText()))
+            end
+            local byName = {}
+            for i, e in ipairs(per) do byName[e.bgType] = pg.rows.frames[i] end
+            check(byName.AB.loss:GetText() == "-" and byName.AB.win:GetText() == "100" and same(textColor(byName.AB.name), Kit.COLORS.white), "per game: a missing measurement is a dash")
+            check(byName.WSG.win:GetText() == "0" and byName.WSG.loss:GetText() == "0" and same(textColor(byName.WSG.name), Kit.COLORS.orange) and same(textColor(byName.WSG.win), Kit.COLORS.orange),
+                "per game: a row of zeros is orange")
+            local zero = Rank:GetZeroPointBattlegrounds()[1]
+            check(zero and pg.zero:IsShown() and pg.zero:GetText() == Rank:ZeroPointText(zero) and same(textColor(pg.zero), Kit.COLORS.orange), "per game: the zero-point note in orange")
+            check(pg.quest:GetText() == "Field of Honor: Week 2: reward not measured yet" and same(textColor(pg.quest), GREYC), "per game: the quest with no measurement: " .. tostring(pg.quest:GetText()))
+            HonorLogDB.probe.quests[96913] = { last = { rank = 90, t = 0 } }
+            mock.questsDone[96913] = true
+            Window:RefreshCurrent()
+            check(pg.quest:GetText() == "Field of Honor: Week 2: +90 rank points (measured) \194\183 done this week" and same(textColor(pg.quest), Kit.COLORS.white), "per game: the measured quest, done: " .. tostring(pg.quest:GetText()))
+            mock.rankWindow.week = 11
+            Window:RefreshCurrent()
+            check(not pg.quest:IsShown() and pg.quest:GetText() == "", "per game: no quest line outside weeks 1 to 10")
+            mock.rankWindow.week = 2
+            char.history = {}
+            Window:RefreshCurrent()
+            check(pg.rows.count == 0 and pg.empty:IsShown() and not pg.zero:IsShown(), "per game: nothing measured")
+
+            -- ── Shared pane, tabs, saved tab ──
+            char.history = games
+            Window:Show("overview")
+            local ovLeft = Window.frames.overview.honorLogParts.left
+            Window:Show("rank")
+            local rkLeft = parts.left
+            check(ovLeft ~= rkLeft and ovLeft.rank:GetText() == rkLeft.rank:GetText() and ovLeft.points:GetText() == rkLeft.points:GetText()
+                and ovLeft.percent:GetText() == rkLeft.percent:GetText() and ovLeft.honorValue:GetText() == rkLeft.honorValue:GetText() and rkLeft.rank:GetText() == "Rank 3 Sergeant",
+                "shared pane: the same texts on both screens")
+            check(HL.RankPane.WIDTH == 264 and rkLeft.pane:GetWidth() == 264, "shared pane: 264 wide")
+            check(Window.screens[2].key == "rank" and Window.screens[2].title == "Rank plan" and Window.screens[2].order == 2, "tabs: Rank plan is registered second")
+            local tabs = Window.tabs.list
+            local function tabText(b) return b.honorLogTemplate and b:GetText() or b.honorLogLabel:GetText() end
+            check(tabs[1].honorLogKey == "overview" and tabs[2].honorLogKey == "rank" and tabText(tabs[2]) == "Rank plan", "tabs: Rank plan comes after Overview")
+            HonorLogDB.settings.windowTab = "rank"
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show()
+            check(Window.current == "rank" and Window.frames.rank:IsShown(), "tabs: the saved tab restores the Rank plan screen")
+            parts = Window.frames.rank.honorLogParts
+
+            -- ── Hygiene ──
+            local inRank = function(f)
+                local hops = 0
+                while f and hops < 40 do
+                    if f == Window.frames.rank then return true end
+                    f, hops = f.__parent, hops + 1
+                end
+                return false
+            end
+            local onUpdates, foreign, templated = 0, {}, 0
+            for _, f in ipairs(mock.frames) do
+                if f.__scripts.OnUpdate and (inRank(f) or f.__parent == Window.frame.honorLogContent) then onUpdates = onUpdates + 1 end
+                if inRank(f) and f.__template then
+                    templated = templated + 1
+                    for k in pairs(f) do
+                        if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") then foreign[#foreign + 1] = k end
+                    end
+                end
+            end
+            check(onUpdates == 0, "rank plan: no OnUpdate anywhere (" .. onUpdates .. ")")
+            check(templated > 5 and #foreign == 0, "rank plan: only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            -- every client read gone or secret
+            local errorsBefore2 = #mock.handledErrors
+            local secret = mock.newSecret
+            local realQuest = { t = C_QuestLog.GetTitleForQuestID, d = C_QuestLog.IsQuestFlaggedCompleted }
+            local savedR = { info = C_MajorFactions.GetMajorFactionProgressionInfo, level = _G.UnitLevel, icon = C_Item.GetItemIconByID }
+            C_QuestLog.GetTitleForQuestID, C_QuestLog.IsQuestFlaggedCompleted = function() return secret() end, function() return secret() end
+            C_MajorFactions.GetMajorFactionProgressionInfo = function() return { renownLevel = secret(), renownReputationEarned = secret() } end
+            _G.UnitLevel, C_Item.GetItemIconByID = function() return secret() end, function() return nil end
+            Window:RefreshCurrent()
+            C_MajorFactions.GetMajorFactionProgressionInfo = function() return nil end
+            Window:RefreshCurrent()
+            C_MajorFactions.GetMajorFactionProgressionInfo = savedR.info
+            C_QuestLog.GetTitleForQuestID, C_QuestLog.IsQuestFlaggedCompleted = function() return secret() end, function() return secret() end
+            Window:RefreshCurrent()
+            check(#mock.handledErrors == errorsBefore2, "rank plan: nothing raises when every client read is nil or secret: " .. tostring(mock.handledErrors[errorsBefore2 + 1]))
+            C_QuestLog.GetTitleForQuestID, C_QuestLog.IsQuestFlaggedCompleted = realQuest.t, realQuest.d
+            _G.UnitLevel, C_Item.GetItemIconByID = savedR.level, savedR.icon
+
+            -- put it back
+            Rank.GetPace, Rank.PlanToRank, HL.GetRankUnlocks = realPace, realPlan, realUnlocks
+            HonorLogDB.probe, char.rankWeeks, char.history, HonorLogDB.settings.windowRankTarget = saveProbe, saveWeeks, saveHistory, saveTarget
+            mock.level, mock.rankWindow.seasonMax = saveLevel, saveSeasonMax
+            mock.questsDone, mock.questTitles = {}, {}
+            HonorLogDB.settings.windowTab = "overview"
+            mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
+            mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 5, 3, 2
+            Window:Hide()
+        end)()
 
         -- put everything back
         mock.runShowScripts = false

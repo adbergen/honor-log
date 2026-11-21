@@ -176,6 +176,7 @@ local DEFAULTS = {
         windowPoint = nil, -- { point, relativePoint, x, y } of the full window; nil = centred
         windowScale = 1.0, -- scale of the full window
         windowTab = "overview", -- the screen the full window opens on
+        windowRankTarget = 0, -- the rank the Rank plan screen plans to; 0 or one not offered = the first it offers
         viewMode = "character", -- "character" or "account"
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,

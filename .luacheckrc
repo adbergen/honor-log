@@ -34,7 +34,7 @@ read_globals = {
     "GameFontHighlightSmall", "UIErrorsFrame", "RaidBossEmoteFrame", "MerchantFrame", "DressUpFrame", "DEFAULT_CHAT_FRAME",
     "C_Timer", "C_AddOns", "C_Container", "C_CurrencyInfo", "C_Item", "C_PvP", "C_MajorFactions",
     "C_SeasonInfo", "C_RestrictedActions", "C_DeathRecap", "C_DateAndTime", "C_MerchantFrame", "C_Reputation", "Enum", "Settings",
-    "C_Map", "WorldMapFrame", "ShowUIPanel", "InCombatLockdown", "IsInInstance", "UnitPosition", "GetPlayerFacing",
+    "C_Map", "C_QuestLog", "WorldMapFrame", "ShowUIPanel", "InCombatLockdown", "IsInInstance", "UnitPosition", "GetPlayerFacing",
     "GetBindingKey", "CreateVector2D", "GetItemIcon", "GetSubZoneText", "IsAltKeyDown",
     "LibStub", "hooksecurefunc", "wipe", "unpack", "bit", "date", "time",
     "issecretvalue", "GetTime", "GetBuildInfo", "GetRealmName", "GetRealZoneText", "GetInstanceInfo",
@@ -70,7 +70,7 @@ read_globals = {
 files["Tests/"] = {
     globals = {
         "CreateFrame", "hooksecurefunc", "C_Timer", "C_AddOns", "C_PvP", "C_MajorFactions", "C_CurrencyInfo",
-        "C_SeasonInfo", "C_Item", "C_Container", "C_MerchantFrame", "C_Reputation", "C_RestrictedActions", "Enum",
+        "C_SeasonInfo", "C_QuestLog", "C_Item", "C_Container", "C_MerchantFrame", "C_Reputation", "C_RestrictedActions", "Enum",
         "MerchantFrame", "GetMerchantNumItems", "GetMerchantItemLink", "GetMerchantItemCostInfo", "GetMerchantItemCostItem",
         "Settings", "SlashCmdList", "LibStub", "UIParent", "Minimap", "GameTooltip", "UIErrorsFrame",
         "DressUpFrame", "issecretvalue", "geterrorhandler", "unpack", "wipe", "bit", "date", "time",

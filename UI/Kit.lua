@@ -1,6 +1,6 @@
 -- HonorLog Kit
 -- The pieces the full window is built from: a window frame, insets, headers, buttons, tabs, bars, the rank
--- ring, tiles, a pooled list, item and mark icons and a map link.
+-- ring, tiles, a pooled list, item and mark icons, a line chart and a map link.
 --
 -- Every piece tries Blizzard's own template or atlas first and falls back to plain drawing, because most of
 -- those names could not be checked against the client's source before the first in-game look. A wrong name
@@ -797,6 +797,148 @@ function Kit:MarkIcon(parent, size)
         if id and IsShiftKeyDown() then shiftLink(itemLink(id)) end
     end)
     return mark
+end
+
+--------------------------------------------------------------------------------
+-- Chart
+--------------------------------------------------------------------------------
+
+local DASH, GAP = 6, 4
+
+-- A drawing surface for lines, dots, filled boxes and labels, in the chart's own pixels measured from its
+-- bottom-left corner. Everything is pooled: Clear() hides what a redraw used and the next draw takes it back,
+-- so the number of lines, boxes and labels grows to the largest drawing and no further. Lines are the client's
+-- own Line regions (CreateLine, as Blizzard's Edit Mode draws its guides); a client without CreateLine gets
+-- horizontal and vertical lines as thin boxes and skips slanted ones. Nothing here runs per frame.
+-- A plain frame of our own, so its fields are free; the pools are still named honorLog....
+function Kit:Chart(parent)
+    local chart = CreateFrame("Frame", nil, parent)
+    chart.honorLogLines, chart.honorLogRects, chart.honorLogLabels = {}, {}, {}
+    chart.honorLogLinesUsed, chart.honorLogRectsUsed = 0, 0
+    chart.honorLogLabelsUsed = {}
+
+    local function canLine()
+        return type(chart.CreateLine) == "function"
+    end
+
+    function chart:Clear()
+        for i = 1, #self.honorLogLines do self.honorLogLines[i]:Hide() end
+        for i = 1, #self.honorLogRects do self.honorLogRects[i]:Hide() end
+        for _, list in pairs(self.honorLogLabels) do
+            for i = 1, #list do list[i]:Hide() end
+        end
+        self.honorLogLinesUsed, self.honorLogRectsUsed, self.honorLogLabelsUsed = 0, 0, {}
+    end
+
+    -- A filled box from (x, y), its bottom-left corner, w by h.
+    function chart:Rect(x, y, w, h, r, g, b, a)
+        x, y, w, h = num(x), num(y), num(w), num(h)
+        if not (x and y and w and h) then return nil end
+        local n = self.honorLogRectsUsed + 1
+        self.honorLogRectsUsed = n
+        local tex = self.honorLogRects[n]
+        if not tex then
+            tex = self:CreateTexture(nil, "ARTWORK")
+            self.honorLogRects[n] = tex
+        end
+        tex:ClearAllPoints()
+        tex:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x, y)
+        tex:SetSize(math.max(w, 0), math.max(h, 0))
+        tex:SetColorTexture(r or 1, g or 1, b or 1, a or 1)
+        tex:Show()
+        return tex
+    end
+
+    -- A straight line. Returns true when something was drawn.
+    function chart:Line(x1, y1, x2, y2, thickness, r, g, b, a)
+        x1, y1, x2, y2 = num(x1), num(y1), num(x2), num(y2)
+        if not (x1 and y1 and x2 and y2) then return false end
+        thickness = num(thickness) or 1
+        if canLine() then
+            local n = self.honorLogLinesUsed + 1
+            local line = self.honorLogLines[n]
+            if not line then
+                local ok, made = pcall(self.CreateLine, self, nil, "ARTWORK")
+                if ok and type(made) == "table" then
+                    line = made
+                    self.honorLogLines[n] = line
+                end
+            end
+            if line then
+                self.honorLogLinesUsed = n
+                line:SetThickness(thickness)
+                line:SetStartPoint("BOTTOMLEFT", self, x1, y1)
+                line:SetEndPoint("BOTTOMLEFT", self, x2, y2)
+                line:SetColorTexture(r or 1, g or 1, b or 1, a or 1)
+                line:Show()
+                return true
+            end
+        end
+        -- no lines on this client: a thin box for a level or an upright line, nothing for a slanted one
+        if y1 == y2 then
+            return self:Rect(math.min(x1, x2), y1 - thickness / 2, math.abs(x2 - x1), thickness, r, g, b, a) ~= nil
+        elseif x1 == x2 then
+            return self:Rect(x1 - thickness / 2, math.min(y1, y2), thickness, math.abs(y2 - y1), r, g, b, a) ~= nil
+        end
+        return false
+    end
+
+    -- The same as short segments.
+    function chart:Dashed(x1, y1, x2, y2, thickness, r, g, b, a)
+        x1, y1, x2, y2 = num(x1), num(y1), num(x2), num(y2)
+        if not (x1 and y1 and x2 and y2) then return false end
+        local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
+        if length <= 0 then return false end
+        local ux, uy = (x2 - x1) / length, (y2 - y1) / length
+        local at, drawn = 0, false
+        while at < length do
+            local to = math.min(at + DASH, length)
+            if self:Line(x1 + ux * at, y1 + uy * at, x1 + ux * to, y1 + uy * to, thickness, r, g, b, a) then drawn = true end
+            at = to + GAP
+        end
+        return drawn
+    end
+
+    -- A square dot centred on (x, y).
+    function chart:Dot(x, y, size, r, g, b)
+        x, y, size = num(x), num(y), num(size) or 6
+        if not (x and y) then return nil end
+        return self:Rect(x - size / 2, y - size / 2, size, size, r, g, b, 1)
+    end
+
+    -- A text at (x, y): justify "LEFT" puts its left edge there, "RIGHT" its right edge, else its middle.
+    -- colorName is a Kit.COLORS key; without one the style's own colour stands.
+    function chart:Label(x, y, text, style, justify, colorName)
+        x, y = num(x), num(y)
+        if not (x and y) then return nil end
+        style = Kit.FONTS[style] and style or "grey"
+        local key = style .. "/" .. (colorName or "")
+        local list = self.honorLogLabels[key]
+        if not list then
+            list = {}
+            self.honorLogLabels[key] = list
+        end
+        local n = (self.honorLogLabelsUsed[key] or 0) + 1
+        self.honorLogLabelsUsed[key] = n
+        local fs = list[n]
+        if not fs then
+            fs = Kit:Text(self, style)
+            if colorName and Kit.COLORS[colorName] then
+                local c = Kit.COLORS[colorName]
+                fs:SetTextColor(c[1], c[2], c[3])
+            end
+            list[n] = fs
+        end
+        local anchor = justify == "LEFT" and "LEFT" or justify == "RIGHT" and "RIGHT" or "CENTER"
+        fs:ClearAllPoints()
+        fs:SetPoint(anchor, self, "BOTTOMLEFT", x, y)
+        fs:SetJustifyH(anchor)
+        fs:SetText(text or "")
+        fs:Show()
+        return fs
+    end
+
+    return chart
 end
 
 --------------------------------------------------------------------------------
