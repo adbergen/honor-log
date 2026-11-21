@@ -164,7 +164,11 @@ end
 
 local PORTRAIT_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
--- The outer frame. Whichever way it is drawn it offers SetTitleText, SetPortraitTexture, Content (a frame
+-- Everything this file adds to a frame that came from a Blizzard template is named honorLog...: a
+-- template frame carries Blizzard's own methods and fields (a PortraitFrame has GetTitleText, CloseButton,
+-- ...), and a second thing under one of those names breaks Blizzard's code, not ours.
+--
+-- The outer frame. Whichever way it is drawn it offers honorLogSetTitle, honorLogSetPortrait, honorLogContent (a frame
 -- inset from the chrome) and CloseButton. honorLogChrome names what drew it: "PortraitFrameTemplate",
 -- "PortraitFrameBaseTemplate" or nil for the plain drawing.
 function Kit:Window(name, width, height)
@@ -232,25 +236,24 @@ function Kit:Window(name, width, height)
         end
         closeButton:SetScript("OnClick", function() frame:Hide() end)
     end
-    frame.CloseButton = closeButton
+    frame.honorLogClose = closeButton
 
-    function frame:SetTitleText(text)
+    -- The template's own title when it takes it; else a text of our own on the drag strip.
+    function frame:honorLogSetTitle(text)
         self.honorLogTitle = text
-        if chrome and type(self.SetTitle) == "function" then
-            self:SetTitle(text)
-        elseif titleText then
-            titleText:SetText(text)
+        if chrome and type(self.SetTitle) == "function" and pcall(self.SetTitle, self, text) then return end
+        if not titleText then
+            titleText = Kit:Text(self.honorLogDrag or self, "label")
+            titleText:SetPoint("TOP", self, "TOP", 0, -5)
         end
+        titleText:SetText(text)
     end
-    function frame:GetTitleText() return self.honorLogTitle end
+    function frame:honorLogGetTitle() return self.honorLogTitle end
 
-    function frame:SetPortraitTexture(texture)
+    function frame:honorLogSetPortrait(texture)
         self.honorLogPortrait = texture
-        if chrome and type(self.SetPortraitToAsset) == "function" then
-            pcall(self.SetPortraitToAsset, self, texture)
-        elseif portrait then
-            portrait:SetTexture(texture)
-        end
+        if chrome and type(self.SetPortraitToAsset) == "function" and pcall(self.SetPortraitToAsset, self, texture) then return end
+        if portrait then portrait:SetTexture(texture) end
     end
 
     -- The title area drags the window; the close button stays clear of it. It sits above the template's
@@ -276,7 +279,7 @@ function Kit:Window(name, width, height)
     -- Its own dark ground: PortraitFrameBaseTemplate draws no background (the Character window adds its
     -- own), and the screens only paint their panes and boxes.
     content.honorLogBg = fill(content, 0.07, 0.065, 0.06, 1)
-    frame.Content = content
+    frame.honorLogContent = content
     return frame
 end
 
@@ -584,15 +587,22 @@ end
 -- An inset with a gold label, a big value and a note line. The note line can instead hold a row of widgets
 -- (tile.noteRow, a frame in the same place; hide tile.note and show it).
 function Kit:Tile(parent)
-    local tile = Kit:Inset(parent)
-    tile.label = Kit:Text(tile, "labelSmall")
+    -- A frame of our own holds the fields; the inset (which may be a Blizzard template) is only its ground.
+    local tile = CreateFrame("Frame", nil, parent)
+    local inset = Kit:Inset(tile)
+    inset:SetAllPoints(tile)
+    local face = CreateFrame("Frame", nil, tile)
+    face:SetAllPoints(tile)
+    face:SetFrameLevel((num(inset:GetFrameLevel()) or 0) + 1)
+    tile.inset = inset
+    tile.label = Kit:Text(face, "labelSmall")
     tile.label:SetPoint("TOPLEFT", tile, "TOPLEFT", 12, -7)
-    tile.value = Kit:Text(tile, "big")
+    tile.value = Kit:Text(face, "big")
     tile.value:SetPoint("TOPLEFT", tile, "TOPLEFT", 12, -20)
-    tile.note = Kit:Text(tile, "grey")
+    tile.note = Kit:Text(face, "grey")
     tile.note:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 12, 7)
     tile.note:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -8, 7)
-    tile.noteRow = CreateFrame("Frame", nil, tile)
+    tile.noteRow = CreateFrame("Frame", nil, face)
     tile.noteRow:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 12, 6)
     tile.noteRow:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -8, 6)
     tile.noteRow:SetHeight(16)

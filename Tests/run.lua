@@ -3087,23 +3087,23 @@ local function run()
             -- the window frame
             local w = Kit:Window("HonorLogKitWindow" .. (present and "A" or "B"), 900, 540)
             check(w.honorLogChrome == (present and "PortraitFrameTemplate" or false), label .. "window chrome")
-            w:SetTitleText("Title")
-            check(w:GetTitleText() == "Title", label .. "SetTitleText")
+            w:honorLogSetTitle("Title")
+            check(w:honorLogGetTitle() == "Title", label .. "SetTitleText")
             if present then check(w.__title == "Title", label .. "the template's SetTitle is used") end
-            w:SetPortraitTexture(4242)
+            w:honorLogSetPortrait(4242)
             check(w.honorLogPortrait == 4242, label .. "SetPortraitTexture")
             if present then check(w.__portrait == 4242, label .. "the template's SetPortraitToAsset is used") end
-            check(type(w.Content) == "table" and type(w.CloseButton) == "table", label .. "window has Content and CloseButton")
+            check(type(w.honorLogContent) == "table" and type(w.honorLogClose) == "table", label .. "window has Content and CloseButton")
             local topLeft, bottomRight
-            for _, pt in ipairs(w.Content.__points) do
+            for _, pt in ipairs(w.honorLogContent.__points) do
                 if pt[1] == "TOPLEFT" then topLeft = pt elseif pt[1] == "BOTTOMRIGHT" then bottomRight = pt end
             end
             check(topLeft and topLeft[4] == 6 and topLeft[5] == -24 and bottomRight and bottomRight[4] == -6 and bottomRight[5] == 6,
                 label .. "Content is inset 6 left, right and bottom and 24 from the top")
             w:Show()
-            local click = w.CloseButton.__scripts.OnClick
+            local click = w.honorLogClose.__scripts.OnClick
             check(present or click, label .. "the close button closes the window on the plain path")
-            if click then click(w.CloseButton) end
+            if click then click(w.honorLogClose) end
             if not present then check(not w:IsShown(), label .. "the close button hides the window") end
             local started, moved = 0, nil
             rawset(w, "StartMoving", function() started = started + 1 end)
@@ -3343,14 +3343,14 @@ local function run()
             check(Kit:Inset(holder).honorLogTemplate == false, "kit: a hollow inset template is drawn plain")
             check(Kit:Button(holder, "B", "red").honorLogTemplate == false, "kit: a hollow button template is drawn plain")
             local hollowWindow = Kit:Window("HonorLogHollowTestWindow", 300, 200)
-            check(hollowWindow.honorLogChrome == false and hollowWindow.Content ~= nil and hollowWindow.CloseButton ~= nil, "kit: hollow window templates fall back to the plain window")
-            hollowWindow:SetTitleText("T")
-            check(hollowWindow:GetTitleText() == "T", "kit: the plain window still takes a title")
+            check(hollowWindow.honorLogChrome == false and hollowWindow.honorLogContent ~= nil and hollowWindow.honorLogClose ~= nil, "kit: hollow window templates fall back to the plain window")
+            hollowWindow:honorLogSetTitle("T")
+            check(hollowWindow:honorLogGetTitle() == "T", "kit: the plain window still takes a title")
             mock.hollowTemplates = {}
             check(Kit:Inset(holder).honorLogTemplate == "InsetFrameTemplate", "kit: with its regions the inset template takes")
             -- The window's content has its own ground, and the title bar texts sit on the drag strip.
             local win = Kit:Window("HonorLogGroundTestWindow", 300, 200)
-            check(win.Content.honorLogBg ~= nil and win.honorLogDrag ~= nil, "kit: the content has a background and the window a drag strip")
+            check(win.honorLogContent.honorLogBg ~= nil and win.honorLogDrag ~= nil, "kit: the content has a background and the window a drag strip")
         end
         check(HL.Window.leftText:GetParent() == HL.Window.frame.honorLogDrag and HL.Window.rightText:GetParent() == HL.Window.frame.honorLogDrag, "window: the title bar texts sit on the drag strip, above the frame art")
         local tocText = io.open(ROOT .. "/HonorLog.toc"):read("*a")
@@ -3741,6 +3741,52 @@ local function run()
         mock.atlasMode, mock.missingTemplates = "default", {}
         mock.restoreFonts()
         check(#mock.handledErrors == before3, "window: the integration run raised no error: " .. tostring(mock.handledErrors[before3 + 1]))
+
+        -- What the first in-game look found (2026-11-20): the window code had put its own GetTitleText on the
+        -- PortraitFrame, Blizzard's SetTitle called it, and the window never opened. So: nothing un-prefixed
+        -- goes on a frame that came from a Blizzard template.
+        do
+            local function foreign(frame, allowed)
+                local bad = {}
+                for k in pairs(frame) do
+                    if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and not (allowed and allowed[k]) then bad[#bad + 1] = k end
+                end
+                table.sort(bad)
+                return table.concat(bad, ",")
+            end
+            local Kit = HL.Kit
+            local holder = CreateFrame("Frame", nil, UIParent)
+            local blizzard = { CloseButton = true, GetTitleText = true, SetTitle = true, SetPortraitToAsset = true }
+            local tw = Kit:Window("HonorLogKeyTestWindow", 300, 200)
+            check(tw.honorLogChrome == "PortraitFrameTemplate" and foreign(tw, blizzard) == "", "kit: the window adds only honorLog names to the template frame: " .. foreign(tw, blizzard))
+            tw:honorLogSetTitle("Named")
+            check(tw.__title == "Named" and tw:GetTitleText():GetText() == "Named" and tw:honorLogGetTitle() == "Named", "kit: Blizzard's own SetTitle and GetTitleText still work on the window")
+            check(foreign(Kit:Inset(holder)) == "" and foreign(Kit:Button(holder, "B", "red")) == "", "kit: insets and buttons add only honorLog names")
+            local tabset = Kit:Tabs(tw)
+            check(foreign(tabset:Add("a", "A")) == "", "kit: tabs add only honorLog names")
+            check(foreign(Kit:Tile(holder).inset) == "", "kit: a tile keeps its fields off the inset")
+            -- A template whose SetTitle raises still gets a title, drawn by the kit.
+            mock.titleRaises = true
+            local tr = Kit:Window("HonorLogRaisingTitleWindow", 300, 200)
+            check(pcall(tr.honorLogSetTitle, tr, "Fallback") and tr:honorLogGetTitle() == "Fallback", "kit: a raising SetTitle falls back to the kit's own title text")
+            mock.titleRaises = false
+
+            -- A build that fails half way leaves nothing behind, says so once, and the next try works.
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, Window.failed, _G.HonorLogWindow = nil, {}, nil, nil, nil, nil
+            local realTabs = Kit.Tabs
+            Kit.Tabs = function() error("tabs: forced failure") end
+            local handled, at = #mock.handledErrors, #printed
+            check(pcall(Window.Show, Window) and Window.frame == nil and Window.tabs == nil and not Window:IsShown(), "window: a failed build leaves nothing half made")
+            check(#mock.handledErrors == handled + 1 and table.concat(printed, "\n", at + 1):find("could not be built", 1, true), "window: the failure is reported and said in chat")
+            at = #printed
+            check(pcall(Window.Toggle, Window) and Window.frame == nil and not table.concat(printed, "\n", at + 1):find("could not be built", 1, true), "window: a second failure does not repeat the chat line")
+            Kit.Tabs = realTabs
+            Window:Show("overview")
+            check(Window.frame ~= nil and Window.tabs ~= nil and Window:IsShown(), "window: the next try builds it")
+            mock.handledErrors[#mock.handledErrors] = nil
+            mock.handledErrors[#mock.handledErrors] = nil
+        end
 
         -- put everything back
         mock.runShowScripts = false

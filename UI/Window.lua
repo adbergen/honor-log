@@ -64,10 +64,10 @@ function Window:ShowScreen(key)
     if not (def and self.frame) then return end
     local frame = self.frames[key]
     if not frame then
-        local ok, made = pcall(def.create, self.frame.Content)
+        local ok, made = pcall(def.create, self.frame.honorLogContent)
         if not ok then report(made) return end
         frame = made
-        frame:SetAllPoints(self.frame.Content)
+        frame:SetAllPoints(self.frame.honorLogContent)
         self.frames[key] = frame
     end
     for k, other in pairs(self.frames) do
@@ -130,12 +130,31 @@ local function savePosition(frame)
     s.windowPoint = { point, relativePoint, x, y }
 end
 
+-- Builds the window, or returns nil after reporting why it could not: a failure half way never leaves a
+-- frame without its tabs behind, and the next try starts again.
 function Window:Create()
     if self.frame then return self.frame end
+    local frame
+    local ok, err = pcall(function() frame = Window:Build() end)
+    if ok and frame then
+        self.frame = frame
+        return frame
+    end
+    self.tabs, self.leftText, self.rightText = nil, nil, nil
+    local partial = _G[FRAME_NAME]
+    if type(partial) == "table" and partial.Hide then pcall(partial.Hide, partial) end
+    report(err)
+    if not self.failed then
+        self.failed = true
+        HonorLog:Say(L["The HonorLog window could not be built on this client. /honorlog mini still opens the small frame."])
+    end
+    return nil
+end
+
+function Window:Build()
     local frame = Kit:Window(FRAME_NAME, WIDTH, HEIGHT)
-    self.frame = frame
-    frame:SetTitleText(L["HonorLog"])
-    frame:SetPortraitTexture((HonorLog.ldb and HonorLog.ldb.icon) or Window.ICON)
+    frame:honorLogSetTitle(L["HonorLog"])
+    frame:honorLogSetPortrait((HonorLog.ldb and HonorLog.ldb.icon) or Window.ICON)
 
     local s = settings() or {}
     local p = s.windowPoint
@@ -166,14 +185,15 @@ function Window:Create()
     self.tabs = Kit:Tabs(frame, function(key) Window:ShowScreen(key) end)
     for _, def in ipairs(self.screens) do self.tabs:Add(def.key, def.title) end
 
-    frame:SetScript("OnShow", function()
+    -- Hooked, not set: a template frame may come with scripts of its own.
+    frame:HookScript("OnShow", function()
         Window:UpdateTitleBar()
         if not Window.ticker then
             Window.ticker = C_Timer.NewTicker(TICK_SECONDS, function() Window:UpdateTitleBar() end)
         end
         Window:RefreshCurrent()
     end)
-    frame:SetScript("OnHide", function()
+    frame:HookScript("OnHide", function()
         if Window.ticker then
             Window.ticker:Cancel()
             Window.ticker = nil
@@ -191,6 +211,7 @@ function Window:IsShown() return self.frame ~= nil and self.frame:IsShown() end
 -- Opens the window on a screen (the saved one by default).
 function Window:Show(screenKey)
     local frame = self:Create()
+    if not frame then return end
     local s = settings()
     local key = screenKey
     if not self:GetScreen(key) then key = s and s.windowTab end
