@@ -36,30 +36,19 @@ local RATE_SAMPLE = 50       -- decided games used for the win rate
 local PACE_DAYS = 7
 local WEEKS_KEPT = 20
 local PLAN_WEEK_LIMIT = 60
+local ZERO_RUN = 3           -- games in a row giving 0 before a battleground is flagged
+
+-- Character levels that block a rank. Player-reported and unconfirmed: the client data holds no
+-- level rule for ranks (RenownRewards 46 has none), so a gate is only believed until the
+-- character is seen holding that rank under the level (see CheckGateEvidence).
+Rank.LEVEL_GATES = { { rank = 4, level = 40 } }
 
 --------------------------------------------------------------------------------
 -- Safe readers
 --------------------------------------------------------------------------------
-local function isSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v) == true
-end
-
-local function num(v)
-    if isSecret(v) or type(v) ~= "number" then return nil end
-    return v
-end
-
-local function str(v)
-    if isSecret(v) or type(v) ~= "string" then return nil end
-    return v
-end
-
-local function call(fn, ...)
-    if type(fn) ~= "function" then return end
-    local res = { pcall(fn, ...) }
-    if not res[1] then return end
-    return unpack(res, 2)
-end
+local Util = HonorLog.Util
+local isSecret, num, str, call = Util.isSecret, Util.num, Util.str, Util.call
+local L = HonorLog.L
 
 --------------------------------------------------------------------------------
 -- Formatting
@@ -136,6 +125,53 @@ local function readSeason()
     return season or 0
 end
 
+-- The character's level; the one a level-up event just reported wins while the client catches up.
+function Rank:PlayerLevel()
+    local level = num(call(UnitLevel, "player"))
+    local hint = num(HonorLog.levelHint)
+    if hint and (not level or hint > level) then level = hint end
+    return level
+end
+
+-- The level gate that applies to a character of this level and rank: { rank, level, blocking }, or nil.
+-- It applies while the level is under the gate's level, the rank is under the gate's rank and the
+-- gate has not been disproved for this character. It blocks now when the rank is the one just under the
+-- gate rank and the weekly cap does not already stop the climb there (cap rank 0 = none named).
+function Rank:GetGate(level, rank, capRank)
+    if not (level and rank) then return nil end
+    local char = db() and db().char
+    local disproved = char and char.gateDisproved or {}
+    for _, g in ipairs(Rank.LEVEL_GATES) do
+        if level < g.level and rank < g.rank and not disproved[g.rank] then
+            return {
+                rank = g.rank, level = g.level,
+                blocking = rank == g.rank - 1 and ((capRank or 0) <= 0 or capRank >= g.rank),
+            }
+        end
+    end
+    return nil
+end
+
+-- "Rank 4 needs level 40. Players report this; Blizzard hasn't confirmed it."
+function Rank:GateText(gate)
+    return string.format(L["Rank %d needs level %d. Players report this; Blizzard hasn't confirmed it."], gate.rank, gate.level)
+end
+
+-- A character that holds a gate's rank while under its level shows the gate is wrong for it.
+function Rank:CheckGateEvidence(info)
+    local char = db() and db().char
+    if not (char and info and info.level) then return end
+    for _, g in ipairs(Rank.LEVEL_GATES) do
+        char.gateDisproved = char.gateDisproved or {}
+        if info.level < g.level and info.rank >= g.rank and not char.gateDisproved[g.rank] then
+            char.gateDisproved[g.rank] = true
+            if HonorLog.Probe and HonorLog.Probe.LogGateObservation then
+                HonorLog.Probe:LogGateObservation(g.rank, g.level, info.level, info.rank)
+            end
+        end
+    end
+end
+
 -- nil when the client has no rank data (a low-level character, data not loaded).
 function Rank:GetInfo()
     local api = C_MajorFactions
@@ -156,8 +192,11 @@ function Rank:GetInfo()
     local capTotal = capRank > 0 and self:TotalForRank(capRank) or 0
     local seasonSeconds = C_SeasonInfo and num(call(C_SeasonInfo.GetTimeUntilCurrentPVPSeasonEnd)) or 0
     local resetSeconds = C_DateAndTime and num(call(C_DateAndTime.GetSecondsUntilWeeklyReset)) or 0
+    local level = self:PlayerLevel()
 
     return {
+        level = level,
+        gate = self:GetGate(level, rank, capRank),
         rank = rank,
         title = self:TitleForRank(rank),
         points = earned,
@@ -205,18 +244,75 @@ end
 --------------------------------------------------------------------------------
 -- Pace, measured from the games HonorLog recorded
 --------------------------------------------------------------------------------
-function Rank:GetPace()
+-- Why a game gave the rank points it did: the state FinalizeMatch stored, or for a record
+-- from before that, "earned" when it gave points and "unknown" when it gave none.
+local function gameState(g)
+    if g.rankState then return g.rankState end
+    if type(g.rankPoints) == "number" and g.rankPoints > 0 then return "earned" end
+    return "unknown"
+end
+
+-- The points of a game that measures what a game gives: earned or zero, and not one that hit the
+-- weekly cap on the way (its points were cut short). nil for every other game.
+local function measuredPoints(g)
+    local state = gameState(g)
+    if state == "zero" then return 0 end
+    if state == "earned" and not g.rankCappedDuring and type(g.rankPoints) == "number" then return g.rankPoints end
+    return nil
+end
+
+-- How the end of a game reads: state ("nodata", "capped", "gated", "earned" or "zero") and whether
+-- the weekly cap was reached during it. from and to are the rank reads before and after
+-- (Core's ReadRank), delta the points between them and level the character's level at the start.
+-- A game that gave points is "earned" even where the gate applies: the gate only explains a 0.
+function Rank:ClassifyGame(from, to, delta, level)
+    if not from or not to then return "nodata" end
+    if from.capTotal and from.capTotal > 0 and from.total and from.total >= from.capTotal then return "capped" end
+    if delta > 0 then
+        local cappedDuring = to.capTotal and to.capTotal > 0 and to.total == to.capTotal or nil
+        return "earned", cappedDuring
+    end
+    local gate = self:GetGate(level, from.level, from.capRank)
+    if gate and gate.blocking then return "gated" end
+    return "zero"
+end
+
+-- Battleground codes in display order, then any other seen in the history.
+local function bgKeys(history)
+    local keys, seen = {}, {}
+    for _, bg in ipairs(HonorLog.BG_ORDER or {}) do keys[#keys + 1], seen[bg] = bg, true end
+    local extra = {}
+    for _, g in ipairs(history) do
+        if g.bgType and not seen[g.bgType] then seen[g.bgType] = true extra[#extra + 1] = g.bgType end
+    end
+    table.sort(extra)
+    for _, bg in ipairs(extra) do keys[#keys + 1] = bg end
+    return keys
+end
+
+-- Pace for one battleground (bgType) or for all of them. Points per win and per loss come from
+-- the measured games only: states earned and zero, never capped, gated, nodata or unknown ones.
+function Rank:GetPace(bgType)
     local char = db() and db().char
-    local history = char and char.history or {}
+    local all = char and char.history or {}
+    local history = all
+    if bgType then
+        history = {}
+        for _, g in ipairs(all) do
+            if g.bgType == bgType then history[#history + 1] = g end
+        end
+    end
     local now = time()
 
     -- history[1] is the newest game.
-    local winSum, winN, lossSum, lossN, measured = 0, 0, 0, 0, 0
+    local winSum, winN, lossSum, lossN, measured, pointSum = 0, 0, 0, 0, 0, 0
     for _, g in ipairs(history) do
-        if type(g.rankPoints) == "number" then
+        local pts = measuredPoints(g)
+        if pts then
             measured = measured + 1
-            if g.result == "win" then winSum, winN = winSum + g.rankPoints, winN + 1
-            elseif g.result == "loss" then lossSum, lossN = lossSum + g.rankPoints, lossN + 1 end
+            pointSum = pointSum + pts
+            if g.result == "win" then winSum, winN = winSum + pts, winN + 1
+            elseif g.result == "loss" then lossSum, lossN = lossSum + pts, lossN + 1 end
             if measured >= POINTS_SAMPLE then break end
         end
     end
@@ -251,9 +347,92 @@ function Rank:GetPace()
         winRate = rate,
         gamesPerDay = recent / days,
         measuredGames = measured,
+        measuredWins = winN,
+        measuredLosses = lossN,
+        avgWin = winN > 0 and winSum / winN or nil,   -- the plain measured averages, with no defaults
+        avgLoss = lossN > 0 and lossSum / lossN or nil,
         estimated = estimated,
+        noPoints = not estimated and pointSum == 0,   -- measured, and every game gave 0
         pointsPerGame = rate * perWin + (1 - rate) * perLoss,
     }
+end
+
+-- One row per battleground with measured games: { bgType, name, perWin, perLoss, games }.
+function Rank:GetPointsPerResult()
+    local char = db() and db().char
+    local history = char and char.history or {}
+    local out = {}
+    for _, bg in ipairs(bgKeys(history)) do
+        local pace = self:GetPace(bg)
+        if pace.measuredGames > 0 then
+            out[#out + 1] = { bgType = bg, name = HonorLog:GetBGDisplayName(bg), perWin = pace.avgWin,
+                perLoss = pace.avgLoss, games = pace.measuredGames }
+        end
+    end
+    return out
+end
+
+-- Average points of the measured games outside one battleground; nil when there are none.
+local function otherAverage(history, exclude)
+    local sum, n = 0, 0
+    for _, g in ipairs(history) do
+        if g.bgType ~= exclude then
+            local pts = measuredPoints(g)
+            if pts then
+                sum, n = sum + pts, n + 1
+                if n >= POINTS_SAMPLE then break end
+            end
+        end
+    end
+    return n > 0 and sum / n or nil
+end
+
+-- Battlegrounds whose latest ZERO_RUN or more earned/zero games all gave 0 points:
+-- { bgType, name, zero, games, otherAverage }. Games with another state (capped, gated, no
+-- data, unknown) neither count nor break the run.
+function Rank:GetZeroPointBattlegrounds()
+    local char = db() and db().char
+    local history = char and char.history or {}
+    local runs, stopped = {}, {}
+    for _, g in ipairs(history) do
+        local bg = g.bgType
+        if bg and not stopped[bg] then
+            local state = gameState(g)
+            if state == "zero" then runs[bg] = (runs[bg] or 0) + 1
+            elseif state == "earned" then stopped[bg] = true end
+        end
+    end
+    local out = {}
+    for _, bg in ipairs(bgKeys(history)) do
+        if (runs[bg] or 0) >= ZERO_RUN then
+            out[#out + 1] = { bgType = bg, name = HonorLog:GetBGDisplayName(bg), zero = runs[bg], games = runs[bg],
+                otherAverage = otherAverage(history, bg) }
+        end
+    end
+    return out
+end
+
+-- "Alterac Valley gave 0 rank points in 3 of 3 games. Your other battlegrounds average 62."
+function Rank:ZeroPointText(entry)
+    local text = string.format(L["%s gave 0 rank points in %d of %d games."], entry.name, entry.zero, entry.games)
+    if entry.otherAverage then
+        text = text .. " " .. string.format(L["Your other battlegrounds average %d."], math.floor(entry.otherAverage + 0.5))
+    end
+    return text
+end
+
+local announcedZero = {} -- this login only
+
+-- The chat line for a battleground that gives no points, once per battleground per login; else nil.
+function Rank:TakeZeroPointLine(bgType)
+    if announcedZero[bgType] then return nil end
+    for _, entry in ipairs(self:GetZeroPointBattlegrounds()) do
+        if entry.bgType == bgType then
+            announcedZero[bgType] = true
+            return self:ZeroPointText(entry)
+        end
+    end
+    return nil
 end
 
 --------------------------------------------------------------------------------
@@ -276,10 +455,18 @@ function Rank:PlanToRank(n, info, pace)
         return plan
     end
     plan.pointsNeeded = math.max(0, self:TotalForRank(n) - info.totalPoints)
-    plan.gamesNeeded = pace.pointsPerGame > 0 and math.ceil(plan.pointsNeeded / pace.pointsPerGame) or 0
+    -- A pace of 0 points a game has no games-needed: a number would read "~0 games".
+    local noPoints = pace.noPoints or pace.pointsPerGame <= 0
+    plan.gamesNeeded = (not noPoints) and math.ceil(plan.pointsNeeded / pace.pointsPerGame) or nil
 
     if n > info.seasonMaxRank then
         plan.limitedBy = "season"
+        return plan
+    end
+
+    -- Under a level gate no pace or cap date means anything yet.
+    if info.gate and n >= info.gate.rank then
+        plan.limitedBy, plan.gateLevel = "level", info.gate.level
         return plan
     end
 
@@ -295,13 +482,17 @@ function Rank:PlanToRank(n, info, pace)
             plan.earliestDateByCap = now + info.secondsToWeeklyReset + (week - info.weekNumber - 1) * 7 * DAY
         end
     end
-    if pace.gamesPerDay > 0 then
+    if not noPoints and pace.gamesPerDay > 0 then
         plan.projectedDateAtPace = now + math.floor(plan.gamesNeeded / pace.gamesPerDay * DAY)
     end
 
     local capDate, paceDate = plan.earliestDateByCap, plan.projectedDateAtPace
     if not capDate then
         plan.limitedBy = "season"
+        return plan
+    end
+    if noPoints then
+        plan.limitedBy = "nopoints"
         return plan
     end
     plan.date = math.max(capDate, paceDate or capDate)
@@ -356,17 +547,9 @@ end
 -- Alerts
 --------------------------------------------------------------------------------
 
--- Sound, centre-screen notice, error-frame line and chat: the same four steps
--- the goal and honor-cap alerts use.
+-- The shared alert (Util.lua): sound, centre-screen notice, error-frame line and chat.
 function Rank:Announce(text, r, g, b)
-    PlaySound(878)
-    if RaidNotice_AddMessage and RaidBossEmoteFrame then
-        RaidNotice_AddMessage(RaidBossEmoteFrame, "|cffffd700" .. text .. "|r", ChatTypeInfo["RAID_WARNING"])
-    end
-    if UIErrorsFrame then
-        UIErrorsFrame:AddMessage("|cffffd700[HonorLog]|r " .. text, r or 1, g or 0.82, b or 0, 1, 3)
-    end
-    print("|cffffd700[HonorLog]|r " .. text)
+    HonorLog:Announce(text, r, g, b)
 end
 
 -- MAJOR_FACTION_RENOWN_LEVEL_CHANGED: one celebration per rank gained.
@@ -445,6 +628,7 @@ end
 function Rank:Refresh()
     local info = self:GetInfo()
     if info and db() then
+        self:CheckGateEvidence(info)
         self:UpdateWeekLog(info)
         self:CheckCapAlert(info)
     end
@@ -464,17 +648,38 @@ function Rank:BrokerText()
     local info = self:GetInfo()
     if not info then return nil end
     local head = info.rank > 0 and string.format("R%d %s", info.rank, info.title) or info.title
-    return string.format("%s \194\183 %d%%", head, math.floor(info.percent))
+    local text = string.format("%s \194\183 %d%%", head, math.floor(info.percent))
+    if info.gate and info.gate.blocking then
+        text = text .. " \194\183 " .. string.format(L["needs level %d"], info.gate.level)
+    end
+    return text
 end
 
-local TAG_TEXT = { cap = "cap", pace = "pace", season = "season", reached = "reached" }
+local TAG_TEXT = { cap = "cap", pace = "pace", season = "season", reached = "reached",
+    level = L["level"], nopoints = L["no points"] }
 Rank.TAG_TEXT = TAG_TEXT
+
+-- What a plan says about time, in words: "after level 40", "no estimate: ...", else the date.
+-- nil when there is nothing to say (reached, or a season plan with no date).
+function Rank.PlanWhen(plan)
+    if plan.limitedBy == "level" then return string.format(L["after level %d"], plan.gateLevel) end
+    if plan.limitedBy == "nopoints" then return L["no estimate: your games give no rank points"] end
+    if plan.date then return Rank.FormatDate(plan.date) end
+    return nil
+end
+
+-- "~120 games", or nil when the plan has no games figure (no points, or a level gate).
+function Rank.PlanGames(plan)
+    if plan.gamesNeeded == nil or plan.limitedBy == "level" then return nil end
+    return "~" .. commas(plan.gamesNeeded) .. " games"
+end
 
 local function planLine(self, plan)
     if plan.reached then return "reached" end
-    local parts = { commas(plan.pointsNeeded) .. " pts", "~" .. commas(plan.gamesNeeded) .. " games" }
-    if plan.date then parts[#parts + 1] = Rank.FormatDate(plan.date) end
-    parts[#parts + 1] = "(" .. (TAG_TEXT[plan.limitedBy] or "?") .. ")"
+    local parts = { commas(plan.pointsNeeded) .. " pts" }
+    parts[#parts + 1] = Rank.PlanGames(plan)
+    parts[#parts + 1] = Rank.PlanWhen(plan)
+    if plan.limitedBy ~= "nopoints" then parts[#parts + 1] = "(" .. (TAG_TEXT[plan.limitedBy] or "?") .. ")" end
     return table.concat(parts, " \194\183 ")
 end
 
@@ -485,6 +690,7 @@ function Rank:AddTooltipLines(tooltip)
     local pace = self:GetPace()
     local head = info.rank > 0 and string.format("Rank %d \226\128\148 %s", info.rank, info.title) or info.title
     tooltip:AddLine(head, 1, 0.82, 0)
+    if info.gate and info.gate.blocking then tooltip:AddLine(self:GateText(info.gate), 1, 0.55, 0.2, true) end
     if info.threshold > 0 then
         tooltip:AddDoubleLine("Progress", string.format("%s / %s (%d%%)", commas(info.points),
             commas(info.threshold), math.floor(info.percent)), 1, 1, 1, 1, 1, 1)
@@ -525,7 +731,7 @@ function Rank:AddTooltipLines(tooltip)
     return true
 end
 
-local function say(text) print("|cff00ff00[HonorLog]|r " .. text) end
+local function say(text) HonorLog:Say(text) end
 
 -- /honorlog rank [n]
 function Rank:PrintSlash(arg)
@@ -541,6 +747,11 @@ function Rank:PrintSlash(arg)
         local title = string.format("Rank %d %s", plan.target, self:TitleForRank(plan.target))
         if plan.reached then
             say(title .. ": already reached.")
+        elseif plan.limitedBy == "level" then
+            say(string.format(L["%s: %s points to go, after level %d."], title, commas(plan.pointsNeeded), plan.gateLevel))
+            say(self:GateText(info.gate))
+        elseif plan.limitedBy == "nopoints" then
+            say(string.format(L["%s: %s points to go. No estimate: your games give no rank points."], title, commas(plan.pointsNeeded)))
         elseif plan.limitedBy == "season" and not plan.date then
             say(string.format("%s: %s points to go, but this season tops out at Rank %d.",
                 title, commas(plan.pointsNeeded), info.seasonMaxRank))
@@ -555,6 +766,7 @@ function Rank:PrintSlash(arg)
     end
 
     local head = info.rank > 0 and string.format("Rank %d %s", info.rank, info.title) or info.title
+    if info.gate and info.gate.blocking then say(self:GateText(info.gate)) end
     if info.threshold > 0 then
         say(string.format("%s: %s / %s (%d%%), %s points in total.", head, commas(info.points),
             commas(info.threshold), math.floor(info.percent), commas(info.totalPoints)))
@@ -578,13 +790,16 @@ function Rank:PrintSlash(arg)
         for _, r in ipairs(rewards) do names[#names + 1] = r.description or r.name or "reward" end
         say(string.format("Next reward at Rank %d: %s", nextRank, table.concat(names, ", ")))
     end
+    for _, entry in ipairs(self:GetZeroPointBattlegrounds()) do say(self:ZeroPointText(entry)) end
+    if pace.noPoints then say(L["Your measured games give no rank points, so there is no pace to plan with."]) end
     say(string.format("Pace: %d per win, %d per loss, %d%% wins, %.1f games a day%s.", math.floor(pace.pointsPerWin + 0.5),
         math.floor(pace.pointsPerLoss + 0.5), math.floor(pace.winRate * 100 + 0.5), pace.gamesPerDay,
         pace.estimated and " (estimate: fewer than " .. MIN_MEASURED .. " measured games)" or ""))
     if info.rank < info.seasonMaxRank then
         local plan = self:PlanToRank(info.rank + 1, info, pace)
-        say(string.format("Rank %d: %s points, about %s games, %s (%s).", plan.target, commas(plan.pointsNeeded),
-            commas(plan.gamesNeeded), plan.date and Rank.FormatDate(plan.date) or "no date",
+        local games = Rank.PlanGames(plan)
+        say(string.format("Rank %d: %s points, %s%s (%s).", plan.target, commas(plan.pointsNeeded),
+            games and (games:gsub("^~", "about ") .. ", ") or "", Rank.PlanWhen(plan) or "no date",
             TAG_TEXT[plan.limitedBy] or "?"))
     end
 end

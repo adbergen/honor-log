@@ -404,6 +404,13 @@ local function push(event, ...)
     return entry
 end
 
+-- The rank module saw a character hold a rank at or above a level gate while under its level, so the
+-- gate does not hold for it. One log entry, only while the probe is armed.
+function Probe:LogGateObservation(gateRank, gateLevel, level, rank)
+    if not db().armed then return end
+    push("RANK_GATE_DISPROVED", gateRank, gateLevel, level, rank)
+end
+
 -- PARTY_KILL: are the GUIDs secret, in or out of a battleground?
 local function onPartyKill(attacker, target)
     local entry = { t = time(), gt = GetTime(), event = "PARTY_KILL" }
