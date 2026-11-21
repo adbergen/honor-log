@@ -93,7 +93,8 @@ local function trim(s)
     for id in pairs(s) do ids[#ids + 1] = id end
     if #ids <= KEPT then return end
     table.sort(ids, function(a, b)
-        local la, lb = num(s[a].last) or 0, num(s[b].last) or 0
+        local la = type(s[a]) == "table" and num(s[a].last) or 0
+        local lb = type(s[b]) == "table" and num(s[b].last) or 0
         if la ~= lb then return la < lb end
         return a < b
     end)
@@ -215,11 +216,20 @@ function Quests:OnQuestTurnedIn(id, xp, money)
 end
 
 local frame = CreateFrame("Frame", "HonorLogQuestsFrame")
+-- These run on the game's own quest events for every quest the player hands in: a failure here is reported
+-- and never raised into the hand-in.
 frame:SetScript("OnEvent", function(_, event, ...)
+    local ok, err
     if event == "QUEST_COMPLETE" then
-        Quests:OnQuestComplete()
+        ok, err = pcall(Quests.OnQuestComplete, Quests)
     elseif event == "QUEST_TURNED_IN" then
-        Quests:OnQuestTurnedIn(...)
+        ok, err = pcall(Quests.OnQuestTurnedIn, Quests, ...)
+    else
+        return
+    end
+    if not ok then
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then handler(err) end
     end
 end)
 for _, event in ipairs({ "QUEST_COMPLETE", "QUEST_TURNED_IN" }) do pcall(frame.RegisterEvent, frame, event) end
@@ -292,13 +302,14 @@ function Quests:GetList(filters)
         local mine = q.faction == nil or q.faction == faction
         local wanted = bgFilter == "all" or q.bg == bgFilter or (bgFilter == "other" and (q.bg == "ALL" or q.bg == "SEASON"))
         if mine and wanted and (q.kind ~= "weekly" or (week and q.week <= week)) then
-            local inLog = questLog("IsOnQuest", id) == true
-            local done = questLog("IsQuestFlaggedCompleted", id) == true
+            -- bool() first: a secret answer must not be compared
+            local inLog = bool(questLog("IsOnQuest", id)) == true
+            local done = bool(questLog("IsQuestFlaggedCompleted", id)) == true
             local paid = Quests:GetPaid(id)
             if allLevels or not q.level or inLog or done or paid or inRange(q.level, level) then
                 local title = str(questLog("GetTitleForQuestID", id))
-                if not title or title == "" then title = q.name end
-                local ready = inLog and (questLog("ReadyForTurnIn", id) == true or questLog("IsComplete", id) == true) or false
+                if not title or title == "" then title = str(q.name) or ("Quest " .. id) end
+                local ready = inLog and (bool(questLog("ReadyForTurnIn", id)) == true or bool(questLog("IsComplete", id)) == true) or false
                 rows[#rows + 1] = {
                     id = id, bg = q.bg, level = q.level, kind = q.kind, week = q.week, title = title,
                     inLog = inLog, ready = ready, done = done,
