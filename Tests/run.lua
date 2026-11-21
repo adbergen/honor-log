@@ -54,7 +54,8 @@ local function run()
         "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
-        "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
+        "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
+        "UI/Screens/Gear.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3292,14 +3293,14 @@ local function run()
         local probeRefreshes
         local function registerProbe()
             probeRefreshes = 0
-            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 3, create = function(parent)
+            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 4, create = function(parent)
                 local f = CreateFrame("Frame", nil, parent)
                 function f:Refresh() probeRefreshes = probeRefreshes + 1 end
                 return f
             end })
         end
         registerProbe()
-        check(#Window.screens == 3 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 4 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -3616,16 +3617,20 @@ local function run()
 
         -- next goal
         local goalPart = parts.goal
-        local pickerCalls, tabCalls = 0, {}
+        local pickerCalls, tabCalls = 0, 0
         local realPicker, realSwitch = HL.ShowGoalPicker, HL.SwitchTab
         HL.ShowGoalPicker = function() pickerCalls = pickerCalls + 1 end
-        HL.SwitchTab = function(_, tab) tabCalls[#tabCalls + 1] = tab end
+        HL.SwitchTab = function() tabCalls = tabCalls + 1 end
         HL.GetAllGoalsProgress = function() return {} end
         ov:Refresh()
         check(goalPart.none:IsShown() and goalPart.none:GetText() == "No goals yet" and goalPart.add:IsShown() and not goalPart.view:IsShown() and not goalPart.icon:IsShown(), "overview: no goals")
         check(goalPart.add:GetText() == "Add a goal", "overview: the add button")
+        local realOpen, openCalls = HL.GearScreen.Open, {}
+        HL.GearScreen.Open = function(_, mode, id) openCalls[#openCalls + 1] = { mode, id } end
         goalPart.add.__scripts.OnClick(goalPart.add)
-        check(pickerCalls == 1, "overview: Add a goal opens the goal picker")
+        check(#openCalls == 1 and openCalls[1][1] == "vendors" and openCalls[1][2] == nil and pickerCalls == 0, "overview: Add a goal opens the vendor browser, not the old picker")
+        goalPart.card.__scripts.OnClick(goalPart.card)
+        check(#openCalls == 1, "overview: the next-goal card does nothing while there is no goal")
         local gp = { itemID = vendorItem, name = "Premier Test Cloak", isComplete = false, rows = {
             { kind = "honor", needed = 5000, current = 1200, met = false },
             { kind = "marks", bg = "AB", needed = 10, current = 10, met = true },
@@ -3654,11 +3659,14 @@ local function run()
         end
         check(gr.frames[2].mark:IsShown() and gr.frames[2].mark.honorLogBG == "AB" and not gr.frames[1].mark:IsShown(), "overview: the marks row has its mark icon")
         check(goalPart.view:GetText() == "View goal", "overview: the view button")
-        local miniShown = HL.mainFrame:IsShown()
-        if miniShown then HL:ToggleMainFrame() end
+        goalPart.card.__scripts.OnClick(goalPart.card)
+        check(#openCalls == 2 and openCalls[2][1] == "goals" and openCalls[2][2] == vendorItem, "overview: a click on the next-goal card opens that goal on the Gear goals screen")
+        goalPart.icon.__scripts.OnClick(goalPart.icon)
+        check(#openCalls == 2, "overview: the goal's item icon keeps its own click")
         goalPart.view.__scripts.OnClick(goalPart.view)
-        check(tabCalls[1] == "goals" and HL.mainFrame:IsShown(), "overview: View goal opens the goals panel in the small frame")
-        if not miniShown then HL:ToggleMainFrame() end
+        check(#openCalls == 3 and openCalls[3][1] == "goals" and openCalls[3][2] == vendorItem and tabCalls == 0,
+            "overview: View goal opens that goal on the Gear goals screen, not the small frame's panel")
+        HL.GearScreen.Open = realOpen
         -- an unmet-rep-free goal and a goal whose rows are all requirements work with the real model too
         HL.GetAllGoalsProgress = realGoals
         HL.ShowGoalPicker, HL.SwitchTab = realPicker, realSwitch
@@ -3710,11 +3718,22 @@ local function run()
         -- ── Integration: every control, twice ───────────────────────────────────────
         char.history = games
         local function integration(label)
+            -- goals to click on: two to plan and one bought; the clicks may remove them, so they are a set of their own
+            -- (the small frame's old goals panel needs templates the "nothing exists" pass takes away, and a goal
+            -- change would refresh it: only the window hears about the change here)
+            local savedGoals, realUpdated = char.goals, HL.OnDataUpdated
+            HL.OnDataUpdated = function() Window:OnDataChanged() end
+            char.goals = { items = {}, completed = {}, settings = savedGoals.settings }
+            for _, id in ipairs({ 272738, 272787, 20041 }) do HL:AddGoal(id) end
+            HL:CompleteGoal(20041)
             Window:Show("rank")
+            Window:Show("gear")
+            HL.GearScreen:Open("vendors")
+            HL.GearScreen:Open("goals")
             Window:Show("overview")
-            local n = 0
-            -- Only what belongs to the window: a click on "Add a goal" opens the old picker, whose own rows and
-            -- cards are not this run's business (and need templates the "nothing exists" pass takes away).
+            local n, gearClicks = 0, 0
+            -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
+            -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
                 local hops = 0
                 while f and hops < 40 do
@@ -3732,10 +3751,20 @@ local function run()
                 if f.__scripts.OnLeave then f.__scripts.OnLeave(f) end
                 if f.__scripts.OnClick then
                     f.__scripts.OnClick(f, "LeftButton"); n = n + 1
+                    if Window.frames.gear then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.gear then gearClicks = gearClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if not Window:IsShown() then Window:Show() end -- the close button closed it
                 end
             end
             check(n > 20, label .. "integration clicked " .. n .. " controls")
+            check(gearClicks > 25, label .. "integration clicked " .. gearClicks .. " controls on the Gear goals screen")
+            char.goals, HL.OnDataUpdated = savedGoals, realUpdated
+            HL.GearScreen.mode = "goals"
             Window:Hide()
             Window:Show()
             check(Window:IsShown(), label .. "the window reopens")
@@ -4304,6 +4333,745 @@ local function run()
             HonorLogDB.settings.windowTab = "overview"
             mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
             mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 5, 3, 2
+            Window:Hide()
+        end)()
+
+        -- ═══ Gear goals: the upgrade accessor, the kit's new pieces, the goals screen and the vendor browser ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Rank = HL.Kit, HL.Rank
+            local Gear, Vend = HL.GearScreen, HL.GearVendors
+            local S = HonorLogDB.settings
+            local BLUE, EPIC, REPGEAR, MOUNT = 272738, 272787, 20041, 18241
+            local SEAL = HL.GearDB[EPIC].parts[2]
+            local save = { goals = char.goals, goal = S.windowGoal, vendor = S.windowVendor, class = S.windowVendorClass, tab = S.windowTab,
+                level = mock.level, history = char.history, honor = mock.currencies[1792].quantity, money = mock.money, bags = mock.bagContents,
+                buyable = HL.GetBuyableNow, advice = HL.GetHonorCapAdvice, totals = HL.GetGoalsTotals, allGoals = HL.GetAllGoalsProgress,
+                unlocks = HL.GetRankUnlocks, rankInfo = Rank.GetInfo, stock = HL.GetVendorStock, vendorFor = HL.GetVendorFor,
+                showForItem = HL.ShowVendorForItem, showOnMap = HL.ShowVendorOnMap }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            mock.level, mock.faction = 60, "Alliance"
+            mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
+            mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week, mock.rankWindow.noData = 5, 3, 2, false
+            mock.currencies[1792].quantity, mock.money, mock.bagContents = 8200, 50000000, {}
+            char.history = {}
+            char.goals = { items = {}, completed = {}, settings = save.goals.settings }
+            S.windowGoal, S.windowVendor, S.windowVendorClass = 0, "", "player"
+
+            -- ── GetUpgradeFor ──
+            local up = HL:GetUpgradeFor(BLUE)
+            check(up and up.itemID == EPIC and up.sealID == SEAL and up.rank == HL.GearDB[EPIC].rank and up.honor == HL.GearDB[SEAL].honor, "GetUpgradeFor: a blue piece names its epic, Seal, rank and the Seal's honor")
+            check(HL:GetUpgradeFor(EPIC) == nil and HL:GetUpgradeFor(SEAL) == nil and HL:GetUpgradeFor(1) == nil and HL:GetUpgradeFor(nil) == nil, "GetUpgradeFor: an epic, a Seal, an unknown item and nil have none")
+
+            -- ── Kit:ScrollArea, with each template present and with all missing ──
+            local function scrollSuite(label, missing, expect, hasBar)
+                mock.missingTemplates = missing
+                local holder = CreateFrame("Frame", nil, UIParent)
+                local area = Kit:ScrollArea(holder)
+                check(area.honorLogTemplate == expect, label .. "the " .. tostring(expect) .. " took")
+                check((area.honorLogBar ~= false) == hasBar, label .. "a bar exactly when a template made one")
+                area:SetSize(200, 100)
+                area:honorLogSetContentHeight(80)
+                check(area.honorLogChild:GetWidth() == 200 and area.honorLogChild:GetHeight() == 80, label .. "the child is as wide as the area and as tall as its content")
+                if hasBar then check(not area.honorLogBar:IsShown(), label .. "content that fits hides the bar") end
+                area.__scripts.OnMouseWheel(area, -1)
+                check(area:GetVerticalScroll() == 0, label .. "content that fits does not scroll")
+                area:honorLogSetContentHeight(400)
+                if hasBar then check(area.honorLogBar:IsShown(), label .. "longer content shows the bar") end
+                area.__scripts.OnMouseWheel(area, -1)
+                check(area:GetVerticalScroll() == 30, label .. "one notch down is 30 pixels")
+                for _ = 1, 30 do area.__scripts.OnMouseWheel(area, -1) end
+                check(area:GetVerticalScroll() == 300, label .. "the wheel stops at the end of the content")
+                area.__scripts.OnMouseWheel(area, 1)
+                check(area:GetVerticalScroll() == 270, label .. "one notch up")
+                for _ = 1, 30 do area.__scripts.OnMouseWheel(area, 1) end
+                check(area:GetVerticalScroll() == 0, label .. "the wheel stops at the top")
+                for _ = 1, 3 do area.__scripts.OnMouseWheel(area, -1) end
+                area:honorLogSetContentHeight(500)
+                check(area:GetVerticalScroll() == 90, label .. "the position is kept when the content is redrawn")
+                area:honorLogSetContentHeight(150)
+                check(area:GetVerticalScroll() == 50, label .. "a shorter list pulls the position back to its end")
+                area:honorLogSetContentHeight(0)
+                check(area:GetVerticalScroll() == 0 and area.honorLogChild:GetHeight() == 1, label .. "an empty list sits at the top")
+                local bad = {}
+                for k in pairs(area) do
+                    if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar" then bad[#bad + 1] = k end
+                end
+                check(#bad == 0, label .. "only honorLog names are added to the scroll frame: " .. table.concat(bad, ","))
+                check(area.__scripts.OnUpdate == nil, label .. "no OnUpdate")
+            end
+            scrollSuite("scroll area (new template): ", {}, "ScrollFrameTemplate", true)
+            scrollSuite("scroll area (classic template): ", { ScrollFrameTemplate = true }, "UIPanelScrollFrameTemplate", true)
+            scrollSuite("scroll area (plain): ", { ["*"] = true }, false, false)
+            mock.missingTemplates = {}
+
+            -- ── Kit:Star ──
+            local holder = CreateFrame("Frame", nil, UIParent)
+            local star = Kit:Star(holder, 20)
+            local toggles = {}
+            star.honorLogOnToggle = function(s, on) toggles[#toggles + 1] = on end
+            local art = star.honorLogArt
+            check(star:IsOn() == false and art.__texture == Kit.STAR.file and same(art.__texCoord, Kit.STAR.off) and art.__desaturated == true and art.__alpha == 0.55,
+                "star: off is the client's empty star, greyed and dimmed")
+            click(star)
+            check(star:IsOn() == true and toggles[1] == true and same(art.__texCoord, Kit.STAR.on) and art.__desaturated == false and art.__alpha == 1,
+                "star: a click turns it on, shows the gold star and calls back")
+            click(star)
+            check(star:IsOn() == false and toggles[2] == false and same(art.__texCoord, Kit.STAR.off) and art.__desaturated == true, "star: a second click turns it off")
+            star:SetOn(true)
+            check(star:IsOn() and #toggles == 2, "star: SetOn changes the look without calling back")
+            star.__scripts.OnEnter(star)
+            check(mock.tip.shown and tipText() == "Remove from your goals", "star: the tooltip when on")
+            star:SetOn(false)
+            star.__scripts.OnEnter(star)
+            check(tipText() == "Add to your goals", "star: the tooltip when off")
+            star.__scripts.OnLeave(star)
+            check(not mock.tip.shown, "star: the tooltip hides")
+
+            -- ── Kit:Chips ──
+            local chosen
+            local chips = Kit:Chips(holder, function(key) chosen = key end)
+            chips:SetOptions({ { key = "a", text = "All" }, { key = "b", text = "Second" }, { key = "c", text = "A very long chip name indeed", maxWidth = 80 } }, "b")
+            local buttons = chips.honorLogButtons
+            check(#buttons == 3 and buttons[1]:GetText() == "All" and buttons[2]:GetText() == "Second", "chips: one button per option with its text")
+            check(chips.honorLogChosen == "b" and buttons[2].honorLogChosenFlag and not buttons[1].honorLogChosenFlag and chips.honorLogUnderline:IsShown(), "chips: the chosen one is locked and underlined")
+            local ux = chips.honorLogUnderline.__points[1]
+            check(ux[2] == buttons[2], "chips: the underline sits under the chosen button")
+            check(buttons[3]:GetWidth() == 80 and buttons[3]:GetText():find("%.%.%.$") and #buttons[3]:GetText() < #"A very long chip name indeed" and buttons[3].honorLogTip == "A very long chip name indeed",
+                "chips: a text wider than its box is cut, the full text is its tooltip")
+            buttons[3].__scripts.OnEnter(buttons[3])
+            check(tipText() == "A very long chip name indeed", "chips: the tooltip shows the full text")
+            click(buttons[3])
+            check(chosen == "c" and chips.honorLogChosen == "c" and buttons[3].honorLogChosenFlag and not buttons[2].honorLogChosenFlag and chips.honorLogUnderline.__points[1][2] == buttons[3],
+                "chips: a click chooses and calls back")
+            check(chips:GetWidth() == buttons[1]:GetWidth() + buttons[2]:GetWidth() + buttons[3]:GetWidth() + 8, "chips: the frame is as wide as its buttons")
+            chips:SetOptions({ { key = "a", text = "All" } }, "zzz")
+            check(chips.honorLogChosen == "a" and not buttons[2]:IsShown() and buttons[1]:IsShown(), "chips: an unknown choice falls back to the first option, spare buttons hide")
+            local framesBefore2 = #mock.frames
+            for i = 1, 10 do
+                local list = {}
+                for j = 1, (i % 3) + 1 do list[j] = { key = j, text = "Opt" .. j } end
+                chips:SetOptions(list, 1)
+            end
+            check(#mock.frames == framesBefore2 and #chips.honorLogButtons == 3, "chips: ten refreshes make no new frames (pooled)")
+
+            -- ── Kit:PreviewItem ──
+            local dressed = {}
+            _G.DressUpItemLink = function(link) dressed[#dressed + 1] = link end
+            check(Kit:PreviewItem(BLUE) == true and #dressed == 1 and dressed[1]:find("Hitem:" .. BLUE, 1, true), "preview: an item goes to the dressing room")
+            check(Kit:PreviewItem(nil) == false and #dressed == 1, "preview: nothing to preview")
+            _G.DressUpItemLink = nil
+            check(Kit:PreviewItem(BLUE) == false, "preview: without the client function it does nothing")
+
+            -- ── Kit:Cut ──
+            check(Kit:Cut("short", 10) == "short" and Kit:Cut("Warlord's Battlegear", 10) == "Warlord..." and Kit:Chars("a\194\183b") == 3
+                and Kit:Cut("a\194\183bcdefghij", 6) == "a\194\183b...", "cut: texts are cut to their characters, never inside a character")
+
+            -- ═══ The screen ═══
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Gear.mode, Gear.request = "goals", nil
+            mock.runShowScripts = true
+            Window:Show("gear")
+            local screen = Window.frames.gear
+            check(screen and Window.current == "gear" and Window:IsShown(), "gear: the window opens on the Gear goals screen")
+            local parts = screen.honorLogParts
+            local list, detail, right = parts.list, parts.detail, parts.right
+            check(Window.screens[3].key == "gear" and Window.screens[3].title == "Gear goals" and Window.screens[3].order == 3, "tabs: Gear goals is registered third")
+            local function tabText(b) return b.honorLogTemplate and b:GetText() or b.honorLogLabel:GetText() end
+            local tabs = Window.tabs.list
+            check(tabs[2].honorLogKey == "rank" and tabs[3].honorLogKey == "gear" and tabText(tabs[3]) == "Gear goals", "tabs: Gear goals comes after Rank plan")
+
+            -- no goals
+            Window:RefreshCurrent()
+            check(list.stack.count == 0 and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock and HonorLog plans the way to it."
+                , "goals: no goals, one sentence")
+            check(not list.totals.wrap:IsShown() and list.add:GetText() == "Add a goal", "goals: no totals box without goals, and the Add a goal button")
+            check(detail.none:IsShown() and detail.none:GetText() == "Choose a goal on the left, or add one." and not detail.icon:IsShown() and not detail.buttons[1]:IsShown(), "goals: the detail asks for a goal")
+            check(list.area:GetHeight() > 400, "goals: with no totals box the list takes the room")
+
+            -- three goals
+            for _, id in ipairs({ BLUE, EPIC, REPGEAR, MOUNT }) do check(HL:AddGoal(id), "goals: " .. id .. " added") end
+            HL:RemoveGoal(MOUNT)
+            local order = { BLUE, EPIC, REPGEAR }
+            local gps = HL:GetAllGoalsProgress()
+            check(#gps == 3 and list.stack.count == 3 and not list.none:IsShown(), "goals: a row for each goal, and the empty text goes")
+            local pool = list.stack.pools.goal
+            check(pool[1].icon:GetFrameLevel() > pool[1].click:GetFrameLevel(), "goals: a row's item icon sits above the row's click area, so its own click and tooltip win")
+            for i, id in ipairs(order) do
+                local row, gp = pool[i], gps[i]
+                check(gp.itemID == id and row.icon.honorLogItemID == id, "goals: row " .. i .. " is goal " .. i .. " in order")
+                check(row.name:GetText() == Kit:QualityHex(row.icon.honorLogQuality) .. gp.name .. "|r", "goals: row " .. i .. " name in its quality colour")
+                check(row.status:GetText() == HL:GoalReadyText(gp), "goals: row " .. i .. " status is the ready text")
+                check(row.percent:GetText() == string.format("%d%%", math.floor(HL:GetGoalPercent(gp))) and row.bar.honorLogFraction == Kit.Clamp01(HL:GetGoalPercent(gp) / 100),
+                    "goals: row " .. i .. " percent over a bar: " .. tostring(row.percent:GetText()))
+                check(row.name.__wrapWidth == 150 and row.status.__wrapWidth == 150 and row.name.__wrapWidth and row.percent.__wrapWidth == 56 and row.bar:GetWidth() == 56 and row:GetHeight() == 50,
+                    "goals: row " .. i .. " sizes, texts fixed so the client cuts them")
+            end
+            check(list.area.honorLogContentHeight == 150, "goals: the list is as tall as its rows")
+            check(list.totals.wrap:IsShown() and list.area:GetHeight() < 330, "goals: with several goals the totals box shows and the list gives way")
+
+            -- the chosen row
+            check(pool[1].wash:IsShown() and pool[1].edge:IsShown() and not pool[2].wash:IsShown() and not pool[2].edge:IsShown() and pool[1].edge:GetWidth() == 3,
+                "goals: with nothing chosen the first goal has the wash and the 3 px edge")
+            check(S.windowGoal == 0, "goals: the fallback is not saved")
+            click(pool[2].click)
+            check(S.windowGoal == EPIC and pool[2].wash:IsShown() and pool[2].edge:IsShown() and not pool[1].wash:IsShown(), "goals: a click chooses a goal and saves it")
+            check(detail.icon.honorLogItemID == EPIC and detail.name:GetText():find(gps[2].name, 1, true), "goals: the detail follows the choice")
+            S.windowGoal = 999
+            Window:RefreshCurrent()
+            check(pool[1].wash:IsShown() and detail.icon.honorLogItemID == BLUE and S.windowGoal == 999, "goals: a goal that is not on the list falls back to the first")
+            pool[2].click.__scripts.OnEnter(pool[2].click)
+            check(mock.tip.shown and tipText():find(gps[2].name, 1, true), "goals: the row's tooltip carries the whole name")
+            pool[2].click.__scripts.OnLeave(pool[2].click)
+
+            -- the totals box
+            local T = HL:GetGoalsTotals(gps)
+            local tb = list.totals
+            check(tb.title:GetText() == "All 3 together" and tb.honor:GetText() == string.format("%s / %s", HL.Rank.FormatNumber(T.honorCurrent), HL.Rank.FormatNumber(T.honorNeeded)), "totals: the count and honor in hand over honor needed")
+            check(tb.marks.AV.icon:IsShown() and tb.marks.AV.count:GetText() == string.format("%d/%d", T.marksCurrent.AV, T.marksNeeded.AV) and not tb.marks.AB.icon:IsShown(), "totals: each battleground's marks as have/need")
+            check(tb.gold:IsShown() and tb.gold:GetText() == string.format("%s / %s", HL:GoldShort(T.goldCurrent), HL:GoldShort(T.goldNeeded)), "totals: gold with GoldShort")
+            local short = {}
+            local honorShort = math.max(0, T.honorNeeded - T.honorCurrent)
+            if honorShort > 0 then short[#short + 1] = HL.Rank.FormatNumber(honorShort) .. " honor" end
+            local marksShort = math.max(0, T.marksNeeded.AV - T.marksCurrent.AV)
+            if marksShort > 0 then short[#short + 1] = marksShort .. " marks" end
+            local want = #short == 2 and ("You are " .. short[1] .. " and " .. short[2] .. " short.") or #short == 1 and ("You are " .. short[1] .. " short.") or "x"
+            check(tb.short:GetText() == want, "totals: what is short, in words: " .. tostring(tb.short:GetText()) .. " / " .. want)
+            local function stubTotals(t) HL.GetGoalsTotals = function() return t end Window:RefreshCurrent() end
+            stubTotals({ honorNeeded = 5000, honorCurrent = 4670, goldNeeded = 0, goldCurrent = 0, marksNeeded = { AV = 20 }, marksCurrent = { AV = 5 }, allComplete = false })
+            check(tb.short:GetText() == "You are 330 honor and 15 marks short.", "totals: the example sentence")
+            check(tb.marks.AV.count:GetText() == "5/20" and not tb.gold:IsShown() and not tb.goldLabel:IsShown(), "totals: no gold line when no gold is needed")
+            stubTotals({ honorNeeded = 5000, honorCurrent = 4670, goldNeeded = 30000, goldCurrent = 10000, marksNeeded = { AV = 20, AB = 10 }, marksCurrent = { AV = 5, AB = 10 }, allComplete = false })
+            check(tb.short:GetText() == "You are 330 honor, 15 marks and 2g short.", "totals: three shortfalls in one sentence: " .. tostring(tb.short:GetText()))
+            stubTotals({ honorNeeded = 5000, honorCurrent = 5000, goldNeeded = 0, goldCurrent = 0, marksNeeded = { AV = 20 }, marksCurrent = { AV = 20 }, allComplete = true })
+            check(tb.short:GetText() == "You can buy everything on your list.", "totals: nothing short")
+            stubTotals({ honorNeeded = 5000, honorCurrent = 5000, goldNeeded = 0, goldCurrent = 0, marksNeeded = {}, marksCurrent = {}, allComplete = false })
+            check(tb.short:GetText():find("rank, level or reputation", 1, true), "totals: covered but gated is said so")
+            HL.GetGoalsTotals = save.totals
+            Window:RefreshCurrent()
+
+            -- ── the chosen goal in detail (a real goal) ──
+            click(pool[1].click)
+            local gp1 = HL:GetAllGoalsProgress()[1]
+            local item1 = HL.GearDB[BLUE]
+            check(detail.icon:IsShown() and detail.icon.honorLogItemID == BLUE and not detail.none:IsShown(), "detail: the head shows the chosen goal's icon")
+            check(detail.name:GetText() == Kit:QualityHex(detail.icon.honorLogQuality) .. gp1.name .. "|r" and detail.name.__wrapWidth == 276, "detail: the name in its quality colour, on one line")
+            check(detail.sub:GetText() == "Head \194\183 Item Level 60 \194\183 Requires Level 55", "detail: slot, item level and required level: " .. tostring(detail.sub:GetText()))
+            local function takesOf() local out = {} for _, r in ipairs(detail.takes) do if r:IsShown() then out[#out + 1] = r end end return out end
+            local takes = takesOf()
+            local kinds = {}
+            for _, row in ipairs(gp1.rows) do if row.kind == "honor" or row.kind == "marks" or row.kind == "level" then kinds[#kinds + 1] = row end end
+            check(#takes == #kinds and #takes == 3, "detail: one line per requirement that counts (a gold line only when gold is needed)")
+            for i, row in ipairs(kinds) do
+                local f = takes[i]
+                check(f.value:GetText() == HL:GoalRowText(row), "detail: line " .. i .. " value is GoalRowText")
+                check(f.tick:IsShown() == (row.met == true), "detail: line " .. i .. " a met requirement shows a tick")
+            end
+            check(takes[1].label:GetText() == "Honor" and takes[1].bar:IsShown() and takes[1].bar.honorLogFraction == Kit.Clamp01(gp1.rows[1].percent / 100), "detail: honor has a bar of current over needed")
+            check(takes[2].label:GetText() == HL:GetBGDisplayName("AV") and takes[2].mark:IsShown() and takes[2].mark.honorLogBG == "AV" and takes[2].bar:IsShown(), "detail: marks carry the battleground's name and icon")
+            check(takes[3].label:GetText() == "Level" and not takes[3].bar:IsShown() and takes[3].tick:IsShown(), "detail: level has no bar and a tick when met")
+            check(takes[1].label.__wrapWidth == 104 and takes[2].label.__wrapWidth == 88 and takes[1].value.__wrapWidth == 200 and takes[1].note.__wrapWidth == 98, "detail: texts have fixed widths")
+            takes[1].__scripts.OnEnter(takes[1])
+            check(tipText():find("Honor: ", 1, true), "detail: a line's tooltip carries the whole text")
+            check(not detail.partsHeader:IsShown() and not detail.parts[1]:IsShown(), "detail: a blue piece has no purchases block")
+
+            -- the upgrade block (a blue piece)
+            check(detail.upHeader:IsShown() and detail.upHeader.Label:GetText() == "Epic upgrade at Rank " .. HL.GearDB[EPIC].rank and detail.up:IsShown(), "detail: the blue piece offers its epic upgrade")
+            check(detail.up.epic.honorLogItemID == EPIC and detail.up.seal.honorLogItemID == SEAL and detail.up.cost:GetText() == HL.Rank.FormatNumber(HL.GearDB[SEAL].honor) .. " honor",
+                "detail: the epic's icon, the Seal's icon and the Seal's honor")
+            check(detail.up.star:IsOn() == HL:IsGoal(EPIC) and HL:IsGoal(EPIC), "detail: the star is on while the epic is a goal")
+            click(detail.up.star)
+            check(not HL:IsGoal(EPIC) and not detail.up.star:IsOn(), "detail: the star removes the epic goal")
+            click(detail.up.star)
+            check(HL:IsGoal(EPIC) and detail.up.star:IsOn(), "detail: the star adds it back")
+            check(HL:GetGoals()[3].itemID == EPIC, "detail: ...at the end of the list")
+            HL:RemoveGoal(EPIC)
+            HL:AddGoal(EPIC)
+            HL:ReorderGoal(EPIC, 2)
+
+            -- an epic: two purchases
+            click(pool[2].click)
+            check(detail.partsHeader:IsShown() and detail.partsHeader.Label:GetText() == "Two purchases" and not detail.up:IsShown() and not detail.upHeader:IsShown(), "detail: an epic shows its two purchases, not an upgrade")
+            local gpE = HL:GetAllGoalsProgress()[2]
+            check(#gpE.parts == 2 and detail.parts[1]:IsShown() and detail.parts[2]:IsShown(), "detail: a line for each part")
+            for i, part in ipairs(gpE.parts) do
+                check(detail.parts[i].icon.honorLogItemID == part.itemID and detail.parts[i].icon:GetWidth() == 20 and detail.parts[i].text:GetText() == HL:GoalPartText(part), "detail: part " .. i .. " has its icon and its text")
+            end
+            click(pool[1].click)
+
+            -- buttons for an active goal
+            local b = detail.buttons
+            check(b[1]:GetText() == "Try it on" and b[2]:GetText() == "Move up" and b[3]:GetText() == "Move down" and b[4]:GetText() == "Remove" and b[4]:IsShown(), "detail: the active goal's buttons")
+            check(b[2]:IsEnabled() == false and b[3]:IsEnabled() == true, "detail: the first goal cannot move up")
+            local previewed = {}
+            _G.DressUpItemLink = function(link) previewed[#previewed + 1] = link end
+            click(b[1])
+            check(#previewed == 1 and previewed[1]:find("Hitem:" .. BLUE, 1, true), "detail: Try it on previews the item")
+            _G.DressUpItemLink = nil
+            click(b[2])
+            check(HL:GetGoals()[1].itemID == BLUE, "detail: Move up at the top does nothing")
+            local function goalIDs() local out = {} for i, g in ipairs(HL:GetGoals()) do out[i] = g.itemID end return table.concat(out, ",") end
+            click(b[3])
+            check(goalIDs() == EPIC .. "," .. BLUE .. "," .. REPGEAR, "detail: Move down moves the goal down one place: " .. goalIDs())
+            check(detail.icon.honorLogItemID == BLUE and b[2]:IsEnabled() == true and b[3]:IsEnabled() == true and pool[2].wash:IsShown(), "detail: the screen followed the goal, both moves open in the middle")
+            click(b[3])
+            check(goalIDs() == EPIC .. "," .. REPGEAR .. "," .. BLUE and b[3]:IsEnabled() == false and b[2]:IsEnabled() == true, "detail: at the end of the list Move down is disabled")
+            click(b[3])
+            check(goalIDs() == EPIC .. "," .. REPGEAR .. "," .. BLUE, "detail: Move down at the end does nothing")
+            click(b[2])
+            click(b[2])
+            check(goalIDs() == BLUE .. "," .. EPIC .. "," .. REPGEAR and b[2]:IsEnabled() == false, "detail: Move up twice puts it back at the top, and Move up is disabled there")
+
+            -- Remove removes, and the choice falls back to the first goal
+            click(pool[2].click)
+            click(b[4])
+            check(goalIDs() == BLUE .. "," .. REPGEAR and list.stack.count == 2 and detail.icon.honorLogItemID == BLUE and S.windowGoal == EPIC, "detail: Remove removes the goal and the choice falls back to the first")
+            HL:AddGoal(EPIC)
+            HL:ReorderGoal(EPIC, 2)
+
+            -- a bought goal
+            HL:CompleteGoal(REPGEAR)
+            local divider, boughtRow = list.stack.pools.divider and list.stack.pools.divider[1], list.stack.pools.bought and list.stack.pools.bought[1]
+            check(list.stack.count == 4 and divider and divider:IsShown() and divider.text:GetText() == "Bought" and divider:GetHeight() == 22, "goals: a small divider named Bought comes after the active goals")
+            check(boughtRow and boughtRow:IsShown() and boughtRow.icon.honorLogItemID == REPGEAR and boughtRow.tick:IsShown() and not boughtRow.bar:IsShown() and boughtRow.percent:GetText() == ""
+                and same(textColor(boughtRow.name), Kit.COLORS.grey) and boughtRow:GetHeight() == 50, "goals: a bought goal is a grey row with a tick and no percent")
+            check(boughtRow.name:GetText() == HL:GetGearName(REPGEAR) and boughtRow.status:GetText() == "Waist", "goals: a bought goal names the item and its slot")
+            check(list.totals.title:GetText() == "All 2 together", "goals: the totals count the active goals only")
+            click(boughtRow.click)
+            check(S.windowGoal == REPGEAR and boughtRow.wash:IsShown() and boughtRow.edge:IsShown() and detail.icon.honorLogItemID == REPGEAR, "goals: a bought goal can be chosen")
+            check(b[1]:GetText() == "Try it on" and b[2]:GetText() == "Put back" and b[3]:GetText() == "Remove" and not b[4]:IsShown(), "detail: a bought goal has Put back and Remove")
+            check(detail.boughtNote:IsShown() and not detail.takesHeader:IsShown() and not detail.reason:IsShown() and not detail.readyValue:IsShown() and detail.soldHeader:IsShown(), "detail: a bought goal says so, plans nothing and still names its vendor")
+            click(b[2])
+            check(goalIDs() == BLUE .. "," .. EPIC .. "," .. REPGEAR and #HL:GetCompletedGoals() == 0 and not divider:IsShown() and list.stack.count == 3, "detail: Put back makes it an active goal again, and the divider goes")
+            check(b[2]:GetText() == "Move up" and b[4]:IsShown(), "detail: and it has the active goal's buttons")
+            HL:CompleteGoal(REPGEAR)
+            click(list.stack.pools.bought[1].click)
+            click(detail.buttons[3])
+            check(#HL:GetCompletedGoals() == 0 and list.stack.count == 2 and detail.icon.honorLogItemID == BLUE, "detail: Remove on a bought goal removes it for good")
+            HL:AddGoal(REPGEAR)
+            S.windowGoal = BLUE
+            Window:RefreshCurrent()
+
+            -- ── every kind of requirement, with its note ──
+            local DATE = os.time({ year = 2026, month = 12, day = 2, hour = 12 })
+            local function stubGp(over)
+                local base = {
+                    itemID = BLUE, name = "Premier Plate Helm", item = HL:GetGearItem(BLUE), isComplete = false, missing = {}, unverified = {},
+                    estimated = false, readyDate = DATE, readyLimitedBy = "honor",
+                    rows = {
+                        { kind = "honor", needed = 5000, current = 1200, met = false, remaining = 3800, percent = 24, games = 6 },
+                        { kind = "marks", bg = "AB", needed = 10, current = 10, met = true, remaining = 0, percent = 100, games = 0 },
+                        { kind = "gold", needed = 15000, current = 20000, met = true, remaining = 0, percent = 100 },
+                        { kind = "rank", needed = 6, current = 3, met = false, known = true, date = DATE, limitedBy = "pace" },
+                        { kind = "level", needed = 55, current = 35, met = false, known = true },
+                        { kind = "rep", needed = 5, current = 4, met = false, known = true, faction = 509, factionName = "The League of Arathor", standingName = "Friendly",
+                            games = 8, amount = 100, ceiling = 3000 },
+                    },
+                }
+                for k, v in pairs(over or {}) do base[k] = v end
+                return base
+            end
+            local current
+            HL.GetAllGoalsProgress = function() return { current } end
+            local function show(over) current = stubGp(over) Window:RefreshCurrent() return takesOf() end
+            local rows6 = show()
+            local gpS = current
+            check(#rows6 == 6, "takes: a line for each of the six kinds")
+            local labels = { "Honor", HL:GetBGDisplayName("AB"), "Gold", "Rank", "Level", "The League of Arathor" }
+            for i, r in ipairs(rows6) do
+                check(r.label:GetText() == labels[i] and r.value:GetText() == HL:GoalRowText(gpS.rows[i]), "takes: line " .. i .. " reads " .. labels[i])
+                check(r.tick:IsShown() == (gpS.rows[i].met == true), "takes: line " .. i .. " tick only when met")
+            end
+            check(rows6[1].bar:IsShown() and rows6[1].bar.honorLogFraction == 0.24 and same(rows6[1].bar.honorLogColor, { 1, 0.82, 0.1 }) and rows6[1].note:GetText() == "about 6 games", "takes: honor: bar, and the games it takes")
+            check(rows6[2].bar:IsShown() and rows6[2].bar.honorLogFraction == 1 and same(rows6[2].bar.honorLogColor, Kit.COLORS.green) and rows6[2].note:GetText() == "" and rows6[2].mark.honorLogBG == "AB", "takes: a met marks line has a full green bar and no note")
+            check(rows6[3].bar:IsShown() and rows6[3].note:GetText() == "", "takes: gold has a bar")
+            check(not rows6[4].bar:IsShown() and rows6[4].note:GetText() == Rank.FormatDate(DATE) and rows6[4].note:GetText() == "Dec 02", "takes: a rank has the rank plan's date")
+            check(not rows6[5].bar:IsShown() and rows6[5].note:GetText() == "", "takes: a level has neither bar nor note")
+            check(not rows6[6].bar:IsShown() and rows6[6].note:GetText() == "about 8 games", "takes: reputation has the games it takes")
+            local function rankRow(over) local r = { kind = "rank", needed = 6, current = 3, met = false, known = true } for k, v in pairs(over) do r[k] = v end return r end
+            local function withRank(over) local g = stubGp() g.rows[4] = rankRow(over) current = g Window:RefreshCurrent() return takesOf()[4] end
+            check(withRank({ limitedBy = "cap", week = 4 }).note:GetText() == "opens in week 4", "takes: a rank held by the weekly cap says which week")
+            check(withRank({ limitedBy = "level", plan = { limitedBy = "level", gateLevel = 40 } }).note:GetText() == "after level 40", "takes: a rank held by a level says so")
+            check(withRank({ limitedBy = "pace" }).note:GetText() == "not this season", "takes: a rank with no date is not for this season")
+            check(withRank({ met = true, current = 7 }).note:GetText() == "" and takesOf()[4].tick:IsShown(), "takes: a met rank has a tick and no note")
+            local g1 = stubGp()
+            g1.rows[1].games = 1
+            current = g1
+            Window:RefreshCurrent()
+            check(takesOf()[1].note:GetText() == "about 1 game", "takes: one game is singular")
+            local g0 = stubGp()
+            g0.rows[1].needed, g0.rows[3].needed = 0, 0
+            current = g0
+            Window:RefreshCurrent()
+            check(#takesOf() == 4, "takes: honor and gold lines are left out when nothing is needed")
+
+            -- the date and why
+            local reasons = {
+                { "honor", "Honor is what takes longest." }, { "marks", "Marks are what take longest." }, { "rank", "The rank is what takes longest." },
+                { "cap", "The weekly rank cap holds the rank back." }, { "level", "Your level is too low: reach level 55 first.", { level = { needed = 55 } } },
+                { "rep", "Reputation is what takes longest." }, { "gold", "Only gold is short." },
+                { "nopace", "No recent games to measure from. Play a game for a date.", { readyDate = false } },
+                { "nopoints", "Your recent games gave no rank points, so the rank cannot be dated.", { readyDate = false } },
+                { "season", "The rank cannot be reached this season.", { readyDate = false } },
+                { "norep", "play a AB game to measure reputation", { readyText = "play a AB game to measure reputation", readyDate = false } },
+            }
+            for _, r in ipairs(reasons) do
+                local over = { readyLimitedBy = r[1] }
+                for k, v in pairs(r[3] or {}) do over[k] = v end
+                show(over)
+                check(detail.reason:GetText() == r[2] and detail.reason:IsShown() and detail.reason.__maxLines == 3, "ready: why, in plain words: " .. r[1])
+            end
+            show()
+            check(detail.readyLabel:IsShown() and detail.readyLabel:GetText() == "Ready" and detail.readyValue:GetText() == "Dec 02" and same(textColor(detail.readyValue), Kit.COLORS.white), "ready: the date")
+            show({ estimated = true })
+            check(detail.readyValue:GetText() == "about Dec 02", "ready: an estimate says about")
+            show({ readyDate = false })
+            check(detail.readyValue:GetText() == "No date yet" and same(textColor(detail.readyValue), Kit.COLORS.grey), "ready: no date")
+            show({ isComplete = true, readyLimitedBy = "ready" })
+            check(detail.readyValue:GetText() == "Ready to purchase" and same(textColor(detail.readyValue), Kit.COLORS.green) and not detail.readyLabel:IsShown()
+                and detail.reason:GetText() == "You have everything this needs.", "ready: a complete goal is ready to purchase, in green")
+
+            -- who sells it
+            show()
+            local vendor1 = HL:GetVendorFor(BLUE)
+            check(detail.link:IsShown() and detail.link.honorLogVendor.name == vendor1.name and detail.map:IsShown() and detail.map:GetText() == "Show on map" and not detail.noVendor:IsShown(), "sold by: the vendor as a place link and a map button")
+            check(detail.place:GetText() == vendor1.place, "sold by: the place in grey")
+            local shownFor, shownOn = {}, {}
+            HL.ShowVendorForItem = function(_, id) shownFor[#shownFor + 1] = id return true end
+            HL.ShowVendorOnMap = function(_, v) shownOn[#shownOn + 1] = v return true end
+            click(detail.map)
+            click(detail.link)
+            check(shownFor[1] == BLUE and shownOn[1] and shownOn[1].name == vendor1.name, "sold by: both lead to the map")
+            HL.ShowVendorForItem, HL.ShowVendorOnMap = save.showForItem, save.showOnMap
+            HL.GetVendorFor = function() return nil end
+            Window:RefreshCurrent()
+            check(not detail.link:IsShown() and not detail.map:IsShown() and not detail.place:IsShown() and detail.noVendor:IsShown()
+                and detail.noVendor:GetText() == "Vendor not known yet. Open a PvP vendor once and HonorLog remembers where it is.", "sold by: no known vendor, one grey sentence")
+            HL.GetVendorFor = save.vendorFor
+            HL.GetAllGoalsProgress = save.allGoals
+            Window:RefreshCurrent()
+
+            -- ── what you can get ──
+            local limits = {}
+            local function buyEntry(n) return { itemID = BLUE, name = "Test " .. n, honor = 1200, marks = { AV = 10, AB = 5 }, gold = 15000 } end
+            HL.GetBuyableNow = function(_, limit) limits[#limits + 1] = limit return { buyEntry(1), buyEntry(2), buyEntry(3), buyEntry(4), buyEntry(5), buyEntry(6) } end
+            Window:RefreshCurrent()
+            check(limits[#limits] == 4 and right.headers[1]:IsShown() and right.headers[1].Label:GetText() == "You can buy today", "buyable: asks for four, under its header")
+            local shownEntries = 0
+            for _, e in ipairs(right.entries) do if e:IsShown() then shownEntries = shownEntries + 1 end end
+            local shortAV, shortAB = HL:GetBGShortName("AV"), HL:GetBGShortName("AB")
+            check(right.entries[1].icon.honorLogItemID == BLUE and right.entries[1].icon:GetWidth() == 24 and right.entries[1].name:GetText() == Kit:QualityHex(right.entries[1].icon.honorLogQuality) .. "Test 1|r"
+                and right.entries[1].cost:GetText() == "1,200 honor, 10 " .. shortAV .. ", 5 " .. shortAB .. ", 1g", "buyable: icon, name and cost: " .. tostring(right.entries[1].cost:GetText()))
+            check(not right.nothing:IsShown(), "buyable: no empty text when there are entries")
+            HL.GetBuyableNow = function() return {} end
+            Window:RefreshCurrent()
+            check(right.nothing:IsShown() and right.nothing:GetText() == "Nothing yet.", "buyable: nothing yet")
+            HL.GetBuyableNow = save.buyable
+            check(not right.advice:IsShown(), "advice: none far from the cap")
+            HL.GetHonorCapAdvice = function() return { text = "you'll reach the 25,000 honor cap in about 3 games and nothing on your list can be bought yet because of level, rank or reputation." } end
+            Window:RefreshCurrent()
+            check(right.advice:IsShown() and right.advice:GetText():find("^You'll reach the 25,000") and right.advice.__maxLines == 4 and same(textColor(right.advice), Kit.COLORS.orange), "advice: the cap advice in orange, at most four lines")
+            HL.GetHonorCapAdvice = save.advice
+
+            local function headerTexts() local out = {} for i = 2, 3 do if right.headers[i]:IsShown() then out[#out + 1] = right.headers[i].Label:GetText() end end return out end
+            mock.rank.level = 3
+            HL.GetBuyableNow = function() return {} end
+            Window:RefreshCurrent()
+            local expect = {}
+            for n = 4, 14 do
+                local ids = HL:GetRankUnlocks(n)
+                if #ids > 0 and #expect < 2 then expect[#expect + 1] = { n, ids } end
+            end
+            local ht = headerTexts()
+            check(#expect == 2 and ht[1] == "Rank " .. expect[1][1] .. " opens" and ht[2] == "Rank " .. expect[2][1] .. " opens", "unlocks: the next rank that opens something, then the next such rank: " .. table.concat(ht, "/"))
+            local first = right.entries[1]
+            check(first:IsShown() and first.icon.honorLogItemID == expect[1][2][1] and first.cost:GetText() ~= "", "unlocks: items as icon, name and cost")
+            check(right.foot:GetText() == "Ctrl-click an icon to preview the item." and right.foot.__maxLines == 2, "right: the preview hint at the foot")
+            mock.rank.level = 14
+            Window:RefreshCurrent()
+            check(#headerTexts() == 0, "unlocks: nothing when every rank is reached")
+            mock.rank.level = 3
+            Window:RefreshCurrent()
+            HL.GetBuyableNow = save.buyable
+            Window:RefreshCurrent()
+
+            -- ═══ The vendor browser ═══
+            click(list.add)
+            check(Gear.mode == "vendors" and parts.vendorsRoot:IsShown() and not parts.goalsRoot:IsShown() and Window.current == "gear", "vendors: Add a goal switches to the vendor browser")
+            local gv = parts.vendors
+            local vlist, stock = gv.list, gv.stock
+            local vendors = HL:GetVendorList()
+            local quarter, supply = {}, {}
+            for _, v in ipairs(vendors) do if v.kind == "supply" then supply[#supply + 1] = v else quarter[#quarter + 1] = v end end
+            local ordered = {}
+            for _, v in ipairs(quarter) do ordered[#ordered + 1] = v end
+            for _, v in ipairs(supply) do ordered[#ordered + 1] = v end
+            local titles, vrows = vlist.stack.pools.title, vlist.stack.pools.vendor
+            check(vlist.stack.count == #vendors + 2 and titles[1].text:GetText() == quarter[1].place and titles[2].text:GetText() == "Battleground supply officers"
+                and titles[1]:GetHeight() == 22, "vendors: two groups, the quartermasters under their place and the supply officers")
+            for i, v in ipairs(ordered) do
+                local r = vrows[i]
+                check(r.name:GetText() == v.name and r.role:GetText() == v.role and r.count:GetText() == tostring(v.count) and r:GetHeight() == 40
+                    and r.pin:IsShown() == not v.known and same(textColor(r.count), Kit.COLORS.gold), "vendors: row " .. i .. " is " .. v.name .. ", its role and its count")
+            end
+            check(vrows[1].name.__wrapWidth == 150 and vrows[1].role.__wrapWidth == 160 and vrows[1].count.__wrapWidth == 34, "vendors: the vendor texts have fixed widths")
+            check(vlist.foot:GetText() == "Counts are what your class can use.", "vendors: the foot note")
+            check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name, "vendors: with none chosen the first has the wash and edge, and its stock shows")
+            mock.faction = "Horde"
+            Window:RefreshCurrent()
+            local unknown
+            for i, v in ipairs(HL:GetVendorList()) do if not v.known and v.kind ~= "supply" then unknown = vrows[i] break end end
+            check(unknown and unknown.pin:IsShown(), "vendors: a vendor with no known position shows a pin")
+            unknown.click.__scripts.OnEnter(unknown.click)
+            check(tipText():find("Not found yet. Open this vendor once and HonorLog remembers where it is.", 1, true), "vendors: and says why in its tooltip")
+            unknown.click.__scripts.OnLeave(unknown.click)
+            mock.faction = "Alliance"
+            Window:RefreshCurrent()
+            local armor
+            for i, v in ipairs(ordered) do if v.kind == "armor" then armor = { index = i, vendor = v } end end
+            click(vrows[2].click)
+            check(S.windowVendor == ordered[2].key and vrows[2].wash:IsShown() and vrows[2].edge:IsShown() and not vrows[1].wash:IsShown() and not vrows[1].edge:IsShown()
+                and stock.name:GetText() == ordered[2].name and stock.role:GetText() == ordered[2].role, "vendors: a click chooses a vendor and saves it")
+            S.windowVendor = "Nobody"
+            Window:RefreshCurrent()
+            check(vrows[1].wash:IsShown() and stock.name:GetText() == ordered[1].name and S.windowVendor == "Nobody", "vendors: an unknown vendor falls back to the first")
+            click(vrows[armor.index].click)
+            check(S.windowVendor == armor.vendor.key and stock.name:GetText() == armor.vendor.name, "vendors: the armor vendor is chosen")
+            check(stock.link:IsShown() and stock.link.honorLogVendor.key == armor.vendor.key and stock.map:GetText() == "Show on map" and stock.back:GetText() == "Back to goals", "vendors: the head has the place link and the buttons")
+            local onMap = {}
+            HL.ShowVendorOnMap = function(_, v) onMap[#onMap + 1] = v return true end
+            click(stock.map)
+            click(stock.link)
+            check(onMap[1] and onMap[1].key == armor.vendor.key and #onMap == 2, "vendors: Show on map and the link lead to the vendor")
+            HL.ShowVendorOnMap = save.showOnMap
+
+            -- the stock, the set chips and the class toggle
+            local rowsNow = HL:GetVendorStock(armor.vendor, {})
+            check(stock.stack.count == #rowsNow and #rowsNow > 5 and not stock.empty:IsShown(), "stock: a row for each item the class can use")
+            local sets = HL:GetVendorSets(armor.vendor)
+            local sb = stock.setChips.honorLogButtons
+            local shownChips = 0
+            for _, c in ipairs(sb) do if c:IsShown() then shownChips = shownChips + 1 end end
+            check(shownChips == 1 + math.min(5, #sets) and sb[1]:GetText() == "All" and sb[1].honorLogChosenFlag and stock.setChips.honorLogChosen == "all", "stock: All and at most five sets, All chosen")
+            check(sb[2]:GetText():find(" " .. sets[1].count .. "$") and sb[2].honorLogTip == sets[1].name .. " (" .. sets[1].count .. ")", "stock: a set chip has its count, the full name as tooltip")
+            check(not stock.totals:IsShown() and stock.area:GetHeight() == 334, "stock: no whole-set line with All")
+            local cb = stock.classChips.honorLogButtons
+            check(cb[1]:GetText() == "Warrior" and cb[2]:GetText() == "All classes" and stock.classChips.honorLogChosen == "player", "stock: the class toggle names the player's class and All classes")
+            click(sb[2])
+            local setRows = HL:GetVendorStock(armor.vendor, { set = sets[1].id })
+            check(stock.stack.count == #setRows and #setRows == sets[1].count and stock.setChips.honorLogChosen == sets[1].id, "stock: a set chip filters the rows to the set")
+            for _, f in ipairs(stock.stack.pools.item) do
+                if f:IsShown() then check(f.honorLogEntry.row.set == sets[1].id, "stock: row " .. f.honorLogEntry.row.itemID .. " belongs to the set") end
+            end
+            local honor, marksAV, gold = 0, 0, 0
+            for _, r in ipairs(setRows) do
+                if not r.owned then honor = honor + (r.data.honor or 0) marksAV = marksAV + ((r.data.marks and r.data.marks.AV) or 0) gold = gold + (r.data.gold or 0) end
+            end
+            check(stock.totals:IsShown() and stock.totals.label:GetText() == "Whole set" and stock.totals.honor:GetText() == HL.Rank.FormatNumber(honor) .. " honor" and stock.area:GetHeight() == 310,
+                "stock: a set shows the whole set's honor under the table: " .. tostring(stock.totals.honor:GetText()))
+            if marksAV > 0 then check(stock.totals.marks.AV.icon:IsShown() and stock.totals.marks.AV.count:GetText() == tostring(marksAV), "stock: ...and its marks") end
+            mock.bagContents = { setRows[1].itemID }
+            Window:RefreshCurrent()
+            local honorNow = 0
+            for _, r in ipairs(HL:GetVendorStock(armor.vendor, { set = sets[1].id })) do if not r.owned then honorNow = honorNow + (r.data.honor or 0) end end
+            check(stock.totals.honor:GetText() == HL.Rank.FormatNumber(honorNow) .. " honor" and honorNow < honor, "stock: the whole set leaves out what you already own")
+            mock.bagContents = {}
+            click(sb[1])
+            check(stock.stack.count == #rowsNow and not stock.totals:IsShown(), "stock: All brings the whole stock back")
+            click(cb[2])
+            local allClass = HL:GetVendorStock(armor.vendor, { class = "ALL" })
+            check(S.windowVendorClass == "all" and stock.stack.count == #allClass and #allClass > #rowsNow and stock.classChips.honorLogChosen == "all", "stock: All classes shows every class's items and saves the choice")
+            local chipsAll = 0
+            for _, c in ipairs(sb) do if c:IsShown() then chipsAll = chipsAll + 1 end end
+            check(chipsAll == 1 and sb[1]:GetText() == "All" and #HL:GetVendorSets(armor.vendor, "ALL") >= #sets, "stock: with every class shown there are no set chips, only All")
+            click(cb[1])
+            check(S.windowVendorClass == "player" and stock.stack.count == #rowsNow, "stock: the player's class again")
+            click(sb[2])
+            click(cb[2])
+            check(stock.setChips.honorLogChosen == "all" or stock.setChips.honorLogChosen == sets[1].id, "stock: a set the new filter still offers stays chosen")
+            click(cb[1])
+            click(stock.setChips.honorLogButtons[1])
+
+            -- set chips drop the words every set name starts with
+            local Lead = HL.GearVendors.SharedLead
+            check(Lead({ { name = "Champion's Earthshaker" }, { name = "Champion's Thunderfist" }, { name = "Champion's Wartide" } }) == "Champion's ", "chips: the shared first word is dropped")
+            check(Lead({ { name = "The Defiler's Will" }, { name = "The Defiler's Intent" } }) == "The Defiler's ", "chips: two shared words are dropped")
+            check(Lead({ { name = "Champion's Battlegear" } }) == "" and Lead({}) == "", "chips: one set keeps its whole name")
+            check(Lead({ { name = "Alpha" }, { name = "Alpha Beta" } }) == "" and Lead({ { name = "Warsong" }, { name = "Warlord" } }) == "", "chips: never a whole name, never half a word")
+
+            -- the vendor list is counted once, not on every click; a vendor scan counts it again
+            local realList, listCalls = HL.GetVendorList, 0
+            HL.GetVendorList = function(...) listCalls = listCalls + 1 return realList(...) end
+            Window:RefreshCurrent()
+            Window:RefreshCurrent()
+            check(listCalls == 0, "vendors: a refresh with nothing scanned since does not count the stock again")
+            HonorLogDB.scannedVendors = HonorLogDB.scannedVendors or {}
+            HonorLogDB.scannedVendors["Kept List Vendor"] = { timestamp = 12345, itemCount = 0 }
+            Window:RefreshCurrent()
+            check(listCalls == 1, "vendors: a new vendor scan counts it again")
+            Window:RefreshCurrent()
+            check(listCalls == 1, "vendors: and then it is kept again")
+            HonorLogDB.scannedVendors["Kept List Vendor"] = nil
+            HL.GetVendorList = realList
+            Window:RefreshCurrent()
+
+            -- the star: add, remove, and the row follows
+            local function itemRow(id) for _, f in ipairs(stock.stack.pools.item) do if f:IsShown() and f.honorLogEntry.row.itemID == id then return f end end end
+            local freeID
+            for _, r in ipairs(HL:GetVendorStock(armor.vendor, {})) do if not r.isGoal and not r.owned and not freeID then freeID = r.itemID end end
+            local fr = itemRow(freeID)
+            check(fr and not fr.star:IsOn() and fr.star:IsShown() and not fr.tick:IsShown(), "star: an item that is no goal has a hollow star")
+            click(fr.star)
+            check(HL:IsGoal(freeID) and itemRow(freeID).star:IsOn(), "star: a click adds the goal and the row follows")
+            click(itemRow(freeID).star)
+            check(not HL:IsGoal(freeID) and not itemRow(freeID).star:IsOn(), "star: a second click removes it")
+            check(itemRow(BLUE) and itemRow(BLUE).star:IsOn(), "star: an item that is a goal has a filled star")
+            mock.bagContents = { freeID }
+            Window:RefreshCurrent()
+            fr = itemRow(freeID)
+            check(fr.tick:IsShown() and fr.owned:IsShown() and fr.owned:GetText() == "Owned" and not fr.star:IsShown(), "star: an owned item shows a tick and Owned instead of a star")
+            mock.bagContents = {}
+            Window:RefreshCurrent()
+
+            -- every column of a row
+            HL.GetVendorStock = function()
+                return {
+                    { itemID = BLUE, name = "Test Helm", slot = "HEAD", set = 282, isGoal = false, owned = false,
+                        data = { honor = 9000, gold = 0, marks = { AV = 15 }, rank = 4, reqLevel = 55 }, upgrade = { itemID = EPIC, sealID = SEAL, rank = 13, honor = 11650 } },
+                    { itemID = REPGEAR, name = "Test Girdle", slot = "WAIST", isGoal = false, owned = false, data = { gold = 56764, reqLevel = 58 } },
+                    { itemID = BLUE, name = "Test Mix", slot = "TWO_HAND", isGoal = false, owned = false, data = { honor = 1000, gold = 20000, marks = { AV = 5, AB = 6, WSG = 7 } } },
+                    { itemID = BLUE, name = "Test Owned", slot = "FINGER", isGoal = false, owned = true, data = { honor = 500 } },
+                    { itemID = BLUE, name = "Test Goal", slot = "BACK", isGoal = true, owned = false, data = { honor = 250, reqLevel = 70 } },
+                }
+            end
+            Window:RefreshCurrent()
+            local fr1, fr2, fr3, fr4, fr5 = unpack(stock.stack.pools.item, 1, 5)
+            check(fr1.icon.honorLogItemID == BLUE and fr1.icon:GetWidth() == 24 and fr1.name:GetText() == Kit:QualityHex(fr1.icon.honorLogQuality) .. "Test Helm|r" and fr1.slot:GetText() == "Head" and fr1:GetHeight() == 30,
+                "columns: the item's icon, its name in its quality colour and its slot")
+            check(fr1.needs:GetText() == "R4 \194\183 L55" and same(textColor(fr1.needs), Kit.COLORS.orange) and fr1.needsCell.tip == "Rank 4 \194\183 Level 55", "columns: needs, orange while the rank is short")
+            check(fr2.needs:GetText() == "L58" and same(textColor(fr2.needs), Kit.COLORS.grey), "columns: needs, grey when met")
+            check(fr3.needs:GetText() == "-" and fr5.needs:GetText() == "L70" and same(textColor(fr5.needs), Kit.COLORS.orange), "columns: nothing needed is a dash, a level above yours is orange")
+            check(fr1.honor:GetText() == "9,000" and not fr1.gold:IsShown(), "columns: honor with a thousands separator")
+            check(fr2.honor:GetText() == HL:GoldShort(56764) and not fr2.gold:IsShown(), "columns: a gold-only cost stands in the honor cell")
+            check(fr3.honor:GetText() == "1,000" and fr3.gold:IsShown() and fr3.gold:GetText() == "2g", "columns: honor and a gold price under it")
+            check(fr4.honor:GetText() == "500" and fr1.slot.__wrapWidth == 64 and fr1.name.__wrapWidth == 156, "columns: fixed widths")
+            check(fr1.marks[1].icon:IsShown() and fr1.marks[1].icon.honorLogBG == "AV" and fr1.marks[1].count:GetText() == "15" and not fr1.marks[2].icon:IsShown(), "columns: marks with their battleground")
+            check(fr3.marks[1].icon.honorLogBG == "AV" and fr3.marks[2].icon.honorLogBG == "WSG" and fr3.marks[2].count:GetText() == "7" and fr3.marks[3] == nil, "columns: at most two battlegrounds")
+            check(not fr2.marks[1].icon:IsShown(), "columns: no marks, no icon")
+            check(fr1.upgradeCell:IsShown() and fr1.upgradeIcon.honorLogItemID == EPIC and fr1.upgradeIcon:GetWidth() == 18 and fr1.upgradeRank:GetText() == "Rank 13" and fr1.upgradeHonor:GetText() == "11,650", "columns: the epic upgrade, its rank and the Seal's honor")
+            check(not fr2.upgradeCell:IsShown(), "columns: no upgrade cell without an upgrade")
+            check(fr1.star:IsShown() and not fr1.star:IsOn() and fr5.star:IsOn() and fr4.tick:IsShown() and fr4.owned:GetText() == "Owned" and not fr4.star:IsShown(), "columns: the star, on for a goal, a tick for an owned item")
+            check(fr1.stripe:IsShown() == false and fr2.stripe:IsShown() == true and fr3.stripe:IsShown() == false, "columns: stripes on every second row")
+            mock.level = 40
+            Window:RefreshCurrent()
+            check(same(textColor(fr2.needs), Kit.COLORS.orange), "columns: needs follows the player's level")
+            mock.level = 60
+            HL.GetVendorStock = function() return {} end
+            Window:RefreshCurrent()
+            check(stock.empty:IsShown() and stock.empty:GetText() == "Nothing here for your class. Try All classes." and stock.stack.count == 0, "stock: nothing for the filter")
+            HL.GetVendorStock = save.stock
+            Window:RefreshCurrent()
+            check(not stock.empty:IsShown() and stock.foot:GetText() == "The star adds a goal. Prices come from the vendor once you have opened it, otherwise from game data.", "stock: the foot note")
+            check(stock.titles[1]:GetText() == "Item" and stock.titles[2]:GetText() == "Slot" and stock.titles[3]:GetText() == "Needs" and stock.titles[4]:GetText() == "Honor"
+                and stock.titles[5]:GetText() == "Marks" and stock.titles[6]:GetText() == "Epic upgrade", "stock: the column titles")
+
+            -- Back to goals, and the entry points
+            click(stock.back)
+            check(Gear.mode == "goals" and parts.goalsRoot:IsShown() and not parts.vendorsRoot:IsShown(), "vendors: Back to goals returns to the goals")
+            Gear:Open("vendors")
+            check(Gear.mode == "vendors" and parts.vendorsRoot:IsShown() and Window.current == "gear", "open: vendors mode")
+            Gear:Open("goals", EPIC)
+            check(Gear.mode == "goals" and S.windowGoal == EPIC and detail.icon.honorLogItemID == EPIC and Window.current == "gear" and parts.goalsRoot:IsShown(), "open: goals mode with an item chooses that goal")
+            Gear:Open("anything")
+            check(Gear.mode == "goals", "open: an unknown mode is goals")
+            Window:Show("overview")
+            Gear:Open("vendors")
+            check(Window.current == "gear" and Window:IsShown() and parts.vendorsRoot:IsShown(), "open: from another screen it switches to Gear goals")
+            Window:Hide()
+            Gear:Open("goals", BLUE)
+            check(Window:IsShown() and Window.current == "gear" and S.windowGoal == BLUE and detail.icon.honorLogItemID == BLUE, "open: it shows a closed window")
+            check(Gear.request == nil, "open: the request is used up")
+
+            -- the saved tab restores the screen
+            S.windowTab = "gear"
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show()
+            check(Window.current == "gear" and Window.frames.gear:IsShown(), "tabs: the saved tab restores the Gear goals screen")
+            parts = Window.frames.gear.honorLogParts
+
+            -- ── Hygiene ──
+            for _, mode in ipairs({ "goals", "vendors" }) do
+                Gear:Open(mode)
+                local inGear = function(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == Window.frames.gear then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inGear(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "gear (" .. mode .. "): no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 10 and #foreign == 0, "gear (" .. mode .. "): only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            end
+
+            -- every client read gone or secret
+            local errorsBefore = #mock.handledErrors
+            local secret = mock.newSecret
+            local savedReads = { level = _G.UnitLevel, class = _G.UnitClass, icon = C_Item.GetItemIconByID, quality = C_Item.GetItemQualityByID, info = C_MajorFactions.GetMajorFactionProgressionInfo,
+                currency = C_CurrencyInfo.GetCurrencyInfo, count = C_Item.GetItemCount, money = _G.GetMoney, faction = _G.UnitFactionGroup, itemInfo = C_Item.GetItemInfo }
+            for _, mode in ipairs({ "goals", "vendors" }) do
+                Gear:Open(mode)
+                _G.UnitLevel, _G.UnitClass, _G.UnitFactionGroup = function() return secret() end, function() return secret() end, function() return secret() end
+                C_Item.GetItemIconByID, C_Item.GetItemQualityByID = function() return nil end, function() return secret() end
+                C_MajorFactions.GetMajorFactionProgressionInfo = function() return { renownLevel = secret(), renownReputationEarned = secret() } end
+                C_CurrencyInfo.GetCurrencyInfo, C_Item.GetItemCount, _G.GetMoney = function() return secret() end, function() return secret() end, function() return secret() end
+                C_Item.GetItemInfo = function() return secret() end
+                Window:RefreshCurrent()
+                C_MajorFactions.GetMajorFactionProgressionInfo, C_CurrencyInfo.GetCurrencyInfo = function() return nil end, function() return nil end
+                Window:RefreshCurrent()
+                _G.UnitLevel, _G.UnitClass, _G.UnitFactionGroup = savedReads.level, savedReads.class, savedReads.faction
+                C_Item.GetItemIconByID, C_Item.GetItemQualityByID, C_Item.GetItemInfo = savedReads.icon, savedReads.quality, savedReads.itemInfo
+                C_MajorFactions.GetMajorFactionProgressionInfo, C_CurrencyInfo.GetCurrencyInfo = savedReads.info, savedReads.currency
+                C_Item.GetItemCount, _G.GetMoney = savedReads.count, savedReads.money
+            end
+            check(#mock.handledErrors == errorsBefore, "gear: nothing raises when every client read is nil or secret: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+
+            -- put it back
+            HL.GetBuyableNow, HL.GetHonorCapAdvice, HL.GetGoalsTotals, HL.GetAllGoalsProgress = save.buyable, save.advice, save.totals, save.allGoals
+            HL.GetRankUnlocks, Rank.GetInfo, HL.GetVendorStock, HL.GetVendorFor = save.unlocks, save.rankInfo, save.stock, save.vendorFor
+            HL.ShowVendorForItem, HL.ShowVendorOnMap = save.showForItem, save.showOnMap
+            char.goals, char.history = save.goals, save.history
+            S.windowGoal, S.windowVendor, S.windowVendorClass, S.windowTab = save.goal, save.vendor, save.class, "overview"
+            mock.level, mock.currencies[1792].quantity, mock.money, mock.bagContents = save.level, save.honor, save.money, save.bags
+            mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
+            mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 5, 3, 2
+            Gear.mode, Gear.request = "goals", nil
             Window:Hide()
         end)()
 

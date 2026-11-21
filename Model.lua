@@ -525,6 +525,14 @@ local function upgradeMap(self)
     return map
 end
 
+-- The epic upgrade of a blue piece: { itemID (the epic), sealID, rank, honor (the Seal's honor) }, or nil for an
+-- item that has none (an epic, a Seal, anything the database does not list as upgradable).
+function HonorLog:GetUpgradeFor(itemID)
+    itemID = num(itemID)
+    if not itemID then return nil end
+    return upgradeMap(self)[itemID]
+end
+
 -- Everything a vendor sells that the database knows: one row per item of the vendor's kind (and, for a
 -- supply officer, its reputation faction) that the player's faction can buy:
 -- { { itemID, name, data (GetGearItem), slot, set (ItemSet id or nil), isGoal, owned, upgrade }, ... },

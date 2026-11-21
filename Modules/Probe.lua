@@ -686,6 +686,8 @@ local UI_TEMPLATES = {
     { "Button", "PanelTopTabButtonTemplate" }, { "Button", "UIPanelCloseButton" },
     { "Button", "UIPanelCloseButtonDefaultAnchors" }, { "Cooldown", "CooldownFrameTemplate" }, { "Cooldown" },
     { "StatusBar" }, { "ItemButton" },
+    -- the Gear goals screen's scroll areas (UI/Kit.lua, Kit:ScrollArea): the new scroll frame, then the classic one
+    { "ScrollFrame", "ScrollFrameTemplate" }, { "ScrollFrame", "UIPanelScrollFrameTemplate" },
 }
 local UI_FONTS = {
     "GameFontNormal", "GameFontNormalSmall", "GameFontNormalLarge", "GameFontNormalHuge", "GameFontNormalMed2",

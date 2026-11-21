@@ -721,6 +721,17 @@ local function shiftLink(link)
     if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
 end
 
+-- Opens the dressing room on an item (what Ctrl+click on an item icon does). True when it was handed over.
+function Kit:PreviewItem(itemID)
+    itemID = num(itemID)
+    local link = itemID and itemLink(itemID)
+    if link and DressUpItemLink then
+        pcall(DressUpItemLink, link)
+        return true
+    end
+    return false
+end
+
 -- A button with an item's icon. icon:SetItem(itemID). Hover: the item's tooltip and where it is sold. Click:
 -- the vendor on the map; Ctrl+click previews it; Shift+click links it into an open chat box.
 function Kit:ItemIcon(parent, size)
@@ -760,8 +771,7 @@ function Kit:ItemIcon(parent, size)
         if IsShiftKeyDown() then
             shiftLink(itemLink(id))
         elseif IsControlKeyDown() then
-            local link = itemLink(id)
-            if link and DressUpItemLink then DressUpItemLink(link) end
+            Kit:PreviewItem(id)
         else
             HonorLog:ShowVendorForItem(id)
         end
@@ -978,4 +988,238 @@ function Kit:PlaceLink(parent)
         end
     end)
     return link
+end
+
+--------------------------------------------------------------------------------
+-- Text fitting
+--------------------------------------------------------------------------------
+
+-- The number of characters in a string (a multi-byte character counts once).
+function Kit:Chars(text)
+    return #(tostring(text or ""):gsub("[\128-\191]", ""))
+end
+
+-- The text cut to at most maxChars characters, ending in "..." when something was cut. Never cuts a
+-- multi-byte character in half.
+function Kit:Cut(text, maxChars)
+    text = tostring(text or "")
+    maxChars = math.max(0, math.floor(num(maxChars) or 0))
+    if Kit:Chars(text) <= maxChars then return text end
+    local keep = math.max(0, maxChars - 3)
+    local i, n, chars = 1, #text, 0
+    while i <= n and chars < keep do
+        local b = text:byte(i)
+        i = i + (b >= 240 and 4 or b >= 224 and 3 or b >= 192 and 2 or 1)
+        chars = chars + 1
+    end
+    return text:sub(1, i - 1) .. "..."
+end
+
+--------------------------------------------------------------------------------
+-- Scroll area
+--------------------------------------------------------------------------------
+
+-- Blizzard's two scroll frames in this build (Blizzard_SharedXML): ScrollFrameTemplate (the new one; its
+-- OnLoad, ScrollFrame_OnLoad in SecureUIPanelTemplates.lua, makes its own MinimalScrollBar as .ScrollBar just
+-- right of the frame) and UIPanelScrollFrameTemplate (the classic one, SecureScrollTemplates.xml, with a
+-- parentKey ScrollBar slider the same distance out). Both put the bar OUTSIDE the frame: leave
+-- Kit.SCROLL_BAR_SPACE pixels to its right.
+Kit.SCROLL_BAR_SPACE = 22
+local SCROLL_STEP = 30
+local scrollAreas = 0
+
+-- A scrolling region for a list that can be longer than its box. area.honorLogChild is a plain frame for the
+-- rows, as wide as the area; area:honorLogSetContentHeight(h) tells it how tall the rows are. With content no
+-- taller than the box the bar is hidden and the wheel does nothing. Size it with SetSize (or SetWidth and
+-- SetHeight): the child follows. The wheel is handled here for all three kinds, one notch is 30 pixels.
+-- Nothing runs per frame.
+function Kit:ScrollArea(parent)
+    scrollAreas = scrollAreas + 1
+    local area, template = Kit:TryTemplate("ScrollFrame", nil, parent, "ScrollFrameTemplate"), "ScrollFrameTemplate"
+    if not area then
+        area, template = Kit:TryTemplate("ScrollFrame", "HonorLogScrollArea" .. scrollAreas, parent, "UIPanelScrollFrameTemplate"), "UIPanelScrollFrameTemplate"
+    end
+    if not area then area, template = CreateFrame("ScrollFrame", nil, parent), nil end
+    area.honorLogTemplate = template or false
+    area.honorLogContentHeight = 0
+    local bar = template and type(area.ScrollBar) == "table" and area.ScrollBar or nil
+    area.honorLogBar = bar or false
+    if bar and template == "ScrollFrameTemplate" and type(bar.SetHideIfUnscrollable) == "function" then
+        pcall(bar.SetHideIfUnscrollable, bar, true)
+    end
+
+    local child = CreateFrame("Frame", nil, area)
+    child:SetSize(1, 1)
+    area:SetScrollChild(child)
+    area.honorLogChild = child
+
+    local function range()
+        return math.max(0, (area.honorLogContentHeight or 0) - (num(area:GetHeight()) or 0))
+    end
+    local function syncWidth()
+        local w = num(area:GetWidth())
+        if w and w > 0 then child:SetWidth(w) end
+    end
+
+    function area:honorLogSetContentHeight(h)
+        h = math.max(0, num(h) or 0)
+        self.honorLogContentHeight = h
+        syncWidth()
+        child:SetHeight(math.max(h, 1))
+        local max = range()
+        local current = num(self:GetVerticalScroll()) or 0
+        if current > max then self:SetVerticalScroll(max) end
+        if self.honorLogBar then
+            if max > 0 then self.honorLogBar:Show() else self.honorLogBar:Hide() end
+        end
+    end
+
+    area:EnableMouseWheel(true)
+    area:SetScript("OnMouseWheel", function(self, delta)
+        delta = num(delta) or 0
+        local max = range()
+        if max <= 0 or delta == 0 then return end
+        local current = num(self:GetVerticalScroll()) or 0
+        self:SetVerticalScroll(math.max(0, math.min(max, current - delta * SCROLL_STEP)))
+    end)
+    area:HookScript("OnSizeChanged", syncWidth)
+    return area
+end
+
+--------------------------------------------------------------------------------
+-- Star
+--------------------------------------------------------------------------------
+
+-- A toggle for "this is a goal". star:SetOn(bool), star:IsOn(); a click flips it and calls
+-- star.honorLogOnToggle(star, on). The art is the client's own star, Interface\Common\ReputationStar (the file
+-- Forever's reputation window draws its star from; a file cannot be asked for the way an atlas can): the gold
+-- star when on, the empty star, greyed and dimmed, when off, so the state is not colour alone.
+local STAR_FILE = "Interface\\Common\\ReputationStar"
+local STAR_ON, STAR_OFF, STAR_GLOW = { 0, 0.5, 0, 0.5 }, { 0.5, 1, 0, 0.5 }, { 0, 0.5, 0.5, 1 }
+Kit.STAR = { file = STAR_FILE, on = STAR_ON, off = STAR_OFF }
+
+function Kit:Star(parent, size)
+    size = size or 18
+    local star = CreateFrame("Button", nil, parent)
+    star:SetSize(size, size)
+    star.honorLogOn = false
+    star.honorLogArt = star:CreateTexture(nil, "ARTWORK")
+    star.honorLogArt:SetAllPoints(star)
+    star.honorLogArt:SetTexture(STAR_FILE)
+    local hl = star:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints(star)
+    hl:SetTexture(STAR_FILE)
+    hl:SetTexCoord(STAR_GLOW[1], STAR_GLOW[2], STAR_GLOW[3], STAR_GLOW[4])
+    hl:SetBlendMode("ADD")
+
+    function star:SetOn(on)
+        on = on and true or false
+        self.honorLogOn = on
+        local c = on and STAR_ON or STAR_OFF
+        self.honorLogArt:SetTexCoord(c[1], c[2], c[3], c[4])
+        self.honorLogArt:SetDesaturated(not on)
+        self.honorLogArt:SetAlpha(on and 1 or 0.55)
+    end
+    function star:IsOn() return self.honorLogOn end
+
+    star:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self.honorLogOn and L["Remove from your goals"] or L["Add to your goals"], 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    star:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    star:SetScript("OnClick", function(self)
+        self:SetOn(not self.honorLogOn)
+        if self.honorLogOnToggle then self.honorLogOnToggle(self, self.honorLogOn) end
+    end)
+    star:SetOn(false)
+    return star
+end
+
+--------------------------------------------------------------------------------
+-- Chips
+--------------------------------------------------------------------------------
+
+local CHIP_CHAR, CHIP_PAD, CHIP_GAP, CHIP_HEIGHT = 6, 16, 4, 20
+
+-- A row of small buttons of which one is chosen. chips:SetOptions({ { key, text, maxWidth, tip }, ... }, chosenKey)
+-- lays them out left to right (a text wider than maxWidth is cut, with the full text, or tip, as its tooltip);
+-- a click chooses one and calls onSelect(key). The chosen one is highlight-locked and underlined, the way the
+-- Rank plan's target buttons are. The buttons are pooled: SetOptions never makes more than the longest list.
+-- chips.honorLogChosen is the key; the frame is as wide as its buttons, so it can be anchored by its right edge.
+function Kit:Chips(parent, onSelect)
+    local chips = CreateFrame("Frame", nil, parent)
+    chips:SetHeight(CHIP_HEIGHT)
+    chips.honorLogButtons, chips.honorLogChosen = {}, nil
+    chips.honorLogUnderline = chips:CreateTexture(nil, "OVERLAY")
+    chips.honorLogUnderline:SetHeight(2)
+    chips.honorLogUnderline:SetColorTexture(1, 0.82, 0, 1)
+    chips.honorLogUnderline:Hide()
+
+    local function choose(key)
+        chips.honorLogChosen = key
+        for _, b in ipairs(chips.honorLogButtons) do
+            local chosen = b:IsShown() and b.honorLogKey == key
+            b.honorLogChosenFlag = chosen
+            pcall(chosen and b.LockHighlight or b.UnlockHighlight, b)
+            if chosen then
+                chips.honorLogUnderline:ClearAllPoints()
+                chips.honorLogUnderline:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 3, -3)
+                chips.honorLogUnderline:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, -3)
+                chips.honorLogUnderline:Show()
+            end
+        end
+    end
+
+    local function make()
+        local b = Kit:Button(chips, "", "small")
+        b:SetScript("OnClick", function(self)
+            choose(self.honorLogKey)
+            if onSelect then onSelect(self.honorLogKey) end
+        end)
+        -- hooked, not set: a template button may come with scripts of its own
+        b:HookScript("OnEnter", function(self)
+            if not self.honorLogTip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.honorLogTip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        return b
+    end
+
+    function chips:SetOptions(options, chosenKey)
+        options = options or {}
+        local x, found, first = 0, false, nil
+        for i, opt in ipairs(options) do
+            local b = self.honorLogButtons[i]
+            if not b then
+                b = make()
+                self.honorLogButtons[i] = b
+            end
+            local text = tostring(opt.text or "")
+            local width = Kit:Chars(text) * CHIP_CHAR + CHIP_PAD
+            local shown = text
+            if opt.maxWidth and width > opt.maxWidth then
+                width = opt.maxWidth
+                shown = Kit:Cut(text, math.floor((width - CHIP_PAD) / CHIP_CHAR))
+            end
+            width = math.max(width, 36)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", self, "TOPLEFT", x, 0)
+            b:SetSize(width, CHIP_HEIGHT)
+            b:SetText(shown)
+            b.honorLogKey = opt.key
+            b.honorLogTip = opt.tip or (shown ~= text and text or nil)
+            b:Show()
+            x = x + width + CHIP_GAP
+            first = first or opt.key
+            if opt.key == chosenKey then found = true end
+        end
+        for i = #options + 1, #self.honorLogButtons do self.honorLogButtons[i]:Hide() end
+        self:SetWidth(math.max(1, x - CHIP_GAP))
+        self.honorLogUnderline:Hide()
+        choose(found and chosenKey or first)
+    end
+    return chips
 end
