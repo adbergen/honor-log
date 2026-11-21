@@ -878,15 +878,15 @@ function HonorLog:RecordWorldKill(name, class, killingBlow, detail)
 end
 
 -- Record a world death (killed by an enemy player outside battlegrounds). Fires HonorLog_WorldDeath(entry)
--- with entry = { name, class }, each only when known; the death recap's stand-in name "Unknown" is no name
--- (the opponents tally still takes it, as it always did).
+-- with entry = { name, class }, each only when known. A killer the death recap could not name counts as a
+-- death and joins no opponent's tally.
 function HonorLog:RecordWorldDeath(name, class)
     for _, w in ipairs(WorldTargets(self)) do
         w.deaths = w.deaths + 1
     end
     if name then self:NoteOpponent(name, class, "death") end
     if self.OnDataUpdated then self:OnDataUpdated() end
-    self:Fire("HonorLog_WorldDeath", { name = name ~= "Unknown" and name or nil, class = class })
+    self:Fire("HonorLog_WorldDeath", { name = name, class = class })
 end
 
 -- Record honor earned outside battlegrounds (measured from the currency).

@@ -7521,6 +7521,7 @@ local function run()
             mock.fireEvent("PLAYER_DEAD")
             mock.advance(1.5)
             check(#deaths == 2 and deaths[2].name == nil and deaths[2].class == "WARRIOR" and w.deaths == 2, "events: a death whose killer's name is unknown has no name")
+            check(HL.db.char.opponents.Unknown == nil, "events: ...and no opponent called Unknown joins the tally")
             mock.recap = {}
 
             -- inside a battleground nothing fires
