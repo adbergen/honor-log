@@ -6,6 +6,12 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **Gear goals**, the window's third screen. Your goals in order, each with what it still takes and when it
+  will be ready; the chosen goal in detail (what it takes, the two purchases of an epic or the epic upgrade of
+  a blue piece, who sells it and a button to show the vendor on the map, and why the date is what it is);
+  what you can buy today and what the next ranks open; and a vendor browser ("Add a goal") that lists every
+  PvP vendor and its stock, so a goal is added with one click on a star. Items show their real icon and the
+  game's tooltip; Ctrl-click an icon to preview the item.
 - **Rank plan**, the window's second screen: the season charted against the weekly rank cap (your points,
   and a projection at your pace), the fourteen ranks with what each unlocks, a planner to a target rank
   that says what holds you back, and the rank points each battleground gave, with the season's weekly quest.

@@ -177,6 +177,9 @@ local DEFAULTS = {
         windowScale = 1.0, -- scale of the full window
         windowTab = "overview", -- the screen the full window opens on
         windowRankTarget = 0, -- the rank the Rank plan screen plans to; 0 or one not offered = the first it offers
+        windowGoal = 0, -- the item id chosen on the Gear goals screen; 0 or one not on the list = the first goal
+        windowVendor = "", -- the vendor (its name) chosen in the vendor browser; "" or an unknown one = the first
+        windowVendorClass = "player", -- the vendor browser's class filter: "player" (the player's class) or "all"
         viewMode = "character", -- "character" or "account"
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,

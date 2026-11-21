@@ -108,7 +108,13 @@ function methods.SetScale(self, v) self.__scale = v; return self end
 function methods.GetEffectiveScale() return 1 end
 function methods.GetCenter() return 400, 300 end
 function methods.GetFrameLevel() return 0 end
-function methods.GetVerticalScroll() return 0 end
+-- A scroll frame remembers where it was scrolled to, like the client's, and reports the range its scroll child allows.
+function methods.GetVerticalScroll(self) return self.__vscroll or 0 end
+function methods.SetVerticalScroll(self, v) self.__vscroll = v; return self end
+function methods.GetVerticalScrollRange(self)
+    local child = self.__scrollchild
+    return math.max(0, ((child and child.__height) or 0) - (self.__height or 0))
+end
 function methods.GetLeft() return 0 end
 function methods.GetTop() return 0 end
 function methods.GetValue(self) return self.__value or 0 end
@@ -139,6 +145,9 @@ function methods.Hide(self)
     return self
 end
 function methods.SetShown(self, b) self.__shown = b and true or false; return self end
+-- Buttons remember whether they are enabled, so a test can read a disabled "Move up".
+function methods.SetEnabled(self, b) self.__enabled = b and true or false; return self end
+function methods.IsEnabled(self) return self.__enabled ~= false end
 
 -- Colours, textures and fonts are remembered so a test can read what was drawn.
 function methods.SetColorTexture(self, r, g, b, a) self.__color = { r, g, b, a }; self.__texture = nil; self.__atlas = nil; return self end

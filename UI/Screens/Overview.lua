@@ -263,11 +263,17 @@ local function buildGoal(col)
     local inset = Kit:Inset(col)
     inset:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, -(TILE_HEIGHT + 8))
     inset:SetSize(GOAL_WIDTH, MIDDLE_HEIGHT)
+    local g = { inset = inset }
+    -- the whole card opens the goal on the Gear goals screen; made first, so everything on the card sits above it
+    g.card = CreateFrame("Button", nil, inset)
+    g.card:SetAllPoints(inset)
+    g.card:SetScript("OnClick", function()
+        if g.itemID and HonorLog.GearScreen then HonorLog.GearScreen:Open("goals", g.itemID) end
+    end)
     local header = Kit:Header(inset, L["Next goal"])
     header:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -9)
     header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -14, -9)
 
-    local g = { inset = inset }
     g.icon = Kit:ItemIcon(inset, 34)
     g.icon:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -32)
     g.name = Kit:Text(inset, "value")
@@ -312,7 +318,7 @@ local function buildGoal(col)
     g.view:SetScript("OnClick", openGoals)
     g.add = Kit:Button(inset, L["Add a goal"], "red")
     g.add:SetPoint("BOTTOM", inset, "BOTTOM", 0, 10)
-    g.add:SetScript("OnClick", function() HonorLog:ShowGoalPicker() end)
+    g.add:SetScript("OnClick", function() HonorLog.GearScreen:Open("vendors") end)
     return g
 end
 
@@ -349,6 +355,7 @@ end
 
 local function refreshGoal(g)
     local gp = (safe(HonorLog.GetAllGoalsProgress, HonorLog) or {})[1]
+    g.itemID = gp and gp.itemID or nil
     g.icon:SetShown(gp ~= nil)
     g.name:SetShown(gp ~= nil)
     g.percent:SetShown(gp ~= nil)
