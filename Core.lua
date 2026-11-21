@@ -1222,7 +1222,12 @@ function HonorLog:HandleSlashCommand(msg)
             print("|cff00ff00HonorLog|r Usage: /honorlog reset [today|character|account]")
         end
     elseif cmd == "vendor" then
-        self:ShowVendorForArg(arg)
+        if arg:lower() == "clear" then
+            self:ClearMapPins()
+            self:Say(L["Cleared the map pins and the arrow."])
+        else
+            self:ShowVendorForArg(arg)
+        end
     elseif cmd == "export" then
         self:ShowExportFrame(arg)
     elseif cmd == "config" or cmd == "options" then
@@ -1632,7 +1637,7 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog cap [on|off|percent]|r - Honor cap warning")
     print("  |cffffffff/honorlog rank [n]|r - PvP rank summary, or the plan to rank n")
     print("  |cffffffff/honorlog probe [on|off|status|clear]|r - Record what PvP data the client exposes (dev)")
-    print("  |cffffffff/honorlog vendor [item or goal number]|r - Show a gear vendor on the map")
+    print("  |cffffffff/honorlog vendor [item, goal number or clear]|r - Show a gear vendor on the map, or clear the pins")
     print("  |cffffffff/honorlog scan|r - Scan current PvP vendor (dev)")
     print("  |cffffffff/honorlog scan export|r - Export scanned data as Lua")
     print("  |cffffffff/honorlog help|r - Show this help")

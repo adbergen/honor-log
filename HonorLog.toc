@@ -37,6 +37,7 @@ Modules\Probe.lua
 
 # UI
 UI\Theme.lua
+UI\MapPin.lua
 UI\Animation.lua
 UI\MainFrame.lua
 UI\GoalsPanel.lua

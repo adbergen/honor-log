@@ -169,6 +169,7 @@ local DEFAULTS = {
         minimapButton = {
             hide = false,
         },
+        mapArrowPoint = nil, -- { point, relativePoint, x, y } where the player left the map arrow
         goalProgressMode = "shared", -- "shared" (all show same %) or "waterfall" (fills top-to-bottom)
         goalCapAdvice = true, -- the goals header names what to buy when honor is about to cap
         goalShowUnverified = false, -- the picker lists retired-looking items nobody has seen stocked
@@ -1468,36 +1469,43 @@ function HonorLog:GetVendorFor(itemID)
     return nil
 end
 
--- Put a vendor on the map as the user waypoint. Returns true when a waypoint was set.
-function HonorLog:ShowVendorOnMap(vendor)
+-- Take the player to a vendor: HonorLog's own pin and arrow (UI/MapPin.lua). Returns true when a
+-- pin was placed.
+function HonorLog:ShowVendorOnMap(vendor, extra)
     if type(vendor) ~= "table" then
         self:Say(L["HonorLog does not know where this item is sold yet."])
         return false
     end
-    local where = vendor.place and (vendor.name .. ", " .. vendor.place) or vendor.name
-    local canSet = vendor.map and vendor.x and vendor.y and C_Map and C_Map.SetUserWaypoint
-        and UiMapPoint and UiMapPoint.CreateFromCoordinates
-    if canSet and C_Map.CanSetUserWaypointOnMap and C_Map.CanSetUserWaypointOnMap(vendor.map) == false then
-        canSet = false
+    if vendor.map and not (vendor.x and vendor.y) then
+        -- The zone is known, the exact spot is not: show the zone and say how to learn the spot.
+        local mapPin = self.MapPin
+        local mapName = mapPin and mapPin.MapName(vendor.map) or vendor.place or vendor.name
+        if mapPin then mapPin:OpenMap(vendor.map) end
+        self:Say(string.format(L["%s is in %s. Open the vendor once and HonorLog will remember exactly where it stands."], vendor.name, mapName))
+        return false
     end
-    if not canSet then
+    if not (vendor.map and vendor.x and vendor.y and self.ShowPlaceOnMap) then
+        local where = vendor.place and (vendor.name .. ", " .. vendor.place) or vendor.name
         self:Say(string.format(L["%s: open this vendor once and HonorLog will remember where it stands."], where))
         return false
     end
-    local point = UiMapPoint.CreateFromCoordinates(vendor.map, vendor.x / 100, vendor.y / 100)
-    if not point then
-        self:Say(string.format(L["%s: open this vendor once and HonorLog will remember where it stands."], where))
-        return false
-    end
-    C_Map.SetUserWaypoint(point)
-    if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then C_SuperTrack.SetSuperTrackedUserWaypoint(true) end
-    self:Say(string.format(L["Waypoint set for %s."], where))
-    return true
+    local place = {
+        name = vendor.name, detail = vendor.role, map = vendor.map, x = vendor.x, y = vendor.y,
+        npc = vendor.npc, kind = "vendor",
+    }
+    if extra then place.reason, place.icon = extra.reason, extra.icon end
+    return self:ShowPlaceOnMap(place)
 end
 
--- Alt+Click on a goal or a picker row.
+-- Alt+Click on a goal or a picker row: the pin also says what the player is going there to buy.
 function HonorLog:ShowVendorForItem(itemID)
-    return self:ShowVendorOnMap(itemID and self:GetVendorFor(itemID) or nil)
+    local vendor = itemID and self:GetVendorFor(itemID) or nil
+    local icon
+    if itemID then
+        local getIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+        if getIcon then icon = Util.call(getIcon, itemID) end
+    end
+    return self:ShowVendorOnMap(vendor, { reason = itemID and self:GetGearName(itemID) or nil, icon = icon })
 end
 
 -- /honorlog vendor <goal number | item name | item link>: the goal first, then any item the picker lists.
