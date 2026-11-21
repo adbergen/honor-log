@@ -1828,7 +1828,12 @@ local function run()
             byNpc[v.npc] = v
             check(v.name and v.role and v.faction and v.place, "vendor " .. tostring(v.npc) .. " has name, role, faction and place")
         end
-        check(byNpc[12792].x == nil and byNpc[12792].y == nil and byNpc[12777].x == 74.4 and byNpc[12777].y == 67.5 and byNpc[12781].x == 75.2, "coordinates are left out where unknown and kept where known")
+        check(byNpc[12777].x == 74.4 and byNpc[12777].y == 67.5 and byNpc[12781].x == 75.2, "the Alliance quartermasters keep their coordinates")
+        check(byNpc[12792].x == 37.0 and byNpc[12792].y == 65.0 and byNpc[12793].x == 36.5 and byNpc[12793].y == 66.2 and byNpc[14581].x == 36.8 and byNpc[14581].y == 67.3
+            and byNpc[12796].x == 37.8 and byNpc[12796].y == 64.4 and byNpc[12792].map == 1454, "the Horde quartermasters have the positions read in the game on 2026-11-21")
+        for _, v in ipairs(HL.VENDORS) do
+            check(type(v.x) == "number" and type(v.y) == "number" and type(v.map) == "number", "vendor " .. tostring(v.npc) .. " has a map position")
+        end
         check(byNpc[15127].repFaction == 509 and byNpc[14754].repFaction == 889 and byNpc[13219].repFaction == 729 and byNpc[12777].repFaction == nil, "supply officers carry their reputation faction")
         check(byNpc[12777].map == 1453 and byNpc[15127].map == 1417 and byNpc[14754].map == 1413, "uiMap ids")
         local function vendorName(id) local v = HL:GetVendorFor(id) return v and v.name end
@@ -1844,7 +1849,7 @@ local function run()
         check(v.map == 1453 and v.x == 74.4 and v.y == 67.5 and v.npc == 12777 and v.role == "Armor Quartermaster" and v.place == "Champions' Hall, Stormwind City", "the vendor record")
         mock.faction = "Horde"
         check(vendorName(HORDE_WSG_NECK) == "Kelm Hargunth" and vendorName(HORDE_ARMOR) == "Lady Palanseer", "a Horde player gets the Horde vendors")
-        check(HL:GetVendorFor(HORDE_ARMOR).x == nil and HL:GetVendorFor(HORDE_ARMOR).map == 1454, "…with no coordinates where none are known")
+        check(HL:GetVendorFor(HORDE_ARMOR).x == 37.0 and HL:GetVendorFor(HORDE_ARMOR).y == 65.0 and HL:GetVendorFor(HORDE_ARMOR).map == 1454, "…with the position read in the game")
         mock.faction = "Alliance"
 
         -- The scanner records where the vendor stands, when the client allows.
@@ -1961,7 +1966,9 @@ local function run()
         check(table.concat(printed, "\n", before + 1):find("Lady Palanseer is in Orgrimmar. Open the vendor once and HonorLog will remember exactly where it stands.", 1, true), "…and the line says to open the vendor once")
         mock.map = { id = 1453, x = 0.744, y = 0.675 }
         before = #printed
-        check(HL:ShowVendorOnMap(HL:GetVendorFor(HORDE_ARMOR)) == false and MP:Count() == 0 and mock.waypoint == nil, "a built-in vendor with a map and no position: false, no pin")
+        local hordeRow = HL:GetVendorFor(HORDE_ARMOR)
+        check(HL:ShowVendorOnMap({ name = hordeRow.name, role = hordeRow.role, npc = hordeRow.npc, map = hordeRow.map, place = hordeRow.place }) == false
+            and MP:Count() == 0 and mock.waypoint == nil, "a built-in vendor's row with a map and no position: false, no pin")
         check(table.concat(printed, "\n", before + 1):find("Lady Palanseer is in ", 1, true), "…and the line names the vendor and the zone")
         before = #printed
         check(HL:ShowVendorOnMap({ name = "Lady Palanseer", place = "Hall of Legends, Orgrimmar" }) == false and MP:Count() == 0, "no map at all: false, no pin")
@@ -2790,7 +2797,15 @@ local function run()
         mock.faction = "Horde"
         local hordeArmor
         for _, v in ipairs(HL:GetVendorList()) do if v.kind == "armor" then hordeArmor = v end end
-        check(hordeArmor.known == false and hordeArmor.name == "Lady Palanseer", "GetVendorList: a Horde vendor without a position is not known")
+        check(hordeArmor.known == true and hordeArmor.x == 37.0 and hordeArmor.name == "Lady Palanseer", "GetVendorList: the Horde armor vendor, with a position")
+        -- a row with no coordinates (none is left in the table, so one is blanked for the check)
+        local palanseer
+        for _, v in ipairs(HL.VENDORS) do if v.npc == 12792 then palanseer = v end end
+        local px, py = palanseer.x, palanseer.y
+        palanseer.x, palanseer.y = nil, nil
+        for _, v in ipairs(HL:GetVendorList()) do if v.kind == "armor" then hordeArmor = v end end
+        check(hordeArmor.known == false and hordeArmor.name == "Lady Palanseer", "GetVendorList: a vendor without a position is not known")
+        palanseer.x, palanseer.y = px, py
         mock.faction = "Alliance"
         HonorLogDB.scannedVendors["Test Quartermaster"] = { map = 1453, x = 10, y = 20, zone = "Stormwind City", subzone = "Trade District", npc = 999 }
         HonorLogDB.scannedGear[BLUE] = { honor = 9000, marks = { AV = 15 }, gold = 0, seen = 1, npc = "Test Quartermaster" }
@@ -4830,6 +4845,11 @@ local function run()
             check(vrows[1].name.__wrapWidth == 150 and vrows[1].role.__wrapWidth == 160 and vrows[1].count.__wrapWidth == 34, "vendors: the vendor texts have fixed widths")
             check(vlist.foot:GetText() == "Counts are what your class can use.", "vendors: the foot note")
             check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name, "vendors: with none chosen the first has the wash and edge, and its stock shows")
+            -- a vendor with no position: none is left in the table, so one is blanked while the list is built
+            local palanseer
+            for _, v in ipairs(HL.VENDORS) do if v.npc == 12792 then palanseer = v end end
+            local px, py = palanseer.x, palanseer.y
+            palanseer.x, palanseer.y = nil, nil
             mock.faction = "Horde"
             Window:RefreshCurrent()
             local unknown
@@ -4838,6 +4858,7 @@ local function run()
             unknown.click.__scripts.OnEnter(unknown.click)
             check(tipText():find("Not found yet. Open this vendor once and HonorLog remembers where it is.", 1, true), "vendors: and says why in its tooltip")
             unknown.click.__scripts.OnLeave(unknown.click)
+            palanseer.x, palanseer.y = px, py
             mock.faction = "Alliance"
             Window:RefreshCurrent()
             local armor

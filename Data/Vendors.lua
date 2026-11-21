@@ -4,22 +4,23 @@
 -- One row per PvP vendor: npc id, name, role text, kind (armor, accessories, weapons, mount,
 -- supply), faction, place text, uiMap id and x, y in percent of the map where known, and for supply
 -- officers the reputation faction they sell for. HonorLog:GetVendorFor (Data.lua) picks the row.
--- Unknown, so left out: Horde quartermaster coordinates (a vendor scan learns them), and the
--- Darkspear Islands vendors for factions 2798 and 2799. Which vendor sells which item is not in this
--- table either; the vendor scan records that.
+-- The Horde quartermasters' coordinates were read in the game on 2026-11-21 (where the player stood at each
+-- vendor in the Hall of Legends, so within a few steps). Unknown, so left out: the Darkspear Islands vendors
+-- for factions 2798 and 2799. Which vendor sells which item is not in this table either; the vendor scan
+-- records that.
 
 local _, HonorLog = ...
 HonorLog = HonorLog or {}
 
 HonorLog.VENDORS = {
     { npc = 12792, name = "Lady Palanseer", role = "Armor Quartermaster", kind = "armor", faction = "Horde",
-      place = "Hall of Legends, Orgrimmar", map = 1454 },
+      place = "Hall of Legends, Orgrimmar", map = 1454, x = 37.0, y = 65.0 },
     { npc = 12793, name = "Brave Stonehide", role = "Officer Accessories Quartermaster", kind = "accessories",
-      faction = "Horde", place = "Hall of Legends, Orgrimmar", map = 1454 },
+      faction = "Horde", place = "Hall of Legends, Orgrimmar", map = 1454, x = 36.5, y = 66.2 },
     { npc = 14581, name = "Sergeant Thunderhorn", role = "Weapons Quartermaster", kind = "weapons", faction = "Horde",
-      place = "Hall of Legends, Orgrimmar", map = 1454 },
+      place = "Hall of Legends, Orgrimmar", map = 1454, x = 36.8, y = 67.3 },
     { npc = 12796, name = "Raider Bork", role = "Mount Quartermaster", kind = "mount", faction = "Horde",
-      place = "Hall of Legends, Orgrimmar", map = 1454 },
+      place = "Hall of Legends, Orgrimmar", map = 1454, x = 37.8, y = 64.4 },
     { npc = 12777, name = "Captain Dirgehammer", role = "Armor Quartermaster", kind = "armor", faction = "Alliance",
       place = "Champions' Hall, Stormwind City", map = 1453, x = 74.4, y = 67.5 },
     { npc = 12781, name = "Master Sergeant Biggins", role = "Officer Accessories Quartermaster", kind = "accessories",

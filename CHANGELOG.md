@@ -6,6 +6,9 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **The Horde quartermasters are on the map from the start.** The four PvP quartermasters in Orgrimmar's
+  Hall of Legends now have their positions built in, so "Show on map" pins them before you have ever opened
+  one. (Alliance already had theirs.)
 - **Gear goals**, the window's third screen. Your goals in order, each with what it still takes and when it
   will be ready; the chosen goal in detail (what it takes, the two purchases of an epic or the epic upgrade of
   a blue piece, who sells it and a button to show the vendor on the map, and why the date is what it is);
