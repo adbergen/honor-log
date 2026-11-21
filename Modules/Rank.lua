@@ -678,9 +678,9 @@ end
 -- Alerts
 --------------------------------------------------------------------------------
 
--- The shared alert (Util.lua): sound, centre-screen notice, error-frame line and chat.
-function Rank:Announce(text, r, g, b)
-    HonorLog:Announce(text, r, g, b)
+-- The shared alert (Util.lua): sound, centre-screen notice, error-frame line and chat; quiet leaves the notice and the error-frame line to a card.
+function Rank:Announce(text, r, g, b, quiet)
+    HonorLog:Announce(text, r, g, b, quiet)
 end
 
 -- MAJOR_FACTION_RENOWN_LEVEL_CHANGED: one celebration per rank gained.
@@ -690,7 +690,9 @@ function Rank:OnRenownChanged(factionID, newLevel, oldLevel)
     local char = db() and db().char
     if newLevel and char and (not oldLevel or newLevel > oldLevel) and char.rankCelebrated ~= newLevel then
         char.rankCelebrated = newLevel
-        self:Announce(string.format("Rank %d \226\128\148 %s", newLevel, self:TitleForRank(newLevel)))
+        -- the rank-up card says it on screen when it is switched on
+        local card = HonorLog.Moments and HonorLog.Moments:Shows("rankUp")
+        self:Announce(string.format("Rank %d \226\128\148 %s", newLevel, self:TitleForRank(newLevel)), nil, nil, nil, card)
         local info = self:GetInfo()
         HonorLog:Fire("HonorLog_RankUp", newLevel, info)
         local nextRank, rewards = self:NextReward(info or { rank = newLevel, seasonMaxRank = MAX_RANK })

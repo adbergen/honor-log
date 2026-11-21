@@ -197,6 +197,10 @@ local DEFAULTS = {
         honorCapWarnPct = 90, -- warn once per crossing at this percent of the honor cap
         showRankBar = true, -- the rank bar under the header of the main panel
         rankCapAlert = true, -- one alert per week when the weekly rank cap is reached
+        momentReport = true, -- the game report card after each battleground
+        momentRankUp = true, -- the rank-up card
+        momentHonorCap = true, -- the honor cap card
+        momentSeconds = 12, -- seconds a card stays up (0 = until it is closed)
         ldbFormat = "games", -- broker text: "games" (win-loss today) or "rank" (R7 Title · 62%)
         visibleCards = { -- Which stat cards to show
             AV = true,

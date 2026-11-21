@@ -821,7 +821,8 @@ function HonorLog:CheckHonorCap()
             char.honorCapWarned = true
             local text = string.format("Honor cap: %s of %s (%d%%). Spend honor before it is wasted.",
                 tostring(quantity), tostring(cap), math.floor(quantity / cap * 100))
-            HonorLog:Announce(text)
+            -- the honor cap card says it on screen when it is switched on
+            HonorLog:Announce(text, nil, nil, nil, HonorLog.Moments and HonorLog.Moments:Shows("honorCap"))
             HonorLog:Fire("HonorLog_HonorCapNear", quantity, cap)
         end
     else
@@ -1535,6 +1536,8 @@ function HonorLog:HandleSlashCommand(msg)
         end
         print(string.format("|cff00ff00HonorLog|r Honor cap warning %s at %d%% of the cap. Usage: /honorlog cap [on|off|percent]",
             self.db.settings.honorCapWarning == false and "OFF" or "ON", self.db.settings.honorCapWarnPct or 90))
+    elseif cmd == "moment" then
+        if self.Moments then self.Moments:Demo(arg) end
     elseif cmd == "probe" then
         if self.Probe then
             self.Probe:HandleCommand(arg)
@@ -1639,6 +1642,7 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog honor|r - Honor today, this week and this session")
     print("  |cffffffff/honorlog cap [on|off|percent]|r - Honor cap warning")
     print("  |cffffffff/honorlog rank [n]|r - PvP rank summary, or the plan to rank n")
+    print("  |cffffffff/honorlog moment [report|rank|cap]|r - Show a pop-up card now")
     print("  |cffffffff/honorlog probe [on|off|status|clear]|r - Record what PvP data the client exposes (dev)")
     print("  |cffffffff/honorlog probe guild|r or |cffffffffgroup|r - Send one hidden test message and report whether sharing works (dev)")
     print("  |cffffffff/honorlog probe ui|r - Record which Blizzard templates and art this client has (dev)")

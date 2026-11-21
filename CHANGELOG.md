@@ -6,6 +6,13 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **Pop-up cards** for the moments that matter, in place of the plain centre-screen text: a game report after
+  each battleground (the result, honor, rank points, marks, reputation or killing blows, a highlight, your
+  next goal and how close the honor cap is), a rank-up card (the new rank, what it unlocks, what comes next)
+  and an honor cap card (how close the cap is and what to buy before honor is wasted, with the way to the
+  vendor). Each can be switched off in the options, none appears during a fight, and each goes away by itself
+  after 12 seconds (held while the mouse is over it). `/honorlog moment report|rank|cap` shows one now. The
+  chat lines stay.
 - **Battlegrounds**, the window's fourth screen. A card per battleground with your record, your last ten
   results and what a game there is worth (win rate, honor a game, average length, rank points); the honor
   of each of the last seven days; your win rate by time of day; and the table of every recorded game with
