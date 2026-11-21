@@ -253,8 +253,10 @@ local function gameState(g)
 end
 
 -- The points of a game that measures what a game gives: earned or zero, and not one that hit the
--- weekly cap on the way (its points were cut short). nil for every other game.
+-- weekly cap on the way (its points were cut short). nil for every other game, and for a game the
+-- player left early: leaving gives nothing whatever the battleground pays.
 local function measuredPoints(g)
+    if g.result == "left" then return nil end
     local state = gameState(g)
     if state == "zero" then return 0 end
     if state == "earned" and not g.rankCappedDuring and type(g.rankPoints) == "number" then return g.rankPoints end
@@ -269,7 +271,7 @@ function Rank:ClassifyGame(from, to, delta, level)
     if not from or not to then return "nodata" end
     if from.capTotal and from.capTotal > 0 and from.total and from.total >= from.capTotal then return "capped" end
     if delta > 0 then
-        local cappedDuring = to.capTotal and to.capTotal > 0 and to.total == to.capTotal or nil
+        local cappedDuring = to.capTotal and to.capTotal > 0 and to.total and to.total >= to.capTotal or nil
         return "earned", cappedDuring
     end
     local gate = self:GetGate(level, from.level, from.capRank)
@@ -389,14 +391,14 @@ end
 
 -- Battlegrounds whose latest ZERO_RUN or more earned/zero games all gave 0 points:
 -- { bgType, name, zero, games, otherAverage }. Games with another state (capped, gated, no
--- data, unknown) neither count nor break the run.
+-- data, unknown) and games the player left early neither count nor break the run.
 function Rank:GetZeroPointBattlegrounds()
     local char = db() and db().char
     local history = char and char.history or {}
     local runs, stopped = {}, {}
     for _, g in ipairs(history) do
         local bg = g.bgType
-        if bg and not stopped[bg] then
+        if bg and not stopped[bg] and g.result ~= "left" then
             local state = gameState(g)
             if state == "zero" then runs[bg] = (runs[bg] or 0) + 1
             elseif state == "earned" then stopped[bg] = true end
