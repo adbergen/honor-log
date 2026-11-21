@@ -302,23 +302,9 @@ end
 -- REQUIREMENT TEXT (shared by the cards and the totals bar)
 --------------------------------------------------------------------------------
 local GOLD_HEX, RANK_HEX = "e6cc80", "c8a0ff"
-local TICK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12:0:0|t"
-local CROSS = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12:12:0:0|t"
 
--- Hex colour of a Rank tag ("level", "nopoints", ...), or the fallback.
-local function TagHex(tag, fallback)
-    local c = HonorLog.RANK_TAG_COLORS and HonorLog.RANK_TAG_COLORS[tag]
-    if type(c) ~= "table" then return fallback end
-    return string.format("%02x%02x%02x", math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5))
-end
-
--- 12,345 copper -> "1g", 150 -> "1s", 3 -> "3c" (whole units; the exact price is in the tooltip)
-local function GoldShort(copper)
-    copper = math.floor(tonumber(copper) or 0)
-    if copper >= 10000 then return BreakUpLargeNumbers(math.floor(copper / 10000)) .. "g" end
-    if copper >= 100 then return math.floor(copper / 100) .. "s" end
-    return copper .. "c"
-end
+-- 12,345 copper -> "1g" ... (Model.lua)
+local function GoldShort(copper) return HonorLog:GoldShort(copper) end
 
 local function ProgressColor(percent)
     if percent >= 100 then return unpack(COLORS.progressFull) end
@@ -335,132 +321,11 @@ local function ProgressColor(percent)
     return lowR + (highR - lowR) * t, lowG + (highG - lowG) * t, lowB + (highB - lowB) * t
 end
 
--- One requirement as coloured text. factor (0..1) scales the counted amounts for the fill animation.
-local function RowText(row, factor)
-    factor = factor or 1
-    local done = "40d860"
-    if row.kind == "honor" then
-        local current = math.floor(row.current * factor)
-        return string.format("|cff%s%s/%s Honor|r", current >= row.needed and done or "ffd700",
-            BreakUpLargeNumbers(current), BreakUpLargeNumbers(row.needed))
-    elseif row.kind == "marks" then
-        local current = math.floor(row.current * factor)
-        return string.format("|cff%s%d/%d|r |T%s:14:14:0:0|t", current >= row.needed and done or (BG_COLOR_HEX[row.bg] or "55bbff"),
-            current, row.needed, BG_ICONS[row.bg] or "")
-    elseif row.kind == "gold" then
-        local current = math.floor(row.current * factor)
-        return string.format("|cff%s%s/%s|r", current >= row.needed and done or GOLD_HEX, GoldShort(current), GoldShort(row.needed))
-    elseif row.kind == "rank" then
-        return string.format("|cff%sRank %s/%d|r", row.met and done or RANK_HEX, row.current and tostring(row.current) or "?", row.needed)
-    elseif row.kind == "level" then
-        return string.format("|cff%s%s|r", row.met and done or TagHex("level", RANK_HEX),
-            string.format(L["Level %d / %d"], row.current or 0, row.needed))
-    elseif row.kind == "rep" then
-        local need = row.standingName or tostring(row.needed)
-        if row.faction and row.known then
-            local have = HonorLog.STANDING_NAMES[row.current] or "Unknown"
-            if row.amount and row.ceiling and not row.met then
-                return string.format("|cff7fc8ff%s %s / %s|r", have, BreakUpLargeNumbers(row.amount), BreakUpLargeNumbers(row.ceiling))
-            end
-            return string.format("|cff%s%s/%s|r", row.met and done or "7fc8ff", have, need)
-        end
-        return string.format("|cff9aa5b5%s reputation|r", need)
-    end
-    return ""
-end
-
-local function CurrencyLine(gp, factor)
-    local parts = {}
-    for _, row in ipairs(gp.rows) do
-        if (row.kind == "honor" or row.kind == "gold") then
-            if row.needed > 0 then parts[#parts + 1] = RowText(row, factor) end
-        elseif row.kind == "level" then
-            if not row.met then parts[#parts + 1] = RowText(row, factor) end -- shown only while unmet
-        else
-            parts[#parts + 1] = RowText(row, factor)
-        end
-    end
-    return table.concat(parts, " |cff666666·|r ")
-end
-
--- Weighted share of honor, marks and gold in hand. Rank and reputation have no amounts, so they only hold
--- the bar just under full.
-local function OverallPercent(gp)
-    local needed, current = 0, 0
-    for _, row in ipairs(gp.rows) do
-        local weight = row.kind == "honor" and 1 or row.kind == "marks" and 100 or row.kind == "gold" and 0.001 or nil
-        if weight and row.needed > 0 then
-            needed = needed + row.needed * weight
-            current = current + math.min(row.current, row.needed) * weight
-        end
-    end
-    local percent = needed > 0 and current / needed * 100 or 100
-    if not gp.isComplete then percent = math.min(percent, 99) end
-    return percent
-end
-
--- What else is short, as plain words ("800 honor, 10 AV marks"), for the status line.
-local function OtherMissingText(gp)
-    local out = {}
-    for _, row in ipairs(gp.missing) do
-        if row.kind == "honor" then out[#out + 1] = string.format("%s honor", BreakUpLargeNumbers(row.remaining))
-        elseif row.kind == "marks" then out[#out + 1] = string.format("%d %s marks", row.remaining, row.bg)
-        elseif row.kind == "gold" then out[#out + 1] = GoldShort(row.remaining)
-        elseif row.kind == "rep" then out[#out + 1] = string.format("%s reputation", row.standingName or "standing") end
-    end
-    return table.concat(out, ", ")
-end
-
-local function ReadyText(gp)
-    if gp.isComplete then return "|cff40d860Ready to purchase|r" end
-    local pieces = {}
-    local level = gp.level
-    local levelUnmet = level and level.known and not level.met
-    if levelUnmet then
-        pieces[#pieces + 1] = string.format("|cff%s%s|r", TagHex("level", RANK_HEX), string.format(L["Ready at level %d"], level.needed))
-    end
-    local rank = gp.rank
-    if rank and not rank.met then
-        if rank.known and rank.limitedBy == "cap" and rank.week then
-            pieces[#pieces + 1] = string.format("|cff%sRank %d locked until week %d|r", RANK_HEX, rank.needed, rank.week)
-        elseif rank.known and rank.date then
-            pieces[#pieces + 1] = string.format("|cff%sRank %d · %s|r", RANK_HEX, rank.needed, HonorLog.Rank.FormatDate(rank.date))
-        elseif rank.known and rank.plan and (rank.limitedBy == "level" or rank.limitedBy == "nopoints") then
-            pieces[#pieces + 1] = string.format("|cff%sRank %d · %s|r", TagHex(rank.limitedBy, RANK_HEX), rank.needed, HonorLog.Rank.PlanWhen(rank.plan))
-        elseif rank.known then
-            pieces[#pieces + 1] = string.format("|cff%sRank %d not reachable this season|r", RANK_HEX, rank.needed)
-        else
-            pieces[#pieces + 1] = string.format("|cff%sRank %d|r", RANK_HEX, rank.needed)
-        end
-    end
-    if levelUnmet then
-        local others = OtherMissingText(gp)
-        if others ~= "" then pieces[#pieces + 1] = string.format("|cff9aa5b5%s|r", string.format(L["also needs %s"], others)) end
-    elseif gp.readyDate then
-        pieces[#pieces + 1] = string.format("|cffb4c8e0ready %s%s|r", gp.estimated and "~" or "on ", HonorLog.Rank.FormatDate(gp.readyDate))
-    elseif gp.readyLimitedBy == "norep" and gp.readyText then
-        pieces[#pieces + 1] = string.format("|cff888888%s|r", gp.readyText)
-    elseif gp.readyLimitedBy == "nopace" then
-        pieces[#pieces + 1] = "|cff888888play a game for a date|r"
-    end
-    return table.concat(pieces, " |cff666666·|r ")
-end
-
-local PART_LABEL = { blue = "Blue piece", seal = "Seal" }
-
-local function PartText(part)
-    local label = PART_LABEL[part.role] or "Part"
-    if part.owned then
-        return string.format("%s |cff40d860%s owned|r", TICK, label)
-    end
-    local cost = {}
-    if part.honor > 0 then cost[#cost + 1] = BreakUpLargeNumbers(part.honor) .. " honor" end
-    for _, bgType in ipairs(HonorLog.BG_ORDER) do
-        local n = part.marks and part.marks[bgType]
-        if n then cost[#cost + 1] = n .. " " .. bgType end
-    end
-    return string.format("%s |cffe0a050%s|r |cff9aa5b5%s|r", CROSS, label, table.concat(cost, ", "))
-end
+-- Requirement and goal texts live in Model.lua, shared with the new window.
+local function CurrencyLine(gp, factor) return HonorLog:GoalCurrencyLine(gp, factor) end
+local function OverallPercent(gp) return HonorLog:GetGoalPercent(gp) end
+local function ReadyText(gp) return HonorLog:GoalReadyText(gp) end
+local function PartText(part) return HonorLog:GoalPartText(part) end
 
 -- The totals bar's currency line: honor, marks and gold, completed goals counted as done. start holds the
 -- values to count up from (the fill animation), progress runs 0..1.

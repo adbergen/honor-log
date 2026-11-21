@@ -86,12 +86,15 @@ HonorLog.RANK_ICON_FALLBACK = "Interface\\Icons\\Spell_Holy_ChampionsBond"
 -- BG-SPECIFIC COLORS
 --------------------------------------------------------------------------------
 
--- Primary BG colors (for cards, icons, highlights)
+-- Primary BG colors (for cards, icons, highlights). The single source: BG_COLOR_HEX is derived from it.
+local function hexColor(hex)
+    return { tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255, 1 }
+end
 HonorLog.BG_COLORS = {
     AV = { 0.45, 0.75, 1.0, 1 },   -- Ice blue
-    AB = { 1.0, 0.78, 0.28, 1 },   -- Rich gold
-    WSG = { 1.0, 0.38, 0.38, 1 },  -- Vibrant red
-    DI = { 0.35, 0.85, 0.65, 1 },  -- Island teal (matches the DI hex below)
+    AB = hexColor("e65959"),       -- Red
+    WSG = hexColor("59d973"),      -- Green
+    DI = hexColor("59d9a6"),       -- Island teal
 }
 
 -- Glow/subtle BG colors (for backgrounds, subtle indicators)
@@ -102,13 +105,12 @@ HonorLog.BG_GLOW_COLORS = {
     DI = { 0.25, 0.75, 0.55, 0.3 },
 }
 
--- Hex codes for inline text coloring
-HonorLog.BG_COLOR_HEX = {
-    AV = "73b3f2",   -- Icy blue
-    AB = "e65959",   -- Red (adjusted to match goals panel usage)
-    WSG = "59d973",  -- Green
-    DI = "59d9a6",   -- Teal
-}
+-- Hex codes for inline text coloring, derived from BG_COLORS
+HonorLog.BG_COLOR_HEX = {}
+for bgType, c in pairs(HonorLog.BG_COLORS) do
+    HonorLog.BG_COLOR_HEX[bgType] = string.format("%02x%02x%02x", math.floor(c[1] * 255 + 0.5),
+        math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5))
+end
 
 -- Mark of Honor icons, one per battleground mark item
 HonorLog.BG_ICONS = {

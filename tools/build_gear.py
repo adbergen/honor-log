@@ -482,6 +482,13 @@ def main():
             print("IEC drift check: FAILED")
         sys.exit(1)
 
+    # ---- ItemSet membership (the window's set filter) ----------------------------------------
+    for item_id, e in entries.items():
+        set_id = int(sparse[item_id]["ItemSet"]) if item_id in sparse else 0
+        if set_id and set_id in sets:
+            e["set"] = set_id
+    used_sets = sorted({e["set"] for e in entries.values() if e.get("set")})
+
     # ---- write Lua -------------------------------------------------------------------------
     used_factions = {2798, 2799, 509, 510}
     used_factions |= {e["rep"]["faction"] for e in entries.values() if e.get("rep") and e["rep"]["faction"]}
@@ -516,6 +523,8 @@ def main():
             parts.append("iec = %d" % e["iec"])
         if e.get("legacy"):
             parts.append("legacy = true")
+        if e.get("set"):
+            parts.append("set = %d" % e["set"])
         return "    [%d] = { %s },\n" % (item_id, ", ".join(parts))
 
     ordered = sorted(entries.items(), key=lambda kv: (SLOT_INDEX[kv[1]["slot"]], kv[1]["source"], kv[0]))
@@ -529,6 +538,7 @@ def main():
     out.append("HonorLog.MARK_ITEMS = { AV = 20560, AB = 20559, WSG = 20558, DI = 274895 }\n\n")
     out.append("HonorLog.REP_FACTIONS = {\n" + "".join("    [%d] = %s,\n" % (f, lua_str(faction_names[f]))
                                                      for f in sorted(used_factions)) + "}\n\n")
+    out.append("HonorLog.GearSets = {\n" + "".join("    [%d] = %s,\n" % (i, lua_str(sets[i])) for i in used_sets) + "}\n\n")
     out.append("HonorLog.GearDB = {\n" + "".join(fmt(i, e) for i, e in ordered) + "}\n")
     OUT.write_text("".join(out))
 

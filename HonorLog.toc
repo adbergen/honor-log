@@ -35,6 +35,9 @@ Modules\Rank.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 
+# Models
+Model.lua
+
 # UI
 UI\Theme.lua
 UI\MapPin.lua

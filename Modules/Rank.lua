@@ -241,6 +241,55 @@ function Rank:CapRankForWeek(w, info)
     return math.min(math.max(CAP_BY_WEEK[idx], clientCap), seasonMax)
 end
 
+-- Points to finish rank n: the curve entry (rank n costs CURVE[n]; TotalForRank adds them up). nil
+-- outside ranks 1 to 14.
+function Rank:PointsForRank(n)
+    n = num(n)
+    return n and CURVE[math.floor(n)] or nil
+end
+
+-- One row per week of the season the cap table covers (and the current week when it lies beyond):
+-- { { week, start (epoch seconds the week starts; nil when the client gives no reset clock), capRank,
+-- capTotal (cumulative points of the cap rank), current (bool), past (bool) }, ... }, oldest week first.
+-- Empty without rank data. Weeks are seven days apart, counted from the current week's reset time.
+function Rank:GetSeasonSchedule(info)
+    info = info or self:GetInfo()
+    local out = {}
+    if not info then return out end
+    local currentStart
+    if (info.secondsToWeeklyReset or 0) > 0 then currentStart = time() + info.secondsToWeeklyReset - 7 * DAY end
+    for w = 1, math.max(#CAP_BY_WEEK, info.weekNumber) do
+        local capRank = self:CapRankForWeek(w, info)
+        out[#out + 1] = {
+            week = w,
+            start = currentStart and (currentStart + (w - info.weekNumber) * 7 * DAY) or nil,
+            capRank = capRank, capTotal = self:TotalForRank(capRank),
+            current = w == info.weekNumber, past = w < info.weekNumber,
+        }
+    end
+    return out
+end
+
+-- Fourteen rows, ranks 1 to 14: { { rank, title, total (cumulative points), points (this rank's own cost),
+-- state ("reached", "current" or "ahead"), items (HonorLog:GetRankUnlocks), plan (PlanToRank, for ranks
+-- ahead; else nil), when (what PlanWhen says, else the state) }, ... }. Empty without rank data.
+function Rank:GetRankTable(info, pace)
+    info = info or self:GetInfo()
+    local out = {}
+    if not info then return out end
+    pace = pace or self:GetPace()
+    for n = 1, MAX_RANK do
+        local state = n < info.rank and "reached" or (n == info.rank and "current" or "ahead")
+        local plan = state == "ahead" and self:PlanToRank(n, info, pace) or nil
+        out[#out + 1] = {
+            rank = n, title = self:TitleForRank(n), total = self:TotalForRank(n), points = self:PointsForRank(n),
+            state = state, items = HonorLog:GetRankUnlocks(n), plan = plan,
+            when = plan and Rank.PlanWhen(plan) or state,
+        }
+    end
+    return out
+end
+
 --------------------------------------------------------------------------------
 -- Pace, measured from the games HonorLog recorded
 --------------------------------------------------------------------------------
@@ -563,6 +612,7 @@ function Rank:OnRenownChanged(factionID, newLevel, oldLevel)
         char.rankCelebrated = newLevel
         self:Announce(string.format("Rank %d \226\128\148 %s", newLevel, self:TitleForRank(newLevel)))
         local info = self:GetInfo()
+        HonorLog:Fire("HonorLog_RankUp", newLevel, info)
         local nextRank, rewards = self:NextReward(info or { rank = newLevel, seasonMaxRank = MAX_RANK })
         if nextRank then
             local names = {}
@@ -588,6 +638,7 @@ function Rank:CheckCapAlert(info)
             info.weekCapRank, info.weekCapRank + 1, Rank.FormatSpan(info.secondsToWeeklyReset))
     end
     self:Announce(text)
+    HonorLog:Fire("HonorLog_WeekCapReached", info)
 end
 
 --------------------------------------------------------------------------------

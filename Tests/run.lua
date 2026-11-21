@@ -52,6 +52,7 @@ local function run()
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
         "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua",
     }
@@ -2518,6 +2519,430 @@ local function run()
     slash("stats")
     HL:UpdateMainFrame()
     mock.deferTimers = false
+
+    ----------------------------------------------------------------------
+    -- Model: the view models the new window reads
+    ----------------------------------------------------------------------
+    do
+        local Util = HL.Util
+        local char = HL.db.char -- earlier sections may have swapped the table the outer local points at
+        local realTime = time
+        local clock = realTime({ year = 2026, month = 11, day = 18, hour = 10, min = 0, sec = 0 })
+        time = function(t) if t then return realTime(t) end return clock end -- luacheck: ignore 121
+        local function at(day, hour, min) return realTime({ year = 2026, month = 11, day = day, hour = hour, min = min or 0, sec = 0 }) end
+        local savedState = {
+            history = Util.DeepCopy(char.history), honorLog = Util.DeepCopy(char.honorLog), honorDays = Util.DeepCopy(char.honorDays),
+            bgs = Util.DeepCopy(char.battlegrounds), gbgs = Util.DeepCopy(HL.db.global.battlegrounds),
+            ghist = Util.DeepCopy(HL.db.global.history), goals = Util.DeepCopy(char.goals), session = Util.DeepCopy(char.session),
+            gate = Util.DeepCopy(char.gateDisproved), celebrated = char.rankCelebrated, capWeek = char.rankCapAlertWeek,
+            warned = char.honorCapWarned, rank = mock.rank, level = mock.level, reset = mock.weeklyReset,
+            window = { cap = mock.rankWindow.cap, week = mock.rankWindow.week, prevCap = mock.rankWindow.prevCap },
+            scannedGear = HonorLogDB.scannedGear, scannedVendors = HonorLogDB.scannedVendors, honor = mock.currencies[1792].quantity,
+            money = mock.money, bags = mock.bagContents,
+        }
+        local function kinds(list)
+            local out = {}
+            for _, a in ipairs(list) do out[#out + 1] = a.kind end
+            return table.concat(out, ",")
+        end
+        local function game(result, bg, ts, extra)
+            local g = { bgType = bg or "WSG", result = result, win = result == "win", timestamp = ts, duration = 600, honor = 100, marks = 1,
+                rankPoints = 0, rankState = "zero" }
+            for k, v in pairs(extra or {}) do g[k] = v end
+            return g
+        end
+        mock.weeklyReset = 3 * 86400
+
+        -- I. One colour table: the hex codes are derived from BG_COLORS.
+        for bg, c in pairs(HL.BG_COLORS) do
+            check(HL.BG_COLOR_HEX[bg] == string.format("%02x%02x%02x", math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5)),
+                "colour: " .. bg .. " hex is derived from BG_COLORS")
+        end
+        check(HL.BG_COLOR_HEX.AB == "e65959" and HL.BG_COLOR_HEX.WSG == "59d973" and HL.BG_COLOR_HEX.DI == "59d9a6", "colour: AB, WSG and DI hex codes")
+        check(HL.BG_COLORS.AV[1] == 0.45 and HL.BG_COLORS.AV[2] == 0.75 and HL.BG_COLORS.AV[3] == 1.0, "colour: Alterac Valley keeps its colour")
+        check(math.abs(HL.BG_COLORS.AB[1] - 0xe6 / 255) < 1e-9 and math.abs(HL.BG_COLORS.WSG[2] - 0xd9 / 255) < 1e-9, "colour: AB and WSG floats follow the new hex codes")
+
+        -- A. Today
+        check(HL:GetDayKey() == "20261118" and HL:GetDayKey(at(3, 23, 59)) == "20261103", "GetDayKey: local YYYYMMDD, now by default")
+        char.history = {}
+        char.honorLog = { day = 0, today = 0, weekEnd = 0, week = 0, session = 0 }
+        char.honorDays = nil
+        mock.level = 60
+        setRank(3, 100, 14, 3)
+        HL:AddHonorGain(300)
+        char.history = {
+            game("win", "WSG", at(18, 9, 30), { duration = 600, honor = 200, marks = 3, rankPoints = 100, rankState = "earned" }),
+            game("loss", "AV", at(18, 9, 0), { duration = 900, honor = 100, marks = 1, rankPoints = 25, rankState = "earned" }),
+            game("win", "AB", at(17, 22, 0), { rankPoints = 100, rankState = "earned" }),
+        }
+        check(#HL:GetGamesOn("20261118", "character") == 2 and HL:GetGamesOn("20261118", "character")[1].bgType == "WSG", "GetGamesOn: that day's games, newest first")
+        check(#HL:GetGamesOn("20261117") == 1 and #HL:GetGamesOn("20260101") == 0, "GetGamesOn: other days")
+        local today = HL:GetTodayModel()
+        check(today.dayKey == "20261118" and today.played == 2 and today.wins == 1 and today.losses == 1 and today.draws == 0 and today.left == 0, "Today: counts")
+        check(today.duration == 1500 and today.honor == 300 and today.honorPerHour == 720 and today.rankPoints == 125, "Today: duration, honor, honor per hour, rank points")
+        check(today.marks.WSG == 3 and today.marks.AV == 1 and today.marksTotal == 4 and #today.games == 2 and today.rankBlocked == nil, "Today: marks per battleground, games, nothing blocking")
+        clock = at(19, 0, 10) -- midnight passes with the player online: no login, no event
+        local rolled = HL:GetTodayModel()
+        check(rolled.dayKey == "20261119" and rolled.played == 0 and rolled.honor == 0 and rolled.marksTotal == 0 and #rolled.games == 0, "Today: rolls over at midnight with the player online")
+        check(rolled.honorPerHour == nil, "Today: no honor per hour without games")
+        check(#HL:GetGamesOn("20261118") == 2, "Today: yesterday's games stay reachable")
+        setRank(4, 100, 4, 3)
+        check(HL:GetTodayModel().rankBlocked == "cap", "Today: rank points 0 at the weekly cap say cap")
+        setRank(3, 100, 14, 3)
+        mock.level = 30
+        check(HL:GetTodayModel().rankBlocked == "gate", "Today: rank points 0 under the level gate say gate")
+        mock.level = 60
+        char.history = { game("loss", "WSG", at(19, 0, 5), { rankState = "capped" }) }
+        check(HL:GetTodayModel().rankBlocked == "cap", "Today: a game that hit the cap says cap")
+        char.history = { game("loss", "WSG", at(19, 0, 5), { rankState = "gated" }) }
+        check(HL:GetTodayModel().rankBlocked == "gate", "Today: a gated game says gate")
+        clock = at(18, 10, 0)
+
+        -- C. Why a game paid what it did
+        local function rp(entry) local text, tone = HL:DescribeRankPoints(entry) return text .. "|" .. tone end
+        check(rp({ rankPoints = 100, rankState = "earned" }) == "+100|earned", "DescribeRankPoints: earned")
+        check(rp({ rankPoints = 40, rankState = "earned", rankCappedDuring = true }) == "+40, then the weekly cap|earned", "DescribeRankPoints: earned, then the cap")
+        check(rp({ rankPoints = 0, rankState = "gated" }) == "0, level 40 needed|blocked", "DescribeRankPoints: gated")
+        check(rp({ rankPoints = 0, rankState = "capped" }) == "0, weekly cap reached|blocked", "DescribeRankPoints: capped")
+        check(rp({ rankPoints = 0, rankState = "zero" }) == "0, this battleground gave none|blocked", "DescribeRankPoints: zero")
+        check(rp({ rankPoints = 0, rankState = "zero", result = "left" }) == "0, you left early|blocked", "DescribeRankPoints: left early")
+        check(rp({ rankState = "nodata" }) == "not measured|unknown", "DescribeRankPoints: no data")
+        check(rp({ rankPoints = 100 }) == "+100|earned", "DescribeRankPoints: an old row that gave points is earned")
+        check(rp({ rankPoints = 0 }) == "0, reason not recorded|unknown" and rp({}) == "not measured|unknown" and rp(nil) == "not measured|unknown", "DescribeRankPoints: old rows without points or state")
+        check(HL:DescribeHonor({ honor = 450 }) == "+450 honor" and HL:DescribeHonor({ honor = 450, honorCapped = true }) == "+450 honor, played at the honor cap"
+            and HL:DescribeHonor({}) == "+0 honor", "DescribeHonor: plain and at the cap")
+
+        -- B. Advice
+        mock.level, mock.money = 30, 1e9
+        setRank(3, 100, 14, 3) -- rank 3 at level 30: the level gate holds rank 4
+        mock.currencies[1792].quantity = 24000
+        char.goals.items, char.goals.completed = {}, {}
+        char.history = { game("loss", "WSG", at(18, 9, 0)), game("loss", "WSG", at(18, 8, 0)), game("loss", "WSG", at(18, 7, 0)), game("win", "AV", at(18, 6, 0), { rankPoints = 100, rankState = "earned" }) }
+        char.battlegrounds.WSG = { played = 5, wins = 2, losses = 3, draws = 0, left = 0, totalDuration = 3000, honorLifetime = 1000, marksLifetime = 5, cappedPlayed = 0, cappedHonor = 0 }
+        char.battlegrounds.AV = { played = 4, wins = 3, losses = 1, draws = 0, left = 0, totalDuration = 3600, honorLifetime = 2000, marksLifetime = 8, cappedPlayed = 0, cappedHonor = 0 }
+        char.battlegrounds.AB, char.battlegrounds.DI = HL.NewBGStats(), HL.NewBGStats()
+        char.gateDisproved = {}
+        local advice = HL:GetAdvice(10)
+        check(kinds(advice) == "gate,cap,zero,bestbg,unlock", "Advice: every kind in priority order: " .. kinds(advice))
+        check(#HL:GetAdvice() == 4 and #HL:GetAdvice(1) == 1 and HL:GetAdvice(1)[1].kind == "gate", "Advice: four by default, the limit cuts from the end")
+        for _, a in ipairs(advice) do check(type(a.head) == "string" and a.head ~= "" and type(a.body) == "string" and a.body ~= "", "Advice: " .. a.kind .. " has a head and a body") end
+        check(advice[1].head:find("level 40") and advice[1].body == Rank:GateText(Rank:GetInfo().gate), "Advice: the gate names the level")
+        local buyable = HL:GetBuyableNow(3)
+        check((advice[2].itemID == (buyable[1] and buyable[1].itemID)) and advice[2].head:find("24,000 of 25,000"), "Advice: the cap names what can be bought now")
+        check(advice[3].bgType == "WSG" and advice[3].head:find("Warsong Gulch") and advice[3].body:find("0 rank points in 3 of 3"), "Advice: zero names the battleground")
+        check(advice[4].bgType == "AV" and advice[4].body:find("500") and advice[4].body:find("200") and advice[4].body:find("Warsong Gulch"), "Advice: the best battleground by honor per game")
+        check(advice[5].itemID == HL:GetRankUnlocks(4)[1] and advice[5].head:find("Rank 4 unlocks"), "Advice: the next rank's first unlock")
+        -- Kinds that do not apply are absent.
+        mock.level = 60
+        mock.currencies[1792].quantity = 8200
+        char.battlegrounds.WSG.played = 2
+        char.history = { game("win", "WSG", at(18, 9, 0), { rankPoints = 100, rankState = "earned" }) }
+        check(kinds(HL:GetAdvice(10)) == "unlock", "Advice: only the unlock when nothing else applies: " .. kinds(HL:GetAdvice(10)))
+        char.history = {}
+        check(kinds(HL:GetAdvice(10)) == "unlock,nogames", "Advice: no games recorded adds nogames last")
+        setRank(14, 0, 14, 10)
+        check(kinds(HL:GetAdvice(10)) == "nogames", "Advice: no unlock at the top rank")
+
+        -- D. Season and ranks
+        check(Rank:PointsForRank(1) == 750 and Rank:PointsForRank(14) == 3000 and Rank:PointsForRank(15) == nil and Rank:PointsForRank(0) == nil, "PointsForRank: the curve entry")
+        setRank(3, 120, 5, 2, 3)
+        local info = Rank:GetInfo()
+        local schedule = Rank:GetSeasonSchedule(info)
+        check(#schedule == 10, "Schedule: one row per week the cap table covers")
+        local currentRows = 0
+        for i, row in ipairs(schedule) do
+            check(row.week == i and row.capRank == Rank:CapRankForWeek(i, info) and row.capTotal == Rank:TotalForRank(row.capRank), "Schedule: week " .. i .. " cap")
+            if i > 1 then check(row.start - schedule[i - 1].start == 7 * 86400, "Schedule: week " .. i .. " starts seven days after the last") end
+            if row.current then currentRows = currentRows + 1 end
+            check(row.past == (i < 2) and row.current == (i == 2), "Schedule: week " .. i .. " past and current flags")
+        end
+        check(currentRows == 1 and schedule[2].start == clock + 3 * 86400 - 7 * 86400 and schedule[2].capRank == 5, "Schedule: the current week starts one week before the reset")
+        mock.weeklyReset = 0
+        check(Rank:GetSeasonSchedule(Rank:GetInfo())[1].start == nil, "Schedule: no reset clock, no start times")
+        mock.weeklyReset = 3 * 86400
+        mock.rankWindow.noData = true
+        check(#Rank:GetSeasonSchedule() == 0 and #Rank:GetRankTable() == 0, "Schedule and rank table: empty without rank data")
+        mock.rankWindow.noData = false
+        setRank(8, 100, 9, 4)
+        info = Rank:GetInfo()
+        local rows = Rank:GetRankTable(info, Rank:GetPace())
+        check(#rows == 14, "RankTable: fourteen rows")
+        for n, row in ipairs(rows) do
+            check(row.rank == n and row.total == Rank:TotalForRank(n) and row.points == CURVE[n] and row.title == Rank:TitleForRank(n), "RankTable: rank " .. n .. " title and points")
+            local state = n < 8 and "reached" or (n == 8 and "current" or "ahead")
+            check(row.state == state and (state == "ahead") == (row.plan ~= nil), "RankTable: rank " .. n .. " state " .. state)
+            check(row.when == (row.plan and Rank.PlanWhen(row.plan) or state), "RankTable: rank " .. n .. " when")
+        end
+        check(rows[9].plan.target == 9 and rows[2].plan == nil, "RankTable: a plan for ranks ahead only")
+        check(#rows[2].items == 1 and rows[2].items[1] == 274445, "RankTable: rank 2 unlocks the Alliance insignia")
+        check(#rows[8].items == 2 and rows[8].items[1] == 275244 and rows[8].items[2] == 275240, "RankTable: rank 8 unlocks the two Seals, by name")
+        local want14 = 0
+        for _, data in pairs(HL.GearDB) do
+            if data.source == "RANK" and data.rank == 14 and data.faction ~= "Horde" then want14 = want14 + 1 end
+        end
+        check(want14 > 10 and #rows[14].items == want14, "RankTable: rank 14 lists the Alliance weapons only")
+        local sorted14 = true
+        for i = 2, #rows[14].items do
+            local a, b = HL.GearDB[rows[14].items[i - 1]], HL.GearDB[rows[14].items[i]]
+            if a.quality < b.quality or (a.quality == b.quality and a.name > b.name) then sorted14 = false end
+        end
+        check(sorted14 and #HL:GetRankUnlocks(99) == 0 and #HL:GetRankUnlocks(nil) == 0, "GetRankUnlocks: best quality first, then name; none for an unknown rank")
+        mock.faction = "Horde"
+        check(HL:GetRankUnlocks(2)[1] == 274444, "GetRankUnlocks: the Horde sees its own insignia")
+        mock.faction = "Alliance"
+
+        -- E. Goal texts
+        local gp = { isComplete = false, missing = { { kind = "honor", remaining = 800 }, { kind = "marks", remaining = 10, bg = "AV" } },
+            rows = { { kind = "honor", current = 500, needed = 1000 }, { kind = "marks", bg = "AV", current = 10, needed = 20 }, { kind = "level", met = true, current = 60, needed = 55 } } }
+        check(HL:GetGoalPercent(gp) < 99 and HL:GetGoalPercent({ isComplete = true, rows = {} }) == 100, "GetGoalPercent: weighted share, 100 when complete")
+        check(HL:GoalMissingText(gp) == "800 honor, 10 AV marks", "GoalMissingText: plain words")
+        check(HL:GoalRowText(gp.rows[1], 1):find("500/1,000 Honor", 1, true) and HL:GoalRowText(gp.rows[1], 0):find("0/1,000 Honor", 1, true), "GoalRowText: honor, scaled by the factor")
+        check(HL:GoalRowText(gp.rows[2], 1):find(HL.BG_COLOR_HEX.AV, 1, true), "GoalRowText: marks use the battleground colour")
+        local line = HL:GoalCurrencyLine(gp, 1)
+        check(line:find("Honor") and not line:find("Level"), "GoalCurrencyLine: a met level row is left out")
+        check(HL:GoalReadyText({ isComplete = true }):find("Ready to purchase", 1, true), "GoalReadyText: complete")
+        check(HL:GoalReadyText({ isComplete = false, missing = {}, readyLimitedBy = "nopace" }):find("play a game for a date", 1, true), "GoalReadyText: no pace")
+        check(HL:GoalPartText({ role = "seal", owned = true }):find("Seal") and HL:GoalPartText({ role = "blue", owned = false, honor = 9000, marks = { AV = 15 } }):find("9,000 honor, 15 AV", 1, true), "GoalPartText: owned and still to buy")
+
+        -- F. Vendors and sets
+        local BLUE, EPIC = 272738, 272787
+        check(HL:GetVendorKind(BLUE) == "armor" and HL:GetVendorKind(274445) == "accessories" and HL:GetVendorKind(1) == nil, "GetVendorKind: armor, accessories, unknown")
+        local supplyID
+        for id, data in pairs(HL.GearDB) do if data.source == "REP" and data.rep and data.rep.faction == 890 and not supplyID then supplyID = id end end
+        local sk, srep = HL:GetVendorKind(supplyID)
+        check(sk == "supply" and srep == 890, "GetVendorKind: a supply item names its reputation faction")
+        HonorLogDB.scannedGear, HonorLogDB.scannedVendors = {}, {}
+        local vendors = HL:GetVendorList()
+        check(#vendors == 7, "GetVendorList: the Alliance's seven built-in vendors: " .. #vendors)
+        local armorVendor
+        for _, v in ipairs(vendors) do
+            check(v.key == v.name and v.kind and v.role and v.place and type(v.count) == "number", "GetVendorList: " .. v.name .. " row")
+            if v.kind == "armor" then armorVendor = v end
+        end
+        check(armorVendor.known == true and armorVendor.x == 74.4 and armorVendor.count > 5 and armorVendor.npc == 12777, "GetVendorList: the armor vendor, with a position")
+        mock.faction = "Horde"
+        local hordeArmor
+        for _, v in ipairs(HL:GetVendorList()) do if v.kind == "armor" then hordeArmor = v end end
+        check(hordeArmor.known == false and hordeArmor.name == "Lady Palanseer", "GetVendorList: a Horde vendor without a position is not known")
+        mock.faction = "Alliance"
+        HonorLogDB.scannedVendors["Test Quartermaster"] = { map = 1453, x = 10, y = 20, zone = "Stormwind City", subzone = "Trade District", npc = 999 }
+        HonorLogDB.scannedGear[BLUE] = { honor = 9000, marks = { AV = 15 }, gold = 0, seen = 1, npc = "Test Quartermaster" }
+        local withScan = HL:GetVendorList()
+        local scanned = withScan[#withScan]
+        check(#withScan == 8 and scanned.name == "Test Quartermaster" and scanned.kind == "armor" and scanned.known and scanned.place == "Trade District, Stormwind City" and scanned.npc == 999, "GetVendorList: a scanned vendor the table lacks is added")
+        HonorLogDB.scannedGear, HonorLogDB.scannedVendors = {}, {}
+
+        local stock = HL:GetVendorStock(armorVendor)
+        local blueRow
+        for _, r in ipairs(stock) do
+            check(r.data.source ~= "UPGRADE" and (not r.data.class or r.data.class == "WARRIOR") and (not r.data.faction or r.data.faction == "Alliance"), "GetVendorStock: " .. r.itemID .. " is for a warrior of the Alliance, not an upgrade row")
+            check(r.name and r.data.itemID == r.itemID and r.slot == r.data.slot and r.set == r.data.set, "GetVendorStock: row " .. r.itemID .. " fields")
+            check(HL:GetVendorKind(r.itemID) == "armor", "GetVendorStock: " .. r.itemID .. " is armor-vendor stock")
+            if r.itemID == BLUE then blueRow = r end
+        end
+        check(blueRow and blueRow.set == 282 and blueRow.isGoal == false and not blueRow.owned, "GetVendorStock: the blue plate helm, not a goal, not owned")
+        check(blueRow.upgrade and blueRow.upgrade.itemID == EPIC and blueRow.upgrade.sealID == HL.GearDB[EPIC].parts[2] and blueRow.upgrade.rank == HL.GearDB[EPIC].rank
+            and blueRow.upgrade.honor == HL.GearDB[blueRow.upgrade.sealID].honor, "GetVendorStock: the blue piece carries its upgrade")
+        local epicListed = false
+        for _, r in ipairs(stock) do if r.itemID == EPIC then epicListed = true end end
+        check(not epicListed, "GetVendorStock: the epic's own row is not listed")
+        local inPicker = false
+        for _, entry in ipairs(HL:GetPickerItems({ class = "WARRIOR", slot = "HEAD" })) do if entry.itemID == BLUE then inPicker = true end end
+        check(inPicker, "GetVendorStock: the picker lists the helm while it is no goal")
+        check(HL:AddGoal(BLUE), "GetVendorStock: a goal is added")
+        local goalRow
+        for _, r in ipairs(HL:GetVendorStock(armorVendor)) do if r.itemID == BLUE then goalRow = r end end
+        inPicker = false
+        for _, entry in ipairs(HL:GetPickerItems({ class = "WARRIOR", slot = "HEAD" })) do if entry.itemID == BLUE then inPicker = true end end
+        check(goalRow and goalRow.isGoal == true and not inPicker, "GetVendorStock: an item that is already a goal is still listed, flagged")
+        HL:RemoveGoal(BLUE)
+        mock.bagContents = { BLUE }
+        for _, r in ipairs(HL:GetVendorStock(armorVendor)) do if r.itemID == BLUE then check(r.owned == true, "GetVendorStock: an owned item is flagged") end end
+        mock.bagContents = {}
+        -- order: set, then slot order, then name; rows with no set last
+        local lastSet, lastSlot = -1, 0
+        local slotIndex = {}
+        for i, s in ipairs(HL.SLOTS) do slotIndex[s] = i end
+        for i, r in ipairs(stock) do
+            local setKey = r.set or math.huge
+            check(setKey >= lastSet, "GetVendorStock: sorted by set (row " .. i .. ")")
+            if setKey ~= lastSet then lastSlot = 0 end
+            check(slotIndex[r.slot] >= lastSlot, "GetVendorStock: slot order inside a set (row " .. i .. ")")
+            lastSet, lastSlot = setKey, slotIndex[r.slot]
+        end
+        -- filters
+        local function allMatch(list, fn) for _, r in ipairs(list) do if not fn(r) then return false end end return #list > 0 end
+        check(allMatch(HL:GetVendorStock(armorVendor, { set = 282 }), function(r) return r.set == 282 end), "GetVendorStock: set filter")
+        check(allMatch(HL:GetVendorStock(armorVendor, { slot = "HEAD" }), function(r) return r.slot == "HEAD" end), "GetVendorStock: slot filter")
+        local allClasses, mageSeen = HL:GetVendorStock(armorVendor, { class = "ALL" }), false
+        for _, r in ipairs(allClasses) do if r.data.class == "MAGE" then mageSeen = true end end
+        check(mageSeen and #allClasses > #stock, "GetVendorStock: class ALL lists every class")
+        check(allMatch(HL:GetVendorStock(armorVendor, { class = "MAGE" }), function(r) return not r.data.class or r.data.class == "MAGE" end), "GetVendorStock: another class")
+        check(#HL:GetVendorStock(nil) == 0 and #HL:GetVendorStock({}) == 0, "GetVendorStock: no vendor, no rows")
+        -- supply officers: their own reputation faction only
+        local supplyVendor
+        for _, v in ipairs(vendors) do if v.kind == "supply" and v.repFaction == 890 then supplyVendor = v end end
+        check(allMatch(HL:GetVendorStock(supplyVendor, { class = "ALL" }), function(r) local k, f = HL:GetVendorKind(r.itemID) return k == "supply" and f == 890 end), "GetVendorStock: a supply officer lists its own faction's items")
+        -- rows without a set
+        local accessories
+        for _, v in ipairs(vendors) do if v.kind == "accessories" then accessories = v end end
+        local accStock = HL:GetVendorStock(accessories)
+        check(#accStock > 0 and allMatch(accStock, function(r) return r.set == nil end) and #HL:GetVendorSets(accessories) == 0, "Vendor stock without sets: listed, and no sets reported")
+        local savedSet = HL.GearDB[BLUE].set
+        HL.GearDB[BLUE].set = nil
+        local noSet = HL:GetVendorStock(armorVendor)
+        local noSetRow
+        for i, r in ipairs(noSet) do if r.itemID == BLUE then noSetRow = i end end
+        local firstBare = #noSet + 1
+        for i, r in ipairs(noSet) do if r.set == nil then firstBare = math.min(firstBare, i) end end
+        check(noSetRow and noSetRow >= firstBare and noSet[noSetRow].set == nil and #noSet == #stock, "Vendor stock: a row with no set is listed")
+        for i = firstBare, #noSet do check(noSet[i].set == nil, "Vendor stock: rows with no set come after every set (row " .. i .. ")") end
+        HL.GearDB[BLUE].set = savedSet
+        local sets = HL:GetVendorSets(armorVendor)
+        local setTotal, has282 = 0, false
+        for i, s in ipairs(sets) do
+            setTotal = setTotal + s.count
+            if s.id == 282 then has282 = s.name == HL.GearSets[282] end
+            if i > 1 then check(sets[i - 1].name <= s.name, "GetVendorSets: sorted by name") end
+        end
+        local withSet = 0
+        for _, r in ipairs(stock) do if r.set then withSet = withSet + 1 end end
+        check(has282 and setTotal == withSet and #HL:GetVendorSets(armorVendor, "ALL") >= #sets, "GetVendorSets: counts add up to the stock's set rows")
+        check(next(HL.GearSets) and HL.GearSets[282] and type(HL.GearDB[BLUE].set) == "number", "Gear database: set ids and names")
+
+        -- G. Battlegrounds and honor by day
+        local order = { "win", "loss", "draw", "left", "win", "win", "loss", "win", "loss", "loss", "win", "draw" } -- newest first
+        local wsgHistory = {}
+        for i, result in ipairs(order) do
+            wsgHistory[i] = game(result, "WSG", at(18, 9, 0) - i * 3600, { rankPoints = result == "win" and 100 or 25, rankState = "earned" })
+        end
+        char.history = wsgHistory
+        char.battlegrounds.WSG = { played = 6, wins = 3, losses = 2, draws = 1, left = 0, totalDuration = 3600, honorLifetime = 1200, marksLifetime = 5, cappedPlayed = 1, cappedHonor = 300 }
+        HL.db.global.battlegrounds.WSG = { played = 10, wins = 9, losses = 1, draws = 0, left = 0, totalDuration = 1000, honorLifetime = 5000, marksLifetime = 5, cappedPlayed = 0, cappedHonor = 0 }
+        mock.bagItems[20558] = 12
+        local m = HL:GetBattlegroundModel("WSG", "character")
+        check(m.bgType == "WSG" and m.name == "Warsong Gulch" and m.played == 6 and m.wins == 3 and m.losses == 2 and m.draws == 1 and m.left == 0, "BattlegroundModel: counters")
+        check(math.abs(m.winRate - 60) < 1e-9 and m.honorPerGame == 180 and m.avgDuration == 600 and m.marksHeld == 12, "BattlegroundModel: win rate, honor per game (cap games left out), duration, marks held")
+        check(table.concat(m.sequence) == "LLWLWWXDLW" and #m.sequence == 10, "BattlegroundModel: the last ten results, oldest first: " .. table.concat(m.sequence))
+        check(m.pointsPerWin == 100 and m.pointsPerLoss == 25, "BattlegroundModel: measured points per win and loss")
+        check(HL:GetBattlegroundModel("WSG", "account").played == 10 and HL:GetBattlegroundModel("WSG", "account").honorPerGame == 500, "BattlegroundModel: the account scope")
+        local empty = HL:GetBattlegroundModel("DI", "character")
+        check(empty.played == 0 and empty.winRate == nil and empty.honorPerGame == nil and empty.avgDuration == nil and #empty.sequence == 0
+            and empty.pointsPerWin == nil and empty.pointsPerLoss == nil, "BattlegroundModel: nothing played is nil, not 0 or 250")
+        check(HL:GetBattlegroundModel(nil) == nil and HL.db.char.battlegrounds.NEVER == nil and HL:GetBattlegroundModel("NEVER").played == 0 and HL.db.char.battlegrounds.NEVER == nil, "BattlegroundModel: reading creates no stats")
+        check(HL:GetAverageHonorPerBG("DI") == 250, "BattlegroundModel: the 250 fallback stays for the old callers")
+        char.history = { game("loss", "WSG", at(18, 9, 0)), game("left", "WSG", at(18, 8, 0)) }
+        check(table.concat(HL:GetBattlegroundModel("WSG", "character").sequence) == "XL", "BattlegroundModel: a game left early is X")
+        char.battlegrounds.WSG = { played = 2, wins = 0, losses = 0, draws = 0, left = 2, totalDuration = 100, honorLifetime = 50, marksLifetime = 0, cappedPlayed = 0, cappedHonor = 0 }
+        check(HL:GetBattlegroundModel("WSG", "character").winRate == nil, "BattlegroundModel: no decided game, no win rate")
+
+        -- honor by day: created once, back-filled from the saved games, pruned at 60 days
+        char.honorDays = nil
+        char.honorLog = { day = 20261118, today = 500, weekEnd = clock + 86400, week = 500, session = 0 }
+        char.history = {
+            game("win", "WSG", at(18, 9, 0), { honor = 200 }), game("win", "WSG", at(17, 20, 0), { honor = 100 }),
+            game("loss", "AV", at(17, 9, 0), { honor = 50 }), game("win", "AB", at(15, 9, 0), { honor = 90 }),
+        }
+        local byDay = HL:GetHonorByDay()
+        check(#byDay == 7 and byDay[1].dayKey == "20261112" and byDay[7].dayKey == "20261118" and byDay[7].label == "Today", "HonorByDay: seven days, oldest first, today last")
+        check(byDay[1].label == date("%a", at(12, 12)) and byDay[6].label == date("%a", at(17, 12)), "HonorByDay: short weekday names")
+        check(byDay[7].honor == 500 and byDay[6].honor == 150 and byDay[4].honor == 90 and byDay[1].honor == 0, "HonorByDay: back-filled from the saved games, today from the honor log")
+        char.history = {}
+        check(HL:GetHonorByDay()[6].honor == 150, "HonorByDay: the back-fill runs once")
+        check(#HL:GetHonorByDay(3) == 3 and HL:GetHonorByDay(3)[1].dayKey == "20261116", "HonorByDay: the day count")
+        char.honorDays["20260101"], char.honorDays["20260919"], char.honorDays["20260918"] = 5, 7, 9
+        HL:AddHonorGain(100)
+        check(char.honorDays["20261118"] == 600 and HL:GetHonorSummary().today == 600, "HonorByDay: a gain lands in today's store and today's total")
+        check(char.honorDays["20260101"] == nil and char.honorDays["20260918"] == nil and char.honorDays["20260919"] == 7, "HonorByDay: pruned past 60 days")
+        clock = at(19, 0, 5)
+        local after = HL:GetHonorByDay(2)
+        check(after[1].honor == 600 and after[2].label == "Today" and after[2].honor == 0 and HL:GetHonorSummary().today == 0, "HonorByDay: rolls over at midnight with the player online")
+        HL:AddHonorGain(40)
+        check(HL:GetHonorByDay(2)[2].honor == 40 and HL:GetHonorByDay(2)[1].honor == 600, "HonorByDay: the new day starts on its own")
+        clock = at(18, 10, 0)
+
+        -- hour buckets
+        char.history = {
+            game("win", "WSG", at(18, 2, 0)), game("loss", "WSG", at(18, 4, 59)), game("draw", "WSG", at(18, 3, 0)),
+            game("win", "WSG", at(18, 5, 0)), game("win", "WSG", at(17, 11, 59)),
+            game("loss", "WSG", at(16, 12, 0)), game("loss", "AV", at(16, 17, 59)),
+            game("left", "WSG", at(15, 18, 0)), game("draw", "WSG", at(15, 23, 59)),
+        }
+        local buckets = HL:GetWinRateByHour("character")
+        check(#buckets == 4 and buckets[1].key == "night" and buckets[2].key == "morning" and buckets[3].key == "afternoon" and buckets[4].key == "evening", "WinRateByHour: four buckets in order")
+        check(buckets[1].played == 2 and buckets[1].wins == 1 and buckets[1].winRate == 50, "WinRateByHour: night 0-5 (a draw is not counted)")
+        check(buckets[2].played == 2 and buckets[2].winRate == 100, "WinRateByHour: morning 5-12 starts at 5:00")
+        check(buckets[3].played == 2 and buckets[3].winRate == 0, "WinRateByHour: afternoon 12-18")
+        check(buckets[4].played == 0 and buckets[4].winRate == nil and buckets[4].label == "Evening", "WinRateByHour: evening has no decided game, so no rate")
+
+        -- H. Events with data
+        local seen = {}
+        local listener, other = {}, {}
+        local function listen(event)
+            seen[event] = {}
+            HL.RegisterCallback(listener, event, function(name, ...) seen[event][#seen[event] + 1] = { name = name, n = select("#", ...), ... } end)
+        end
+        for _, event in ipairs({ "HonorLog_GameRecorded", "HonorLog_RankUp", "HonorLog_WeekCapReached", "HonorLog_HonorCapNear", "HonorLog_GoalAcquired" }) do listen(event) end
+        check(HL.callbacks and type(HL.RegisterCallback) == "function" and type(HL.UnregisterCallback) == "function", "events: a callback registry on HonorLog")
+        local erroring = 0
+        HL.RegisterCallback(other, "HonorLog_GameRecorded", function() erroring = erroring + 1 error("listener failed") end)
+        local before = #char.history
+        HL:RecordGame("WSG", true, 100, 10, 1, { result = "win" })
+        check(#char.history == before + 1, "events: a listener that errors does not break RecordGame")
+        check(#seen.HonorLog_GameRecorded == 1 and seen.HonorLog_GameRecorded[1].name == "HonorLog_GameRecorded" and seen.HonorLog_GameRecorded[1][1] == char.history[1], "events: HonorLog_GameRecorded fires once with the saved entry")
+        check(erroring == 1 and #mock.secureErrors >= 1 and #mock.handledErrors == 0, "events: the erroring listener ran, its error stayed out of the caller")
+        HL.UnregisterCallback(other, "HonorLog_GameRecorded")
+        local realFire = HL.callbacks.Fire
+        HL.callbacks.Fire = function() error("registry failed") end
+        check(pcall(HL.Fire, HL, "HonorLog_GameRecorded", {}), "events: Fire never raises")
+        HL.callbacks.Fire = realFire
+        -- rank up: once per rank
+        char.rankCelebrated = 0
+        setRank(4, 40, 14, 3)
+        Rank:OnRenownChanged(2800, 4, 3)
+        Rank:OnRenownChanged(2800, 4, 3)
+        local ru = seen.HonorLog_RankUp
+        check(#ru == 1 and ru[1][1] == 4 and type(ru[1][2]) == "table" and ru[1][2].rank == 4, "events: HonorLog_RankUp fires once with the new rank and the rank info")
+        Rank:OnRenownChanged(2800, 5, 4)
+        check(#ru == 2 and ru[2][1] == 5, "events: the next rank fires again")
+        -- weekly cap
+        setRank(5, 100, 5, 3)
+        char.rankCapAlertWeek = 0
+        Rank:CheckCapAlert(Rank:GetInfo())
+        Rank:CheckCapAlert(Rank:GetInfo())
+        local wc = seen.HonorLog_WeekCapReached
+        check(#wc == 1 and type(wc[1][1]) == "table" and wc[1][1].capped and wc[1][1].weekCapRank == 5, "events: HonorLog_WeekCapReached fires once with the info")
+        -- honor cap
+        mock.currencies[1792].quantity = 24000
+        char.honorCapWarned = false
+        HL:CheckHonorCap()
+        HL:CheckHonorCap()
+        local hc = seen.HonorLog_HonorCapNear
+        check(#hc == 1 and hc[1][1] == 24000 and hc[1][2] == 25000, "events: HonorLog_HonorCapNear fires once with the amount and the cap")
+        mock.currencies[1792].quantity = 8200
+        -- goal acquired
+        check(HL:AddGoal(BLUE), "events: a goal to acquire")
+        mock.bagContents = { BLUE }
+        HL:ScanGoalsForAcquiredItems()
+        HL:ScanGoalsForAcquiredItems()
+        local ga = seen.HonorLog_GoalAcquired
+        check(#ga == 1 and ga[1][1] == BLUE, "events: HonorLog_GoalAcquired fires once with the item")
+        mock.bagContents = {}
+        HL.UnregisterCallback(listener, "HonorLog_GameRecorded")
+        HL:RecordGame("WSG", true, 100, 10, 1, { result = "win" })
+        check(#seen.HonorLog_GameRecorded == 1, "events: UnregisterCallback stops the calls")
+
+        -- put everything back
+        time = realTime -- luacheck: ignore 121
+        char.history, char.honorLog, char.honorDays = savedState.history, savedState.honorLog, savedState.honorDays
+        char.battlegrounds, HL.db.global.battlegrounds, HL.db.global.history = savedState.bgs, savedState.gbgs, savedState.ghist
+        char.goals, char.session, char.gateDisproved = savedState.goals, savedState.session, savedState.gate
+        char.rankCelebrated, char.rankCapAlertWeek, char.honorCapWarned = savedState.celebrated, savedState.capWeek, savedState.warned
+        mock.rank, mock.level, mock.weeklyReset = savedState.rank, savedState.level, savedState.reset
+        mock.rankWindow.cap, mock.rankWindow.week, mock.rankWindow.prevCap = savedState.window.cap, savedState.window.week, savedState.window.prevCap
+        HonorLogDB.scannedGear, HonorLogDB.scannedVendors = savedState.scannedGear, savedState.scannedVendors
+        mock.currencies[1792].quantity, mock.money, mock.bagContents = savedState.honor, savedState.money, savedState.bags
+    end
 
     -- The mock's registration rules are live: the restricted event raises.
     local ok = pcall(UIParent.RegisterEvent, UIParent, "COMBAT_LOG_EVENT_UNFILTERED")

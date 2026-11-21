@@ -59,6 +59,17 @@ local GetItemCount = Compat.GetItemCount
 -- Saved-variable layout version. 2 = Forever (EotS moved to `legacy`, new history fields).
 local DB_VERSION = 2
 
+-- Events with data: HonorLog.RegisterCallback(listener, "HonorLog_GameRecorded", function(event, entry) end).
+-- Names and arguments: HonorLog_GameRecorded (entry), HonorLog_RankUp (newRank, Rank:GetInfo()),
+-- HonorLog_WeekCapReached (info), HonorLog_HonorCapNear (current, cap), HonorLog_GoalAcquired (itemID).
+HonorLog.callbacks = LibStub("CallbackHandler-1.0"):New(HonorLog)
+
+-- Fire an event to the listeners. A listener that errors never reaches the caller.
+function HonorLog:Fire(event, ...)
+    local callbacks = self.callbacks
+    if callbacks then pcall(callbacks.Fire, callbacks, event, ...) end
+end
+
 -- Lifetime counters for one battleground. played counts every recorded game;
 -- win rate uses wins and losses only, draws and games left early are shown apart.
 local function NewBGStats()
@@ -507,6 +518,8 @@ function HonorLog:RecordGame(bgType, won, duration, honor, marks, extra)
     if self.OnDataUpdated then
         self:OnDataUpdated()
     end
+
+    self:Fire("HonorLog_GameRecorded", historyEntry)
 end
 
 -- Reset session stats
@@ -864,6 +877,8 @@ end
 function HonorLog:AddHonorGain(amount)
     if type(amount) ~= "number" or amount <= 0 then return end
     local log = RollHonorLog(self)
+    -- The per-day store first: when it is created now, its back-fill reads today's total before this gain.
+    if self.NoteHonorDay then self:NoteHonorDay(amount) end
     log.today = log.today + amount
     log.week = log.week + amount
     log.session = log.session + amount
@@ -1182,6 +1197,7 @@ function HonorLog:ScanGoalsForAcquiredItems()
         local itemName, _, itemQuality = GetItemInfo(itemID)
         itemName = itemName or "Item"
         self:CompleteGoal(itemID)
+        self:Fire("HonorLog_GoalAcquired", itemID)
 
         -- Celebratory notification!
         -- 1. Play quest complete sound
@@ -1432,6 +1448,14 @@ local function VendorKindFor(base)
     return nil
 end
 
+-- The kind of vendor that sells an item (armor, weapons, accessories, mount, supply) and, for a supply
+-- officer, the reputation faction: kind, repFaction. nil when the item is not in the database.
+function HonorLog:GetVendorKind(itemID)
+    local base = self.GearDB and self.GearDB[itemID]
+    if not base then return nil end
+    return VendorKindFor(base)
+end
+
 -- { name, role, place, map, x, y, npc, source = "scan" | "builtin" } for the vendor that sells an
 -- item, or nil. x and y are percent of the map and may be missing.
 function HonorLog:GetVendorFor(itemID)
@@ -1598,7 +1622,7 @@ local function ClassUsesWeapon(class, itemID)
 end
 
 -- Items the picker lists. filters: slot, class (nil = any class), armor, source, search (lower case),
--- showUnverified, hideOwned. Faction is never a filter: it is always the player's own plus neutral items.
+-- showUnverified, hideOwned, keepGoals (also list items already on the goal list). Faction is never a filter: it is always the player's own plus neutral items.
 function HonorLog:GetPickerItems(filters)
     filters = filters or {}
     local faction = UnitFactionGroup("player")
@@ -1630,7 +1654,7 @@ function HonorLog:GetPickerItems(filters)
             if not name:find(filters.search, 1, true) then pass = false end
         end
         if pass and filters.hideOwned and GetItemCount(itemID, true) > 0 then pass = false end
-        if pass and self:IsGoal(itemID) then pass = false end
+        if pass and not filters.keepGoals and self:IsGoal(itemID) then pass = false end
         if pass then out[#out + 1] = { itemID = itemID, data = data, name = self:GetGearName(itemID) or data.name } end
     end
     table.sort(out, function(a, b)
