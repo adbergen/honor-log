@@ -214,6 +214,10 @@ function methods.GetAlpha(self) return self.__alpha or 1 end
 function methods.CreateFontString(self) return newObject("FontString", self) end
 function methods.CreateAnimationGroup(self) return newObject("AnimationGroup", self) end
 function methods.CreateAnimation(self) return newObject("Animation", self) end
+-- An animation group remembers whether it plays; a test ends it with group.__scripts.OnFinished(group, false).
+function methods.Play(self) self.__playing = true; return self end
+function methods.Stop(self) self.__playing = false; return self end
+function methods.IsPlaying(self) return self.__playing == true end
 function methods.SetScrollChild(self, c) self.__scrollchild = c; return self end
 
 -- ─── Globals ─────────────────────────────────────────────────────────
@@ -338,7 +342,7 @@ for _, e in ipairs({
     "BAG_UPDATE_DELAYED", "POST_MATCH_CURRENCY_REWARD_UPDATE", "POST_MATCH_ITEM_REWARD_UPDATE", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
     "PARTY_KILL", "UPDATE_FACTION", "PLAYER_LEVEL_UP", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
-    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN", "CHAT_MSG_ADDON",
+    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN", "CHAT_MSG_ADDON", "PLAYER_REGEN_ENABLED",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }

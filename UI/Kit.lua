@@ -1335,3 +1335,82 @@ function Kit:Chips(parent, onSelect)
     end
     return chips
 end
+
+--------------------------------------------------------------------------------
+-- Card
+--------------------------------------------------------------------------------
+
+Kit.CARD_STRIP = 24
+
+-- The chrome every pop-up card shares (UI/Moments.lua): a dark ground, a 1 pixel gold edge, a title strip with a
+-- gold title and a close button at the top right, and honorLogBody, a plain frame under the strip for the content.
+-- card:SetTitle(text) names it, card:SetBodyHeight(h) sizes it. A plain frame of our own at strata HIGH, hidden
+-- until its owner shows it; it is not registered for the Escape key, so the scoreboard and the other windows
+-- keep it. The close button is Blizzard's UIPanelCloseButton when the client has it (its art and click are
+-- Blizzard's; nothing of ours is put on it but honorLog... names), else a drawn square with an "x". Its click
+-- hides the card; the owner replaces the click when it has more to do.
+function Kit:Card(name, width)
+    width = num(width) or 360
+    local gold = Kit.COLORS.gold
+    local card = CreateFrame("Frame", name, UIParent)
+    card:SetSize(width, Kit.CARD_STRIP + 2)
+    card:SetFrameStrata("HIGH")
+    card:SetClampedToScreen(true)
+    card:EnableMouse(true)
+    card:Hide()
+    fill(card, 0.06, 0.055, 0.05, 0.97)
+    Kit:Edges(card, gold[1], gold[2], gold[3], 1)
+
+    local strip = card:CreateTexture(nil, "BORDER")
+    strip:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -1)
+    strip:SetPoint("TOPRIGHT", card, "TOPRIGHT", -1, -1)
+    strip:SetHeight(Kit.CARD_STRIP - 1)
+    strip:SetColorTexture(0.16, 0.12, 0.11, 1)
+    card.honorLogStrip = strip
+
+    -- 34 pixels stay clear at the right for the close button
+    local title = Kit:FixedText(card, "label", width - 44)
+    title:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -6)
+    card.honorLogTitleText = title
+    function card:SetTitle(text)
+        self.honorLogTitle = text
+        title:SetText(text or "")
+    end
+
+    local close = tryTemplate("Button", nil, card, "UIPanelCloseButton")
+    if close then
+        close:SetSize(Kit.CARD_STRIP, Kit.CARD_STRIP)
+        close:SetPoint("TOPRIGHT", card, "TOPRIGHT", 0, 0)
+        card.honorLogCloseTemplate = "UIPanelCloseButton"
+    else
+        close = CreateFrame("Button", nil, card)
+        close:SetSize(20, 20)
+        close:SetPoint("TOPRIGHT", card, "TOPRIGHT", -3, -2)
+        fill(close, 0.16, 0.06, 0.05, 1)
+        Kit:Edges(close, 0.45, 0.42, 0.38, 1)
+        local hl = close:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints(close)
+        hl:SetColorTexture(1, 1, 1, 0.12)
+        local x = Kit:Text(close, "label")
+        x:SetPoint("CENTER", 0, 0)
+        x:SetText("x")
+        close.honorLogLabel = x
+        card.honorLogCloseTemplate = false
+    end
+    close:SetScript("OnClick", function() card:Hide() end)
+    card.honorLogClose = close
+
+    local body = CreateFrame("Frame", nil, card)
+    body:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -(Kit.CARD_STRIP + 1))
+    body:SetSize(width - 2, 1)
+    card.honorLogBody = body
+
+    -- The card is the strip, the body and the two edges.
+    function card:SetBodyHeight(h)
+        h = math.max(0, num(h) or 0)
+        body:SetHeight(h)
+        self:SetHeight(Kit.CARD_STRIP + 2 + h)
+    end
+    card:SetBodyHeight(0)
+    return card
+end

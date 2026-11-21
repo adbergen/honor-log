@@ -55,7 +55,7 @@ local function run()
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Moments.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3730,6 +3730,51 @@ local function run()
         HL.Rank.GetInfo = realTitle
         for i = #mock.handledErrors, before2 + 1, -1 do mock.handledErrors[i] = nil end
 
+        -- ═══ Moments: the click-everything pass over the three cards (called from the integration pass) ═══
+        ;(function()
+            function mock.momentsPass(label)
+                local M = HL.Moments
+                for kind in pairs(M.states) do M:Close(kind) M.states[kind] = nil end -- rebuilt under this pass's templates
+                local first = #mock.frames + 1
+                M:Show("report", { bgType = "AB", result = "win", duration = 800, honor = 400, marks = 3, rankPoints = 25, rankState = "earned", kb = 6, hk = 9, timestamp = time(),
+                    rep = { faction = 509, gained = 200 } })
+                M:Show("rankUp", { rank = 3, info = HL.Rank:GetInfo() })
+                M:Show("honorCap", { current = 23000, cap = 25000 })
+                local n = 0
+                local function inCard(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f.honorLogState then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local list = {}
+                for i = first, #mock.frames do
+                    if inCard(mock.frames[i]) then list[#list + 1] = mock.frames[i] end
+                end
+                for _, f in ipairs(list) do
+                    if f.__scripts.OnEnter then f.__scripts.OnEnter(f, false) n = n + 1 end
+                    if f.__scripts.OnLeave then f.__scripts.OnLeave(f) end
+                end
+                local errorsBefore = #mock.handledErrors
+                for _, f in ipairs(list) do
+                    if f.__scripts.OnClick then
+                        f.__scripts.OnClick(f, "LeftButton") n = n + 1
+                        for kind in pairs(M.states) do
+                            if not M.states[kind].card:IsShown() then
+                                M:Show(kind, M.states[kind].data) -- a click that closed the card: show it again for the next ones
+                            end
+                        end
+                    end
+                end
+                check(n > 15, label .. "moments: the integration pass touched " .. n .. " controls on the three cards")
+                check(#mock.handledErrors == errorsBefore, label .. "moments: clicking every control raised nothing: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+                for kind in pairs(M.states) do M:Close(kind) end
+                Window:Hide()
+            end
+        end)()
+
         -- ── Integration: every control, twice ───────────────────────────────────────
         char.history = games
         local function integration(label)
@@ -3789,6 +3834,7 @@ local function run()
             check(n > 20, label .. "integration clicked " .. n .. " controls")
             check(gearClicks > 25, label .. "integration clicked " .. gearClicks .. " controls on the Gear goals screen")
             check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
+            mock.momentsPass(label)
             S3.windowBattleground, S3.windowResult, S3.viewMode = savedBg.bg, savedBg.result, savedBg.view
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
             HL.GearScreen.mode = "goals"
@@ -5575,6 +5621,646 @@ local function run()
             db.char.history, db.global.history = save.history, save.ghistory
             S.windowTab, S.windowBattleground, S.windowResult, S.viewMode = "overview", save.bg, save.result, save.view
             Window:Hide()
+        end)()
+
+        -- ═══ Moments: Kit:Card, Announce quiet, and the report, rank-up and honor cap cards ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, M = HL.Kit, HL.Moments
+            local S = HL.db.settings
+            local db = HL.db
+            local secret = mock.newSecret
+            local function foreign(frame)
+                local bad = {}
+                for k in pairs(frame) do
+                    if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") then bad[#bad + 1] = k end
+                end
+                table.sort(bad)
+                return table.concat(bad, ",")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local function closeAll() for kind in pairs(M.states) do M:Close(kind) end end
+            local function last(f) return f.__points and f.__points[#f.__points] end
+            local save = { settings = { S.momentReport, S.momentRankUp, S.momentHonorCap, S.momentSeconds }, deferred = mock.deferTimers,
+                history = db.char.history, bgs = db.char.battlegrounds, honor = HL.GetCurrentHonor, cap = HL.GetHonorCap,
+                goals = HL.GetAllGoalsProgress, ready = HL.GoalReadyText, model = HL.GetBattlegroundModel, marks = HL.GetCurrentMarks,
+                unlocks = HL.GetRankUnlocks, gear = HL.GetGearName, buy = HL.GetBuyableNow, advice = HL.GetHonorCapAdvice,
+                showItem = HL.ShowVendorForItem, rankInfo = HL.Rank.GetInfo, pace = HL.Rank.GetPace, plan = HL.Rank.PlanToRank,
+                describe = HL.DescribeRankPoints, currency = C_CurrencyInfo.GetCurrencyInfo, format = HL.Rank.FormatNumber }
+            S.momentReport, S.momentRankUp, S.momentHonorCap, S.momentSeconds = true, true, true, 12
+            mock.deferTimers, mock.timers, mock.combat = true, {}, false
+            local framesBefore = #mock.frames
+
+            -- ── defaults and the options ──
+            check(save.settings[1] == true and save.settings[2] == true and save.settings[3] == true and save.settings[4] == 12, "moments: the saved settings start on, 12 seconds")
+            for _, c in ipairs({ { "HonorLogMomentReportCheck", "momentReport" }, { "HonorLogMomentRankUpCheck", "momentRankUp" }, { "HonorLogMomentHonorCapCheck", "momentHonorCap" } }) do
+                local box = _G[c[1]]
+                check(box ~= nil and type(box.tooltipText) == "string" and box.tooltipText ~= "", "moments: the options have " .. c[1] .. " with a tooltip")
+                rawset(box, "GetChecked", function() return false end)
+                box.__scripts.OnClick(box)
+                check(S[c[2]] == false, "moments: " .. c[1] .. " switches " .. c[2] .. " off")
+                rawset(box, "GetChecked", function() return true end)
+                box.__scripts.OnClick(box)
+                check(S[c[2]] == true, "moments: " .. c[1] .. " switches " .. c[2] .. " on")
+            end
+            check(_G.HonorLogMomentReportCheck.Text:GetText() == "Game report card" and _G.HonorLogMomentRankUpCheck.Text:GetText() == "Rank-up card"
+                and _G.HonorLogMomentHonorCapCheck.Text:GetText() == "Honor cap card", "moments: the three options are named for the cards")
+
+            -- ── Kit:Card ──
+            do
+                local holder = CreateFrame("Frame", nil, UIParent)
+                local card = Kit:Card("HonorLogTestCard", 300)
+                check(not card:IsShown() and card.honorLogCloseTemplate == "UIPanelCloseButton" and foreign(card.honorLogClose) == "", "card: hidden, with Blizzard's close button carrying only honorLog names: " .. foreign(card.honorLogClose))
+                card:SetTitle("Hello")
+                check(card.honorLogTitle == "Hello" and card.honorLogTitleText:GetText() == "Hello", "card: SetTitle sets the gold title")
+                check(card.honorLogBody ~= nil and card.honorLogBody.__parent == card and card.honorLogEdges and #card.honorLogEdges == 4, "card: a body frame and a 1 px edge")
+                card:SetBodyHeight(100)
+                check(card:GetHeight() == Kit.CARD_STRIP + 2 + 100 and card.honorLogBody:GetHeight() == 100 and card:GetWidth() == 300, "card: SetBodyHeight sizes the card")
+                card:Show()
+                card.honorLogClose.__scripts.OnClick(card.honorLogClose)
+                check(not card:IsShown(), "card: the close button hides it")
+                for _, name in ipairs(UISpecialFrames) do check(name ~= "HonorLogTestCard", "card: it is not registered for the Escape key") end
+                mock.missingTemplates = { ["*"] = true }
+                local plainCard = Kit:Card(nil, 300)
+                mock.missingTemplates = {}
+                check(plainCard.honorLogCloseTemplate == false and plainCard.honorLogClose.honorLogLabel:GetText() == "x", "card: without the template the close button is drawn with an x")
+                plainCard:Show()
+                plainCard.honorLogClose.__scripts.OnClick(plainCard.honorLogClose)
+                check(not plainCard:IsShown(), "card: the drawn close button hides it")
+                mock.hollowTemplates = { UIPanelCloseButton = true }
+                local hollowCard = Kit:Card(nil, 300)
+                mock.hollowTemplates = {}
+                check(hollowCard.honorLogCloseTemplate == false, "card: a hollow template is treated as missing")
+                check(holder ~= nil, "card: done")
+            end
+
+            -- ── Announce with and without quiet ──
+            do
+                local notices, errorLines, sounds = 0, 0, 0
+                local realRaid, realBoss, realPlay = _G.RaidNotice_AddMessage, _G.RaidBossEmoteFrame, _G.PlaySound
+                _G.RaidNotice_AddMessage, _G.RaidBossEmoteFrame = function() notices = notices + 1 end, {}
+                _G.PlaySound = function() sounds = sounds + 1 end
+                rawset(UIErrorsFrame, "AddMessage", function() errorLines = errorLines + 1 end)
+                local before = #printed
+                HL:Announce("Loud")
+                check(notices == 1 and errorLines == 1 and sounds == 1 and #printed == before + 1, "announce: sound, notice, error line and chat line")
+                HL:Announce("Quiet", nil, nil, nil, true)
+                check(notices == 1 and errorLines == 1 and sounds == 2 and #printed == before + 2 and printed[#printed]:find("Quiet", 1, true), "announce: quiet keeps the sound and the chat line only")
+                HL:Announce("False", nil, nil, nil, false)
+                check(notices == 2 and errorLines == 2, "announce: quiet = false is the same as before")
+
+                -- the moments: card on = quiet, card off = as before; the chat line always
+                closeAll()
+                S.momentHonorCap, S.momentRankUp = true, true
+                S.honorCapWarning, db.char.honorCapWarned = true, false
+                mock.currencies[1792].quantity = 24000
+                notices, errorLines = 0, 0
+                local lines = #printed
+                HL:CheckHonorCap()
+                check(notices == 0 and errorLines == 0 and printed[#printed]:find("Honor cap:", 1, true) and #printed == lines + 1, "moments: with the honor cap card on, no centre text and no error line, the chat line stays")
+                check(M.states.honorCap and M.states.honorCap.card:IsShown(), "moments: the honor cap card shows on the event")
+                closeAll()
+                S.momentHonorCap, db.char.honorCapWarned = false, false
+                HL:CheckHonorCap()
+                check(notices == 1 and errorLines == 1 and not M.states.honorCap.card:IsShown(), "moments: with the honor cap card off, the centre text and the error line are as before and no card shows")
+                S.momentHonorCap, db.char.honorCapWarned = true, false
+                mock.currencies[1792].quantity = save.settings[3] and 18832 or 18832
+
+                notices, errorLines = 0, 0
+                db.char.rankCelebrated = 0
+                lines = #printed
+                HL.Rank:OnRenownChanged(2800, 9, 8)
+                local rankLine
+                for i = lines + 1, #printed do if printed[i]:find("Rank 9", 1, true) then rankLine = printed[i] end end
+                check(notices == 0 and errorLines == 0 and rankLine, "moments: the rank-up chat line stays with the card on")
+                check(M.states.rankUp and M.states.rankUp.card:IsShown() and M.states.rankUp.parts.rankNumber:GetText() == "9", "moments: the rank-up card shows on the event")
+                closeAll()
+                S.momentRankUp, db.char.rankCelebrated = false, 0
+                HL.Rank:OnRenownChanged(2800, 10, 9)
+                check(notices == 1 and errorLines == 1 and not M.states.rankUp.card:IsShown(), "moments: with the rank-up card off the notice is as before")
+                S.momentRankUp = true
+                db.char.rankCelebrated = 0
+                _G.RaidNotice_AddMessage, _G.RaidBossEmoteFrame, _G.PlaySound = realRaid, realBoss, realPlay
+                rawset(UIErrorsFrame, "AddMessage", nil)
+            end
+
+            -- ── the game recorded event, and the stack ──
+            closeAll()
+            HL.GetAllGoalsProgress, HL.GoalReadyText = function() return {} end, save.ready
+            local rec = { bgType = "AB", result = "win", duration = 872, honor = 412, marks = 3, rankPoints = 25, rankState = "earned",
+                kb = 6, hk = 20, timestamp = time(), rep = { faction = 509, gained = 200 },
+                teams = { [0] = { score = 1180 }, [1] = { score = 1600 } } }
+            S.momentReport = false
+            HL:Fire("HonorLog_GameRecorded", rec)
+            check(not (M.states.report and M.states.report.card:IsShown()), "moments: a recorded game shows no card with the report card off")
+            S.momentReport = true
+            HL:Fire("HonorLog_GameRecorded", rec)
+            local report = M.states.report
+            check(report and report.card:IsShown() and #M.order == 1, "moments: a recorded game shows the report card with it on")
+            local pt = last(report.card)
+            check(pt[1] == "TOP" and pt[2] == UIParent and pt[3] == "TOP" and pt[4] == 0 and pt[5] == -140, "moments: the first card hangs 140 px from the top centre")
+            M:Show("rankUp", { rank = 3 })
+            M:Show("honorCap", { current = 1000, cap = 25000 })
+            local rank, cap = M.states.rankUp, M.states.honorCap
+            local p2, p3 = last(rank.card), last(cap.card)
+            check(M.order[1] == "report" and M.order[2] == "rankUp" and M.order[3] == "honorCap", "moments: cards stack in the order they were shown")
+            check(p2[1] == "TOP" and p2[2] == report.card and p2[3] == "BOTTOM" and p2[5] == -8 and p3[2] == rank.card and p3[5] == -8, "moments: each card hangs 8 px under the one before")
+            M:Close("report")
+            pt, p2 = last(rank.card), last(cap.card)
+            check(pt[2] == UIParent and pt[5] == -140 and p2[2] == rank.card and #M.order == 2 and not report.card:IsShown(), "moments: when a card closes the others move up")
+            local framesCount = #mock.frames
+            M:Show("rankUp", { rank = 4 })
+            check(#M.order == 2 and #mock.frames == framesCount and rank.parts.rankNumber:GetText() == "4" and last(rank.card)[2] == UIParent, "moments: the same kind again replaces its content, keeps its place and builds nothing")
+            closeAll()
+            check(#M.order == 0 and not M:Shows("nonsense") and M:Show("nonsense") == false, "moments: unknown kinds are refused")
+
+            -- ── a fight holds a card back ──
+            do
+                mock.combat = true
+                check(M:Show("honorCap", { current = 24000, cap = 25000 }) == "waiting" and not M.states.honorCap.card:IsShown(), "moments: a card asked for in a fight waits")
+                M:Show("honorCap", { current = 24500, cap = 25000 })
+                M:Show("rankUp", { rank = 5 })
+                check(not M.states.rankUp or not M.states.rankUp.card:IsShown(), "moments: the second waits too")
+                mock.combat = false
+                mock.fireEvent("PLAYER_REGEN_ENABLED")
+                check(M.states.honorCap.card:IsShown() and M.states.rankUp.card:IsShown() and M.order[1] == "honorCap" and M.order[2] == "rankUp", "moments: both show, in order, when the fight ends")
+                check(M.states.honorCap.parts.headText:GetText() == "Honor is at 24,500 / 25,000", "moments: the waiting card shows the newest data asked for")
+                mock.fireEvent("PLAYER_REGEN_ENABLED")
+                check(#M.order == 2, "moments: a second end of fight shows nothing more")
+                closeAll()
+                check(mock.knownEvents.PLAYER_REGEN_ENABLED and not mock.restrictedEvents.PLAYER_REGEN_ENABLED, "moments: the regen event is not restricted")
+            end
+
+            -- ── the timer ──
+            do
+                local card = function() return M.states.rankUp end
+                M:Show("rankUp", { rank = 5 })
+                local st = card()
+                mock.advance(11.9)
+                check(st.card:IsShown() and not st.fade.__playing, "timer: still up before momentSeconds")
+                mock.advance(0.2)
+                check(st.fade.__playing and st.card:IsShown(), "timer: the fade starts at momentSeconds")
+                st.fade.__scripts.OnFinished(st.fade, true)
+                check(st.card:IsShown(), "timer: a Stop() that reports finished does not hide the card")
+                st.fade.__scripts.OnFinished(st.fade, false)
+                check(not st.card:IsShown() and #M.order == 0 and st.card:GetAlpha() == 1, "timer: the card hides when the fade ends")
+                check(st.fadeAlpha ~= nil and st.fade.__scripts.OnFinished ~= nil, "timer: fading is an animation group")
+
+                S.momentSeconds = 0
+                M:Show("rankUp", { rank = 5 })
+                mock.advance(1000)
+                check(st.card:IsShown() and not st.fade.__playing, "timer: 0 means the card stays until it is closed")
+                S.momentSeconds = 12
+                M:Show("rankUp", { rank = 5 })
+                -- held under the mouse
+                mock.advance(5)
+                st.card.__scripts.OnEnter(st.card)
+                mock.advance(100)
+                check(st.card:IsShown() and not st.fade.__playing, "timer: held while the mouse is over the card")
+                st.card.__scripts.OnLeave(st.card)
+                mock.advance(3.9)
+                check(not st.fade.__playing, "timer: four seconds after the mouse leaves, not before")
+                mock.advance(0.2)
+                check(st.fade.__playing, "timer: the fade starts four seconds after the mouse leaves")
+                -- the mouse during a fade stops it
+                st.card.__scripts.OnEnter(st.card)
+                check(not st.fade.__playing and st.card:GetAlpha() == 1, "timer: the mouse over a fading card brings it back")
+                -- leaving the card for one of its controls keeps it held
+                rawset(st.card, "IsMouseOver", function() return true end)
+                st.card.__scripts.OnLeave(st.card)
+                mock.advance(100)
+                check(not st.fade.__playing, "timer: moving onto a control of the card does not restart the timer")
+                rawset(st.card, "IsMouseOver", nil)
+                st.card.__scripts.OnLeave(st.card)
+                mock.advance(4.1)
+                check(st.fade.__playing, "timer: leaving for real restarts it")
+                -- controls hold it too
+                M:Show("rankUp", { rank = 5 })
+                st.parts.button.__scripts.OnEnter(st.parts.button)
+                mock.advance(100)
+                check(not st.fade.__playing, "timer: the mouse over a button holds the timer")
+                st.parts.button.__scripts.OnLeave(st.parts.button)
+                mock.advance(4.1)
+                check(st.fade.__playing, "timer: the button's leave restarts it")
+                -- close at once
+                M:Show("rankUp", { rank = 5 })
+                st.card.honorLogClose.__scripts.OnClick(st.card.honorLogClose)
+                check(not st.card:IsShown() and #M.order == 0, "timer: the close button hides the card at once")
+                mock.advance(100)
+                check(not st.card:IsShown(), "timer: an old timer does nothing after a close")
+                -- an old timer does nothing after the card was shown again
+                M:Show("rankUp", { rank = 5 })
+                mock.advance(8)
+                M:Show("rankUp", { rank = 6 })
+                mock.advance(5)
+                check(not st.fade.__playing, "timer: showing again restarts the time")
+                mock.advance(8)
+                check(st.fade.__playing, "timer: and it ends twelve seconds after the second showing")
+                closeAll()
+            end
+
+            -- ── Moments.Highlight ──
+            do
+                local now = time()
+                local function g(bgType, result, kb, ago) return { bgType = bgType, result = result, kb = kb, timestamp = now - (ago or 0) } end
+                local r = g("AB", "loss", 3, 0)
+                local text, kind = M.Highlight(r, { r })
+                check(text == "3 killing blows, your best in Arathi Basin this week." and kind == "kills", "highlight: three killing blows is enough: " .. tostring(text))
+                check(M.Highlight(g("AB", "loss", 2), {}) == nil, "highlight: two killing blows is not")
+                r = g("AB", "loss", 6)
+                check(M.Highlight(r, { r, g("AB", "win", 8, 3600) }) == nil, "highlight: not the best of the week")
+                text = M.Highlight(r, { r, g("AB", "win", 8, 3600 * 24 * 9), g("WSG", "win", 20, 60), g("AB", "win", 6, 100) })
+                check(text and text:find("^6 killing blows"), "highlight: an older week, another battleground and a tie do not count against it")
+                text = M.Highlight(r, { r, g("AB", "win", 8, 3600 * 24 * 2) }, now - 3600)
+                check(text and text:find("^6 killing blows"), "highlight: the week start can be given")
+                local win = g("AV", "win", 0)
+                text, kind = M.Highlight(win, { win, g("WSG", "win"), g("AB", "win") })
+                check(text == "That is 3 wins in a row." and kind == "streak", "highlight: three wins in a row across battlegrounds: " .. tostring(text))
+                check(M.Highlight(win, { win, g("WSG", "win") }) == nil, "highlight: two wins are not a run")
+                check(M.Highlight(win, { win, g("WSG", "win"), g("AB", "draw"), g("AB", "win"), g("AB", "win") }) == nil, "highlight: a draw ends the run")
+                text = M.Highlight(win, { win, g("WSG", "win"), g("AB", "win"), g("AB", "win") })
+                check(text == "That is 4 wins in a row.", "highlight: four")
+                check(M.Highlight(g("AV", "loss", 0), { g("WSG", "win"), g("AB", "win"), g("AB", "win") }) == nil, "highlight: a lost game has no run")
+                local copy = { bgType = "AV", result = "win", timestamp = win.timestamp }
+                text = M.Highlight(copy, { win, g("WSG", "win"), g("AB", "win") })
+                check(text == "That is 3 wins in a row.", "highlight: a copy of a saved game is found by its time")
+                local both = g("AB", "win", 5)
+                text = M.Highlight(both, { both, g("AV", "win"), g("AV", "win") })
+                check(text:find("killing blows") ~= nil, "highlight: killing blows come before the run")
+                check(M.Highlight(nil, nil) == nil and M.Highlight({}, nil) == nil, "highlight: nothing to say about no record")
+            end
+
+            -- ── the report card ──
+            do
+                local function reportOf(record)
+                    closeAll()
+                    M:Show("report", record)
+                    return M.states.report.parts, M.states.report
+                end
+                mock.faction = "Alliance"
+                HL.GetBattlegroundModel = function() return { honorPerGame = 398 } end
+                HL.GetCurrentMarks = function() return 9 end
+                db.char.history = { rec }
+                local p, st = reportOf(rec)
+                check(st.card.honorLogTitle == "HonorLog: game report" and st.card:GetWidth() == 420, "report: titled and 420 wide")
+                check(p.word:GetText() == "Victory" and p.mark.honorLogKind == "up" and p.mark.honorLogColor == "green" and p.word.__textColor[2] > p.word.__textColor[1], "report: Victory in green with an up arrow")
+                check(p.name:GetText() == "Arathi Basin", "report: the full battleground name")
+                check(p.sub:GetText() == HL:FormatDuration(872) .. " \194\183 1,600 to 1,180", "report: length and score: " .. tostring(p.sub:GetText()))
+                for result, spec in pairs({ loss = { "Defeat", "down" }, draw = { "Draw", "flat" }, left = { "Left early", "cross" } }) do
+                    local copy = {} for k, v in pairs(rec) do copy[k] = v end
+                    copy.result = result
+                    p = reportOf(copy)
+                    check(p.word:GetText() == spec[1] and p.mark.honorLogKind == spec[2], "report: " .. result .. " is the word " .. spec[1] .. " and the " .. spec[2] .. " mark")
+                end
+                p = reportOf({ bgType = "AB", win = true, duration = 60 })
+                check(p.word:GetText() == "Victory", "report: an old record with win = true is a win")
+                local noScore = {} for k, v in pairs(rec) do noScore[k] = v end
+                noScore.teams = { [0] = { kb = 1 }, [1] = { kb = 2 } }
+                p = reportOf(noScore)
+                check(p.sub:GetText() == HL:FormatDuration(872), "report: without team scores the line is the length only: " .. tostring(p.sub:GetText()))
+                noScore.teams, noScore.duration = nil, nil
+                p = reportOf(noScore)
+                check(p.sub:GetText() == "", "report: with neither, the line is empty")
+                local noMark = Kit:Chart(UIParent)
+                check(noMark.Line ~= nil, "report: the mark is a kit chart")
+                -- a client without lines draws a letter for the slanted ones
+                mock.noCreateLine = true
+                p = reportOf(rec)
+                check(p.mark.honorLogGlyph:IsShown() and p.mark.honorLogGlyph:GetText() == "^", "report: without Line regions a letter stands in for the arrow")
+                mock.noCreateLine = false
+                p = reportOf(rec)
+                check(not p.mark.honorLogGlyph:IsShown(), "report: with Line regions no letter")
+
+                -- tiles
+                mock.reputation[509] = 4
+                p = reportOf(rec)
+                local t = p.tiles
+                check(p.tileCount == 4 and t[1]:IsShown() and t[4]:IsShown() and t[1]:GetWidth() == 92 and t[4]:GetWidth() == 92, "report: four tiles of 92 px")
+                check(t[1].label:GetText() == "Honor" and t[1].value:GetText() == "+412" and t[1].note:GetText() == "Average 398", "report: the honor tile and its average")
+                check(t[2].label:GetText() == "Rank points" and t[2].value:GetText() == "+25" and t[2].note:GetText() == "+25" and t[2].honorLogTipButton.honorLogText == "+25", "report: the rank points tile with the whole text as tooltip")
+                check(t[3].label:GetText() == "Marks" and t[3].value:GetText() == "+3" and t[3].note:GetText() == "9 in your bags" and p.markIcon.honorLogBG == "AB", "report: the marks tile with the battleground's mark")
+                check(t[4].label:GetText() == "Reputation" and t[4].value:GetText() == "+200" and t[4].note:GetText() == "Faction 509", "report: the reputation tile names the faction: " .. tostring(t[4].note:GetText()))
+                mock.reputation[509] = nil
+                p = reportOf(rec)
+                check(p.tiles[4].note:GetText() == "Arathi Basin", "report: an unknown faction name falls back to the battleground")
+                local noRep = {} for k, v in pairs(rec) do noRep[k] = v end
+                noRep.rep = nil
+                p = reportOf(noRep)
+                check(p.tileCount == 4 and p.tiles[4].label:GetText() == "Killing blows" and p.tiles[4].value:GetText() == "6" and p.tiles[4].note:GetText() == "20 honorable kills", "report: killing blows take the fourth tile when there is no reputation")
+                noRep.kb = nil
+                p = reportOf(noRep)
+                check(p.tileCount == 3 and not p.tiles[4]:IsShown() and p.tiles[1]:GetWidth() == 126 and p.tiles[3]:GetWidth() == 126, "report: three tiles of 126 px when there is nothing for a fourth")
+                noRep.kb, noRep.rep = 0, { faction = 509, gained = 0 }
+                p = reportOf(noRep)
+                check(p.tileCount == 3, "report: no killing blows and no reputation gain: three tiles")
+                local capped = {} for k, v in pairs(rec) do capped[k] = v end
+                capped.honorCapped, capped.rankPoints, capped.rankState = true, 0, "capped"
+                p = reportOf(capped)
+                check(p.tiles[1].note:GetText() == "At the honor cap" and p.tiles[2].value:GetText() == "0" and p.tiles[2].note:GetText() == "0, weekly cap reached"
+                    and p.tiles[2].note.__textColor[1] == Kit.COLORS.orange[1], "report: the cap note, zero rank points and the reason in orange")
+                local bare = { bgType = "WSG", result = "loss" }
+                p = reportOf(bare)
+                check(p.tiles[1].value:GetText() == "-" and p.tiles[2].value:GetText() == "-" and p.tiles[3].value:GetText() == "+0" and p.tileCount == 3, "report: a record without numbers draws dashes")
+                HL.GetBattlegroundModel = function() return nil end
+                p = reportOf(rec)
+                check(p.tiles[1].note:GetText() == "", "report: no model, no average")
+                HL.GetBattlegroundModel = function() return { honorPerGame = 398 } end
+
+                -- the highlight
+                db.char.history = { rec }
+                p = reportOf(rec)
+                check(p.light:IsShown() and p.lightText:GetText() == "6 killing blows, your best in Arathi Basin this week." and p.lightTip.honorLogText == p.lightText:GetText(), "report: the killing blows line")
+                local streak = { bgType = "AV", result = "win", timestamp = time() }
+                db.char.history = { streak, { bgType = "AB", result = "win", timestamp = time() - 5 }, { bgType = "WSG", result = "win", timestamp = time() - 9 } }
+                p = reportOf(streak)
+                check(p.light:IsShown() and p.lightText:GetText() == "That is 3 wins in a row.", "report: the run line")
+                db.char.history = { { bgType = "AV", result = "win", timestamp = time() } }
+                p = reportOf(db.char.history[1])
+                check(not p.light:IsShown(), "report: no line when neither applies")
+                local sectionsBefore = select(2, reportOf(rec)).card:GetHeight()
+                p, st = reportOf(db.char.history[1])
+                check(st.card:GetHeight() < sectionsBefore, "report: the card is shorter without the line")
+
+                -- next goal
+                HL.GetAllGoalsProgress = function() return { { itemID = 272738, name = "Premier Cloak", isComplete = false }, { itemID = 20041, name = "Second" } } end
+                HL.GoalReadyText = function() return "|cff40d860Ready at level 55|r" end
+                p = reportOf(rec)
+                check(p.goal:IsShown() and p.goalIcon.honorLogItemID == 272738 and p.goalName:GetText() == "Premier Cloak" and p.goalText:GetText() == "|cff40d860Ready at level 55|r"
+                    and p.goalTip.honorLogText == "Premier Cloak\nReady at level 55" and p.goalIcon.honorLogTexture ~= nil, "report: the next goal with icon, name and ready text")
+                HL.GetAllGoalsProgress = function() return {} end
+                p = reportOf(rec)
+                check(not p.goal:IsShown(), "report: without goals no goal section")
+                HL.GetAllGoalsProgress = function() error("goals gone") end
+                noErrors("report: a goals read that raises", function() p = reportOf(rec) end)
+                check(not p.goal:IsShown() and p.tiles[1].value:GetText() == "+412", "report: and the rest is drawn")
+                HL.GetAllGoalsProgress = function() return {} end
+
+                -- the honor bar
+                HL.GetCurrentHonor, HL.GetHonorCap = function() return 18832 end, function() return 25000 end
+                p = reportOf(rec)
+                check(p.honor:IsShown() and p.honorValue:GetText() == "18,832 / 25,000" and math.abs(p.honorBar.honorLogFraction - 18832 / 25000) < 1e-9, "report: honor held over the cap")
+                HL.GetHonorCap = function() return nil end
+                p = reportOf(rec)
+                check(not p.honor:IsShown(), "report: no cap, no bar")
+                HL.GetHonorCap, HL.GetCurrentHonor = function() return 25000 end, function() return secret() end
+                p = reportOf(rec)
+                check(not p.honor:IsShown(), "report: a secret honor, no bar")
+                HL.GetCurrentHonor, HL.GetHonorCap = save.honor, save.cap
+
+                -- the button
+                p, st = reportOf(rec)
+                check(p.button:GetText() == "All games", "report: the All games button")
+                p.button.__scripts.OnClick(p.button)
+                check(HL.Window.current == "battlegrounds" and not st.card:IsShown(), "report: it opens the Battlegrounds screen and the card goes")
+                HL.Window:Hide()
+                check(foreign(p.button) == "", "report: the button adds only honorLog names to the template frame")
+            end
+
+            -- ── the rank-up card ──
+            do
+                local function rankOf(data)
+                    closeAll()
+                    M:Show("rankUp", data)
+                    return M.states.rankUp.parts, M.states.rankUp
+                end
+                local unlocks = { [3] = { 101 }, [5] = { 201, 202, 203 }, [6] = { 1, 2, 3, 4, 5, 6, 7 }, [8] = { 301, 302 } }
+                HL.GetRankUnlocks = function(_, n) return unlocks[n] or {} end
+                HL.GetGearName = function(_, id) return "Item " .. id end
+                HL.Rank.GetInfo = function() return { rank = 3, seasonMaxRank = 14 } end
+                HL.Rank.GetPace = function() return { estimated = false } end
+                HL.Rank.PlanToRank = function() return { gamesNeeded = 120, limitedBy = "pace" } end
+                local p, st = rankOf({ rank = 3, info = { rank = 3, seasonMaxRank = 14 } })
+                check(st.card.honorLogTitle == "HonorLog: rank up" and st.card:GetWidth() == 360 and p.rankLabel:GetText() == "Rank" and p.rankNumber:GetText() == "3" and p.rankTitle:GetText() ~= "", "rank-up: Rank over the number with the title beside it")
+                check(p.unlockCount == 1 and p.unlockIcons[1]:IsShown() and p.unlockIcons[1].honorLogItemID == 101 and not p.unlockIcons[2]:IsShown() and p.unlockName:GetText() == "Item 101", "rank-up: one unlock shows its icon and its name")
+                check(not p.unlockNone:IsShown() and p.unlockIcons[1]:GetWidth() == 32, "rank-up: the icons are 32 px")
+                check(p.next:IsShown() and p.nextLabel:GetText() == "Next: Rank 5" and p.nextIcons[3]:IsShown() and not p.nextIcons[4]:IsShown() and p.nextIcons[1]:GetWidth() == 24, "rank-up: the next rank that unlocks something, three icons at 24")
+                check(p.nextLine:GetText() == "at " .. HL.Rank:TotalForRank(5) .. " points, ~120 games" or p.nextLine:GetText():find("^at [%d,]+ points, ~120 games$"), "rank-up: points and games: " .. tostring(p.nextLine:GetText()))
+                HL.Rank.GetPace = function() return { estimated = true } end
+                p = rankOf({ rank = 3, info = { rank = 3, seasonMaxRank = 14 } })
+                check(p.nextLine:GetText():find("^at [%d,]+ points$"), "rank-up: an unmeasured pace says the points only: " .. tostring(p.nextLine:GetText()))
+                HL.Rank.PlanToRank = function() return { gamesNeeded = nil, limitedBy = "level", gateLevel = 40 } end
+                HL.Rank.GetPace = function() return { estimated = false } end
+                p = rankOf({ rank = 3, info = { rank = 3, seasonMaxRank = 14 } })
+                check(p.nextLine:GetText():find("^at [%d,]+ points$"), "rank-up: a plan with no games says the points only")
+                p = rankOf({ rank = 5, info = { rank = 5, seasonMaxRank = 14 } })
+                check(p.unlockCount == 3 and p.unlockIcons[3]:IsShown() and p.unlockName:GetText() == "" and p.unlockMore:GetText() == "", "rank-up: three unlocks show three icons and no name")
+                check(p.nextLabel:GetText() == "Next: Rank 6" and p.nextIcons[5]:IsShown(), "rank-up: next is rank 6 with five icons of its seven")
+                p = rankOf({ rank = 6, info = { rank = 6, seasonMaxRank = 14 } })
+                check(p.unlockCount == 7 and p.unlockIcons[5]:IsShown() and p.unlockMore:GetText() == "+2", "rank-up: more than five show five and +2")
+                p = rankOf({ rank = 4, info = { rank = 4, seasonMaxRank = 14 } })
+                check(p.unlockCount == 0 and p.unlockNone:IsShown() and p.unlockNone:GetText() == "Nothing new at this rank." and not p.unlockIcons[1]:IsShown(), "rank-up: a rank with nothing says so")
+                p = rankOf({ rank = 8, info = { rank = 8, seasonMaxRank = 14 } })
+                check(not p.next:IsShown(), "rank-up: nothing ahead, no next section")
+                p = rankOf({ rank = 14, info = { rank = 14, seasonMaxRank = 14 } })
+                check(not p.next:IsShown(), "rank-up: nothing at the top rank")
+                local s1 = select(2, rankOf({ rank = 3, info = { rank = 3, seasonMaxRank = 14 } })).card:GetHeight()
+                local s2 = select(2, rankOf({ rank = 14, info = { rank = 14, seasonMaxRank = 14 } })).card:GetHeight()
+                check(s2 < s1, "rank-up: the card is shorter without the next section")
+                p = rankOf({ rank = 3, info = { rank = 3, seasonMaxRank = 14 } })
+                check(p.button:GetText() == "Rank plan", "rank-up: the Rank plan button")
+                p.button.__scripts.OnClick(p.button)
+                check(HL.Window.current == "rank" and not M.states.rankUp.card:IsShown(), "rank-up: it opens the Rank plan and the card goes")
+                HL.Window:Hide()
+                p = rankOf({})
+                check(p.rankNumber:GetText() == "-" and not p.next:IsShown() and p.unlockNone:IsShown(), "rank-up: no rank at all draws a dash")
+                HL.GetRankUnlocks = function() error("unlocks gone") end
+                noErrors("rank-up: an unlock read that raises", function() p = rankOf({ rank = 3 }) end)
+                check(p.rankNumber:GetText() == "3", "rank-up: the rest is drawn")
+                HL.GetRankUnlocks, HL.GetGearName = save.unlocks, save.gear
+                HL.Rank.GetInfo, HL.Rank.GetPace, HL.Rank.PlanToRank = save.rankInfo, save.pace, save.plan
+            end
+
+            -- ── the honor cap card ──
+            do
+                local function capOf(data)
+                    closeAll()
+                    M:Show("honorCap", data)
+                    return M.states.honorCap.parts, M.states.honorCap
+                end
+                local orange, gold = Kit.COLORS.orange, Kit.COLORS.gold
+                db.char.battlegrounds = { WSG = { played = 10, honorLifetime = 4000, cappedPlayed = 0, cappedHonor = 0 } }
+                HL.GetBuyableNow = function() return {} end
+                HL.GetHonorCapAdvice = function() return nil end
+                local p, st = capOf({ current = 20000, cap = 25000 })
+                check(st.card.honorLogTitle == "HonorLog: honor cap" and st.card:GetWidth() == 360 and p.headText:GetText() == "Honor is at 20,000 / 25,000", "honor cap: the numbers")
+                check(p.bar.honorLogColor[1] == gold[1] and p.bar.honorLogColor[2] == gold[2] and math.abs(p.bar.honorLogFraction - 0.8) < 1e-9, "honor cap: a gold bar below 90 percent")
+                check(p.paceText:GetText() == "About 13 games until it stops counting.", "honor cap: the pace sentence: " .. tostring(p.paceText:GetText()))
+                p = capOf({ current = 22500, cap = 25000 })
+                check(p.bar.honorLogColor[1] == orange[1] and p.bar.honorLogColor[2] == orange[2], "honor cap: orange from 90 percent")
+                p = capOf({ current = 25000, cap = 25000 })
+                check(p.paceText:GetText() == "At the cap: more honor is wasted." and p.bar.honorLogFraction == 1, "honor cap: full")
+                db.char.battlegrounds = {}
+                p = capOf({ current = 20000, cap = 25000 })
+                check(not p.pace:IsShown(), "honor cap: no measured pace, no sentence")
+                -- nothing buyable
+                check(p.buyNone:IsShown() and p.buyNone:GetText() == "Nothing on your list can be bought yet." and not p.buyMap:IsShown() and not p.buyIcons[1]:IsShown(), "honor cap: nothing buyable and no advice says so")
+                HL.GetHonorCapAdvice = function() return { text = "you are near the cap and nothing can be bought yet." } end
+                p = capOf({ current = 20000, cap = 25000 })
+                check(p.buyNone:GetText() == "You are near the cap and nothing can be bought yet." and p.buyNoneTip.honorLogText == p.buyNone:GetText(), "honor cap: the advice text when there is one")
+                -- buyable
+                local shown
+                HL.ShowVendorForItem = function(_, id) shown = id end
+                HL.GetBuyableNow = function() return { { itemID = 11, name = "Premier Cloak", honor = 4500, marks = { AB = 10 }, gold = 0 }, { itemID = 12, name = "B", honor = 100 }, { itemID = 13, name = "C", honor = 50 } } end
+                p = capOf({ current = 20000, cap = 25000 })
+                check(p.buyIcons[3]:IsShown() and p.buyIcons[1].honorLogItemID == 11 and p.buyIcons[1]:GetWidth() == 28 and not p.buyNone:IsShown(), "honor cap: three icons at 28")
+                check(p.buyName:GetText() == "Premier Cloak" and p.buyCost:GetText() == "4,500 honor, 10 Arathi Basin marks" and p.buyTip.honorLogText == "Premier Cloak\n4,500 honor, 10 Arathi Basin marks", "honor cap: the first one's name and cost")
+                check(p.buyMap:IsShown() and p.buyMap:GetText() == "Show on map", "honor cap: the Show on map button")
+                p.buyMap.__scripts.OnClick(p.buyMap)
+                check(shown == 11, "honor cap: Show on map points at the first one")
+                check(foreign(p.buyMap) == "" and foreign(p.button) == "", "honor cap: the buttons add only honorLog names to the template frames")
+                HL.GetBuyableNow = function() return { { itemID = 12, name = "B" } } end
+                p = capOf({ current = 20000, cap = 25000 })
+                check(p.buyIcons[1]:IsShown() and not p.buyIcons[2]:IsShown() and p.buyCost:GetText() == "", "honor cap: one item")
+                -- the button
+                p, st = capOf({ current = 20000, cap = 25000 })
+                check(p.button:GetText() == "Gear goals", "honor cap: the Gear goals button")
+                p.button.__scripts.OnClick(p.button)
+                check(HL.Window.current == "gear" and not st.card:IsShown(), "honor cap: it opens the gear goals and the card goes")
+                HL.Window:Hide()
+                -- no numbers: read from the client
+                mock.currencies[1792].quantity = 21000
+                p = capOf({})
+                check(p.headText:GetText():find("^Honor is at 21,000 / "), "honor cap: without data in the event it reads the client")
+                C_CurrencyInfo.GetCurrencyInfo = function() return secret() end
+                noErrors("honor cap: a secret honor", function() p = capOf({}) end)
+                check(not p.head:IsShown() and p.button:IsShown(), "honor cap: a secret honor hides the numbers and keeps the rest")
+                C_CurrencyInfo.GetCurrencyInfo = save.currency
+                HL.GetBuyableNow = function() error("buy gone") end
+                noErrors("honor cap: a buyable read that raises", function() p = capOf({ current = 1, cap = 2 }) end)
+                check(p.buyNone:IsShown() and p.headText:GetText() == "Honor is at 1 / 2", "honor cap: the rest is drawn")
+                HL.GetBuyableNow, HL.GetHonorCapAdvice, HL.ShowVendorForItem = save.buy, save.advice, save.showItem
+                db.char.battlegrounds = save.bgs
+            end
+
+            -- ── a part that fails, a read that raises or answers nothing ──
+            do
+                closeAll()
+                HL.Rank.FormatNumber = function() error("format gone") end
+                local before = #mock.handledErrors
+                local ok = pcall(M.Show, M, "report", rec)
+                check(ok and #mock.handledErrors > before, "moments: a failing part is reported and raises nothing")
+                for i = #mock.handledErrors, before + 1, -1 do mock.handledErrors[i] = nil end
+                HL.Rank.FormatNumber = save.format
+                closeAll()
+                HL.DescribeRankPoints = function() error("describe gone") end
+                noErrors("moments: a model that raises", function() M:Show("report", rec) end)
+                check(M.states.report.parts.tiles[1].value:GetText() == "+412" and M.states.report.parts.word:GetText() == "Victory", "moments: the other parts are drawn")
+                HL.DescribeRankPoints = function() return nil end
+                noErrors("moments: a model that answers nothing", function() M:Show("report", rec) end)
+                HL.DescribeRankPoints = function() return secret(), secret() end
+                noErrors("moments: a model that answers a secret", function() M:Show("report", rec) end)
+                HL.DescribeRankPoints = save.describe
+                noErrors("moments: a record full of secrets", function()
+                    M:Show("report", { bgType = secret(), result = secret(), duration = secret(), honor = secret(), marks = secret(), rankPoints = secret(), kb = secret(), rep = { gained = secret() }, teams = { [0] = { score = secret() }, [1] = {} } })
+                end)
+                noErrors("moments: a record that is not a table", function() M:Show("report", nil) M:Show("report", 5) M:Show("rankUp", nil) M:Show("honorCap", "x") end)
+                closeAll()
+                -- a card that cannot be built is reported and never raises
+                local realCard = Kit.Card
+                for kind in pairs(M.states) do M.states[kind] = nil end
+                Kit.Card = function() error("no card") end
+                local before2 = #mock.handledErrors
+                local okShow, result = pcall(M.Show, M, "honorCap", {})
+                check(okShow and result == false and #mock.handledErrors == before2 + 1, "moments: a card that cannot be built is reported and Show returns false")
+                for i = #mock.handledErrors, before2 + 1, -1 do mock.handledErrors[i] = nil end
+                Kit.Card = realCard
+                check(M.states.honorCap == nil, "moments: and nothing half-built is kept")
+                -- an event whose listener raises
+                local realShow = M.Show
+                M.Show = function() error("show gone") end
+                local before3 = #mock.handledErrors
+                check(pcall(HL.Fire, HL, "HonorLog_GameRecorded", rec) and #mock.handledErrors > before3, "moments: a failing listener is reported and does not reach the caller")
+                for i = #mock.handledErrors, before3 + 1, -1 do mock.handledErrors[i] = nil end
+                M.Show = realShow
+            end
+
+            -- ── the three events, with the cards ──
+            do
+                closeAll()
+                for _, key in ipairs({ "momentReport", "momentRankUp", "momentHonorCap" }) do S[key] = false end
+                HL:Fire("HonorLog_GameRecorded", rec)
+                HL:Fire("HonorLog_RankUp", 4, { rank = 4 })
+                HL:Fire("HonorLog_HonorCapNear", 24000, 25000)
+                check(#M.order == 0, "events: nothing shows with all three cards off")
+                S.momentRankUp = true
+                HL:Fire("HonorLog_RankUp", 4, { rank = 4 })
+                check(M.order[1] == "rankUp" and M.states.rankUp.parts.rankNumber:GetText() == "4", "events: the rank-up event shows the rank-up card")
+                S.momentHonorCap = true
+                HL:Fire("HonorLog_HonorCapNear", 24000, 25000)
+                check(M.order[2] == "honorCap" and M.states.honorCap.parts.headText:GetText() == "Honor is at 24,000 / 25,000", "events: the honor cap event shows the honor cap card")
+                S.momentReport = true
+                closeAll()
+            end
+
+            -- ── the slash command ──
+            do
+                closeAll()
+                for _, key in ipairs({ "momentReport", "momentRankUp", "momentHonorCap" }) do S[key] = false end
+                db.char.history = {}
+                local lines = #printed
+                SlashCmdList.HONORLOG("moment report")
+                check(#M.order == 0 and printed[#printed]:find("No saved game", 1, true) and #printed == lines + 1, "slash: moment report with no saved game says so in chat")
+                db.char.history = { rec }
+                SlashCmdList.HONORLOG("moment report")
+                check(M.order[1] == "report" and M.states.report.parts.tiles[1].value:GetText() == "+412", "slash: moment report shows the newest saved game, whatever the settings say")
+                SlashCmdList.HONORLOG("moment rank")
+                check(M.states.rankUp.card:IsShown() and M.states.rankUp.parts.rankNumber:GetText() == tostring(mock.rank.level), "slash: moment rank shows the current rank")
+                SlashCmdList.HONORLOG("moment cap")
+                check(M.states.honorCap.card:IsShown() and M.states.honorCap.parts.headText:GetText():find("^Honor is at "), "slash: moment cap shows the honor cap card from the current honor")
+                lines = #printed
+                SlashCmdList.HONORLOG("moment nonsense")
+                check(printed[#printed]:find("Usage: /honorlog moment", 1, true), "slash: an unknown kind prints the usage")
+                lines = #printed
+                SlashCmdList.HONORLOG("help")
+                local helpLine
+                for i = lines + 1, #printed do if printed[i]:find("moment", 1, true) then helpLine = printed[i] end end
+                check(helpLine, "slash: the help lists the moment command")
+                closeAll()
+                for _, key in ipairs({ "momentReport", "momentRankUp", "momentHonorCap" }) do S[key] = true end
+            end
+
+            -- ── nothing per frame, and only honorLog names on template frames ──
+            do
+                closeAll()
+                for kind in pairs(M.states) do M.states[kind] = nil end
+                local first = #mock.frames + 1
+                HL.GetBuyableNow = function() return { { itemID = 11, name = "A", honor = 1 } } end
+                HL.GetAllGoalsProgress = function() return { { itemID = 272738, name = "G" } } end
+                M:Show("report", rec) M:Show("rankUp", { rank = 3 }) M:Show("honorCap", { current = 1, cap = 2 })
+                local onUpdates, templated, bad = 0, 0, {}
+                for i = first, #mock.frames do
+                    local f = mock.frames[i]
+                    if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                    if f.__template then
+                        templated = templated + 1
+                        for k in pairs(f) do
+                            if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") then bad[#bad + 1] = k end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "moments: no OnUpdate on any frame (" .. onUpdates .. ")")
+                check(templated > 10 and #bad == 0, "moments: only honorLog names are added to template frames (" .. templated .. "): " .. table.concat(bad, ","))
+                for _, file in ipairs({ "UI/Moments.lua" }) do
+                    local source = io.open(ROOT .. "/" .. file):read("*a")
+                    check(not source:find("OnUpdate", 1, true), "moments: " .. file .. " has no OnUpdate")
+                end
+                check(#mock.frames >= first, "moments: frames counted")
+                HL.GetBuyableNow, HL.GetAllGoalsProgress = save.buy, save.goals
+                closeAll()
+            end
+            check(framesBefore <= #mock.frames, "moments: done")
+
+            -- put it back
+            HL.GetCurrentHonor, HL.GetHonorCap, HL.GetAllGoalsProgress, HL.GoalReadyText = save.honor, save.cap, save.goals, save.ready
+            HL.GetBattlegroundModel, HL.GetCurrentMarks = save.model, save.marks
+            db.char.history, db.char.battlegrounds = save.history, save.bgs
+            S.momentReport, S.momentRankUp, S.momentHonorCap, S.momentSeconds = save.settings[1], save.settings[2], save.settings[3], save.settings[4]
+            mock.deferTimers, mock.timers, mock.combat = save.deferred, {}, false
+            HL.Window:Hide()
         end)()
 
         -- put everything back

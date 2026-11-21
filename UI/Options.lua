@@ -294,6 +294,20 @@ function HonorLog:InitializeOptions()
     notifyCheck:SetChecked(self.db.settings.notificationsEnabled)
     rightY = rightY - 26
 
+    -- The three pop-up cards (UI/Moments.lua)
+    for _, card in ipairs({
+        { name = "HonorLogMomentReportCheck", key = "momentReport", label = "Game report card", tip = "Show a card with the result and what the game gave after each battleground" },
+        { name = "HonorLogMomentRankUpCheck", key = "momentRankUp", label = "Rank-up card", tip = "Show a card with the new rank and what it unlocks" },
+        { name = "HonorLogMomentHonorCapCheck", key = "momentHonorCap", label = "Honor cap card", tip = "Show a card with what to buy when honor is close to the cap" },
+    }) do
+        local momentCheck = CreateCheckbox(scrollChild, card.name, card.label, card.tip, function(checked)
+            HonorLog.db.settings[card.key] = checked
+        end)
+        momentCheck:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", RIGHT_COL, rightY)
+        momentCheck:SetChecked(self.db.settings[card.key] ~= false)
+        rightY = rightY - 26
+    end
+
     -- Waterfall Progress checkbox
     local waterfallCheck = CreateCheckbox(scrollChild, "HonorLogWaterfallCheck", "Waterfall Progress Mode", "Fill goals top to bottom instead of equal %", function(checked)
         HonorLog.db.settings.goalProgressMode = checked and "waterfall" or "shared"

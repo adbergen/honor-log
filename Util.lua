@@ -85,14 +85,17 @@ function HonorLog:Say(text)
 end
 
 -- Sound, centre-screen notice, error-frame line and chat: the same four steps
--- the goal, rank-cap and honor-cap alerts use.
-function HonorLog:Announce(text, r, g, b)
+-- the goal, rank-cap and honor-cap alerts use. quiet (true) keeps the sound and the chat line and leaves the
+-- notice and the error-frame line out, for a moment that shows a card (UI/Moments.lua) instead.
+function HonorLog:Announce(text, r, g, b, quiet)
     PlaySound(878)
-    if RaidNotice_AddMessage and RaidBossEmoteFrame then
-        RaidNotice_AddMessage(RaidBossEmoteFrame, "|cffffd700" .. text .. "|r", ChatTypeInfo["RAID_WARNING"])
-    end
-    if UIErrorsFrame then
-        UIErrorsFrame:AddMessage("|cffffd700[HonorLog]|r " .. text, r or 1, g or 0.82, b or 0, 1, 3)
+    if not quiet then
+        if RaidNotice_AddMessage and RaidBossEmoteFrame then
+            RaidNotice_AddMessage(RaidBossEmoteFrame, "|cffffd700" .. text .. "|r", ChatTypeInfo["RAID_WARNING"])
+        end
+        if UIErrorsFrame then
+            UIErrorsFrame:AddMessage("|cffffd700[HonorLog]|r " .. text, r or 1, g or 0.82, b or 0, 1, 3)
+        end
     end
     print("|cffffd700[HonorLog]|r " .. text)
 end
