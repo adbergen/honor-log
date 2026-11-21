@@ -57,11 +57,13 @@ local GetItemInfo = Compat.GetItemInfo
 local GetItemCount = Compat.GetItemCount
 
 -- Saved-variable layout version. 2 = Forever (EotS moved to `legacy`, new history fields).
-local DB_VERSION = 2
+-- 3 = a summary per character (account `characters`), a record per reset week (`weeks`) and `since`.
+local DB_VERSION = 3
 
 -- Events with data: HonorLog.RegisterCallback(listener, "HonorLog_GameRecorded", function(event, entry) end).
 -- Names and arguments: HonorLog_GameRecorded (entry), HonorLog_RankUp (newRank, Rank:GetInfo()),
--- HonorLog_WeekCapReached (info), HonorLog_HonorCapNear (current, cap), HonorLog_GoalAcquired (itemID).
+-- HonorLog_WeekCapReached (info), HonorLog_HonorCapNear (current, cap), HonorLog_GoalAcquired (itemID),
+-- HonorLog_QuestPaid (questID), HonorLog_WeekEnded (record), HonorLog_WorldKill (entry), HonorLog_WorldDeath (entry).
 HonorLog.callbacks = LibStub("CallbackHandler-1.0"):New(HonorLog)
 
 -- Fire an event to the listeners. A listener that errors never reaches the caller.
@@ -122,6 +124,8 @@ local DEFAULTS = {
         historyLimit = 200,
         legacy = {}, -- TBC aggregates for battlegrounds Forever does not have (EotS)
         dbVersion = DB_VERSION,
+        -- One record per reset week, newest first, at most 26 (Modules/Weeks.lua)
+        weeks = {},
         -- Opponents met in world PvP: name -> { class, kills, deaths, lastSeen }, capped at 500
         opponents = {},
         -- Measured honor: today (by date), this week (until the weekly reset) and this login session
@@ -220,8 +224,11 @@ local Util = HonorLog.Util
 -- aggregates) moves under `legacy`; its history entries stay in the history list.
 local TRACKED_BG = { AV = true, WSG = true, AB = true, DI = true }
 
-local function MigrateStore(store, isChar)
-    if (store.dbVersion or 1) >= DB_VERSION then return end
+-- Migration steps, run in order, each once, from the save's version plus one up to DB_VERSION.
+local STEPS = {}
+
+-- 2: Forever. Eye of the Storm and arena aggregates move to `legacy`; a TBC mid-game state is dropped.
+STEPS[2] = function(store, isChar)
     store.legacy = store.legacy or {}
     if type(store.battlegrounds) == "table" then
         for key, stats in pairs(store.battlegrounds) do
@@ -242,7 +249,37 @@ local function MigrateStore(store, isChar)
         -- A TBC mid-game state has no snapshot to resume from.
         store.bgState = nil
     end
-    store.dbVersion = DB_VERSION
+end
+
+-- 3: additive only, so HonorLog 2.0 still reads the save and loses only the new data. The account's
+-- `characters[key] = true` becomes `{ name = key }` (2.0 only ever wrote that value); a character store
+-- gets `since`, the date counting began: its oldest saved game, else now.
+STEPS[3] = function(store, isChar)
+    if isChar then
+        if type(store.since) ~= "number" then
+            local oldest
+            if type(store.history) == "table" then
+                for _, game in pairs(store.history) do
+                    local ts = type(game) == "table" and game.timestamp
+                    if type(ts) == "number" and (not oldest or ts < oldest) then oldest = ts end
+                end
+            end
+            store.since = oldest or time()
+        end
+    elseif type(store.characters) == "table" then
+        for key, value in pairs(store.characters) do
+            if value == true then store.characters[key] = { name = key } end
+        end
+    end
+end
+
+-- A save with no version counts as version 1; one newer than this build is left alone.
+local function MigrateStore(store, isChar)
+    local version = type(store.dbVersion) == "number" and store.dbVersion or 1
+    for step = version + 1, DB_VERSION do
+        STEPS[step](store, isChar)
+        store.dbVersion = step
+    end
 end
 HonorLog.MigrateStore = MigrateStore
 
@@ -362,7 +399,8 @@ function HonorLog:InitializeDB()
     HonorLogCharDB.lastGameTime = currentGameTime
 
     -- Track this character
-    HonorLogDB.characters[self:GetCharacterKey()] = true
+    local characterKey = self:GetCharacterKey()
+    if type(HonorLogDB.characters[characterKey]) ~= "table" then HonorLogDB.characters[characterKey] = { name = characterKey } end
 
     self.db = {
         global = HonorLogDB,
