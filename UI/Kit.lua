@@ -660,6 +660,118 @@ function Kit:Rows(parent, rowHeight, create, update)
 end
 
 --------------------------------------------------------------------------------
+-- Stack, fixed text and sequence
+--------------------------------------------------------------------------------
+
+-- Rows of several kinds in one scrolling child, each kind with its own height. makers[kind] =
+-- { create = function(row), update = function(row, entry) }; an entry is { kind, height, ... }. A row frame is
+-- made once per kind and position and reused, so the number of frames grows to the longest list and no further.
+-- stack:SetData(entries) returns the content height. Moved here from UI/GearVendors.lua, which keeps an alias.
+function Kit:Stack(child, makers)
+    local stack = { pools = {}, height = 0, count = 0 }
+    function stack:SetData(entries)
+        local used, y = {}, 0
+        for _, entry in ipairs(entries or {}) do
+            local kind = entry.kind
+            local maker = makers[kind]
+            local pool = self.pools[kind]
+            if not pool then
+                pool = {}
+                self.pools[kind] = pool
+            end
+            used[kind] = (used[kind] or 0) + 1
+            local row = pool[used[kind]]
+            if not row then
+                row = CreateFrame("Frame", nil, child)
+                maker.create(row)
+                pool[used[kind]] = row
+            end
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+            row:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, -y)
+            row:SetHeight(entry.height)
+            row:Show()
+            row.honorLogEntry = entry
+            maker.update(row, entry)
+            y = y + entry.height
+        end
+        for kind, pool in pairs(self.pools) do
+            for i = (used[kind] or 0) + 1, #pool do pool[i]:Hide() end
+        end
+        self.height, self.count = y, #(entries or {})
+        return y
+    end
+    return stack
+end
+
+-- A fixed-width one-line text: the client cuts it with "..." when it is longer than its box.
+function Kit:FixedText(parent, style, width)
+    local fs = Kit:Text(parent, style)
+    fs:SetWidth(width)
+    fs:SetWordWrap(false)
+    return fs
+end
+
+local SEQUENCE_SIZE, SEQUENCE_GAP = 14, 2
+local SEQUENCE_LETTERS = { W = "green", L = "red", D = "grey", X = "orange" }
+
+-- A row of `count` small squares for recent results, oldest at the left: seq:SetResults({ "W", "L", "D", "X" }).
+-- Each square carries its letter (W win, L loss, D draw, X left early) in small text over a tint of its colour
+-- (green, red, grey, orange), so the result is never colour alone. More results than squares keep the newest;
+-- unused squares are hidden. All squares are made at once and reused; the row's tooltip says what the letters mean.
+function Kit:Sequence(parent, count)
+    count = math.max(1, math.floor(num(count) or 10))
+    local seq = CreateFrame("Frame", nil, parent)
+    seq:SetSize(count * SEQUENCE_SIZE + (count - 1) * SEQUENCE_GAP, SEQUENCE_SIZE)
+    seq:EnableMouse(true)
+    seq.honorLogSquares = {}
+    for i = 1, count do
+        local sq = CreateFrame("Frame", nil, seq)
+        sq:SetSize(SEQUENCE_SIZE, SEQUENCE_SIZE)
+        sq:SetPoint("TOPLEFT", seq, "TOPLEFT", (i - 1) * (SEQUENCE_SIZE + SEQUENCE_GAP), 0)
+        sq.honorLogTint = sq:CreateTexture(nil, "BACKGROUND")
+        sq.honorLogTint:SetAllPoints(sq)
+        sq.honorLogLetter = Kit:Text(sq, "grey")
+        sq.honorLogLetter:SetPoint("CENTER", sq, "CENTER", 0, 0)
+        sq.honorLogLetter:SetJustifyH("CENTER")
+        sq:Hide()
+        seq.honorLogSquares[i] = sq
+    end
+
+    function seq:SetResults(results)
+        results = type(results) == "table" and results or {}
+        local first = math.max(1, #results - count + 1)
+        local shown = 0
+        for i = first, #results do
+            local letter = results[i]
+            local colorName = SEQUENCE_LETTERS[letter]
+            if colorName and shown < count then
+                shown = shown + 1
+                local sq = self.honorLogSquares[shown]
+                local c = Kit.COLORS[colorName]
+                sq.honorLogResult, sq.honorLogColorName = letter, colorName
+                sq.honorLogTint:SetColorTexture(c[1] * 0.4, c[2] * 0.4, c[3] * 0.4, 1)
+                sq.honorLogLetter:SetText(letter)
+                sq.honorLogLetter:SetTextColor(c[1], c[2], c[3])
+                sq:Show()
+            end
+        end
+        for i = shown + 1, count do self.honorLogSquares[i]:Hide() end
+        self.honorLogShown = shown
+    end
+
+    seq:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Recent results, oldest first"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["W win, L loss, D draw, X left early"], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    seq:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    seq:SetResults({})
+    return seq
+end
+
+--------------------------------------------------------------------------------
 -- Item and mark icons
 --------------------------------------------------------------------------------
 

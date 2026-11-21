@@ -180,6 +180,8 @@ local DEFAULTS = {
         windowGoal = 0, -- the item id chosen on the Gear goals screen; 0 or one not on the list = the first goal
         windowVendor = "", -- the vendor (its name) chosen in the vendor browser; "" or an unknown one = the first
         windowVendorClass = "player", -- the vendor browser's class filter: "player" (the player's class) or "all"
+        windowBattleground = "all", -- the Battlegrounds screen's battleground filter: "all" or a battleground key
+        windowResult = "all", -- its result filter: "all", "win" or "loss"
         viewMode = "character", -- "character" or "account"
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,

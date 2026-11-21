@@ -61,12 +61,7 @@ local function showTooltip(owner, text, r, g, b)
 end
 
 -- A fixed-width one-line text: the client cuts it with "..." when it is longer than its box.
-local function fixedText(parent, style, width)
-    local fs = Kit:Text(parent, style)
-    fs:SetWidth(width)
-    fs:SetWordWrap(false)
-    return fs
-end
+local function fixedText(parent, style, width) return Kit:FixedText(parent, style, width) end
 
 -- Shared with UI/Screens/Gear.lua.
 GearVendors.safe, GearVendors.color, GearVendors.commas = safe, color, commas
@@ -80,42 +75,7 @@ GearVendors.showTooltip, GearVendors.fixedText = showTooltip, fixedText
 -- { create = function(row), update = function(row, entry) }; an entry is { kind, height, ... }. A row frame is
 -- made once per kind and position and reused, so the number of frames grows to the longest list and no further.
 -- stack:SetData(entries) returns the content height. Shared with UI/Screens/Gear.lua.
-function GearVendors.Stack(child, makers)
-    local stack = { pools = {}, height = 0, count = 0 }
-    function stack:SetData(entries)
-        local used, y = {}, 0
-        for _, entry in ipairs(entries or {}) do
-            local kind = entry.kind
-            local maker = makers[kind]
-            local pool = self.pools[kind]
-            if not pool then
-                pool = {}
-                self.pools[kind] = pool
-            end
-            used[kind] = (used[kind] or 0) + 1
-            local row = pool[used[kind]]
-            if not row then
-                row = CreateFrame("Frame", nil, child)
-                maker.create(row)
-                pool[used[kind]] = row
-            end
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
-            row:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, -y)
-            row:SetHeight(entry.height)
-            row:Show()
-            row.honorLogEntry = entry
-            maker.update(row, entry)
-            y = y + entry.height
-        end
-        for kind, pool in pairs(self.pools) do
-            for i = (used[kind] or 0) + 1, #pool do pool[i]:Hide() end
-        end
-        self.height, self.count = y, #(entries or {})
-        return y
-    end
-    return stack
-end
+function GearVendors.Stack(child, makers) return Kit:Stack(child, makers) end
 
 -- The wash and 3 px gold edge of a chosen row, so a choice is not colour alone.
 function GearVendors.AddChosenMarks(row)

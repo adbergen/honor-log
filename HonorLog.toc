@@ -55,3 +55,4 @@ UI\Window.lua
 UI\Screens\Overview.lua
 UI\Screens\RankPlan.lua
 UI\Screens\Gear.lua
+UI\Screens\Battlegrounds.lua

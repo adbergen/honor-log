@@ -407,7 +407,12 @@ local function buildGames(col)
     inset:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, 0)
     local header = Kit:Header(inset, L["Recent games"])
     header:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -8)
-    header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -14, -8)
+    header:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -14 - 86, -8)
+    -- the Battlegrounds screen holds every game; this is the way in
+    local all = Kit:Button(inset, L["All games"], "small")
+    all:SetSize(80, 18)
+    all:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -10, -7)
+    all:SetScript("OnClick", function() Window:Show("battlegrounds") end)
     for _, c in ipairs(COLUMNS) do
         local fs = Kit:Text(inset, "labelSmall")
         fs:SetPoint("TOPLEFT", inset, "TOPLEFT", c.x + GAME_PAD, -30)
@@ -418,7 +423,7 @@ local function buildGames(col)
     list:SetPoint("TOPRIGHT", inset, "TOPRIGHT", 0, -46)
     list:SetHeight(GAME_ROWS * GAME_ROW_HEIGHT)
 
-    local gm = { inset = inset }
+    local gm = { inset = inset, all = all }
     gm.empty = Kit:Text(inset, "grey")
     gm.empty:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -56)
     gm.empty:SetText(L["No games recorded yet. Play a battleground and it will show here."])
