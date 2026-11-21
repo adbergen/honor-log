@@ -22,6 +22,7 @@ Util.lua
 # Data
 Data\GearDatabase.lua
 Data\Vendors.lua
+Data\Quests.lua
 
 # Core
 Data.lua
@@ -34,6 +35,7 @@ Modules\AB.lua
 Modules\WSG.lua
 Modules\DI.lua
 Modules\Rank.lua
+Modules\Quests.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 
@@ -56,4 +58,5 @@ UI\Screens\Overview.lua
 UI\Screens\RankPlan.lua
 UI\Screens\Gear.lua
 UI\Screens\Battlegrounds.lua
+UI\Screens\Quests.lua
 UI\Moments.lua

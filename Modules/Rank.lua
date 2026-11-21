@@ -353,8 +353,20 @@ function Rank:GetWeeklyQuest(info)
     local title = C_QuestLog and C_QuestLog.GetTitleForQuestID and str(call(C_QuestLog.GetTitleForQuestID, questID))
     if not title or title == "" then title = string.format(L["Field of Honor: Week %d"], week) end
 
-    local store = type(HonorLogDB) == "table" and type(HonorLogDB.probe) == "table" and HonorLogDB.probe.quests
+    -- the always-on store first (this week's own quest, else the most recent of the ten), then the probe's
+    local own = type(HonorLogDB) == "table" and type(HonorLogDB.questRewards) == "table" and HonorLogDB.questRewards
     local measured, newest = nil, -1
+    if own then
+        for id = WEEKLY_QUEST_FIRST, WEEKLY_QUEST_FIRST + WEEKLY_QUEST_WEEKS - 1 do
+            local rec = type(own[id]) == "table" and own[id]
+            local points = rec and num(rec.rank)
+            if points and points > 0 then
+                local stamp = id == questID and math.huge or (num(rec.last) or 0)
+                if stamp > newest then measured, newest = points, stamp end
+            end
+        end
+    end
+    local store = not measured and type(HonorLogDB) == "table" and type(HonorLogDB.probe) == "table" and HonorLogDB.probe.quests
     for id = WEEKLY_QUEST_FIRST, WEEKLY_QUEST_FIRST + WEEKLY_QUEST_WEEKS - 1 do
         local last = type(store) == "table" and type(store[id]) == "table" and store[id].last
         local points = type(last) == "table" and num(last.rank)

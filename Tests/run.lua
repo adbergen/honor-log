@@ -48,14 +48,14 @@ local function run()
         "Libs/LibStub.lua", "Libs/CallbackHandler-1.0.lua", "Libs/LibDataBroker-1.1.lua", "Libs/LibDBIcon-1.0.lua",
         "Util.lua",
         "Data/GearDatabase.lua",
-        "Data/Vendors.lua",
+        "Data/Vendors.lua", "Data/Quests.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
-        "Modules/DI.lua", "Modules/Rank.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Moments.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/Quests.lua", "UI/Moments.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3315,7 +3315,7 @@ local function run()
             end })
         end
         registerProbe()
-        check(#Window.screens == 5 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 6 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "quests" and Window.screens[6].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -3791,10 +3791,11 @@ local function run()
             HL.GearScreen:Open("vendors")
             HL.GearScreen:Open("goals")
             Window:Show("battlegrounds")
+            Window:Show("quests")
             Window:Show("overview")
             local S3 = HL.db.settings
             local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode }
-            local n, gearClicks, bgClicks = 0, 0, 0
+            local n, gearClicks, bgClicks, questClicks = 0, 0, 0, 0
             -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
             -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
@@ -3828,12 +3829,20 @@ local function run()
                             p, hops = p.__parent, hops + 1
                         end
                     end
+                    if Window.frames.quests then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.quests then questClicks = questClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if not Window:IsShown() then Window:Show() end -- the close button closed it
                 end
             end
             check(n > 20, label .. "integration clicked " .. n .. " controls")
             check(gearClicks > 25, label .. "integration clicked " .. gearClicks .. " controls on the Gear goals screen")
             check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
+            check(questClicks > 8, label .. "integration clicked " .. questClicks .. " controls on the Quests screen")
             mock.momentsPass(label)
             S3.windowBattleground, S3.windowResult, S3.viewMode = savedBg.bg, savedBg.result, savedBg.view
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
@@ -5620,6 +5629,532 @@ local function run()
             HL.DescribeRankPoints, HL.DescribeHonor = save.rankText, save.honorText
             db.char.history, db.global.history = save.history, save.ghistory
             S.windowTab, S.windowBattleground, S.windowResult, S.viewMode = "overview", save.bg, save.result, save.view
+            Window:Hide()
+        end)()
+
+        -- ═══ Quests: the data, the shared read, the hand-in store, the list and the fifth screen ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Q, Kit, Window = HL.Quests, HL.Kit, HL.Window
+            local S = HL.db.settings
+            local secret = mock.newSecret
+            local errorsStart = #mock.handledErrors
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local DB = HL.QuestDB
+            local function ids(pred)
+                local out = {}
+                for id, q in pairs(DB) do if pred(q, id) then out[#out + 1] = id end end
+                table.sort(out)
+                return out
+            end
+            local function listIds(list)
+                local out = {}
+                for _, r in ipairs(list) do out[r.id] = r end
+                return out
+            end
+            local prevScripts = mock.runShowScripts
+            mock.runShowScripts = true
+            local qlSaved, gSaved = {}, { GetQuestID = _G.GetQuestID, UnitLevel = _G.UnitLevel, GetRealZoneText = _G.GetRealZoneText,
+                GetSubZoneText = _G.GetSubZoneText, GetMoney = _G.GetMoney, UnitFactionGroup = _G.UnitFactionGroup,
+                count = C_Item.GetItemCount, currency = C_CurrencyInfo.GetCurrencyInfo, progress = C_MajorFactions.GetMajorFactionProgressionInfo }
+            for k, v in pairs(C_QuestLog) do qlSaved[k] = v end
+            local saved = { level = mock.level, faction = mock.faction, week = mock.rankWindow.week, money = mock.money,
+                honor = mock.currencies[1792].quantity, earned = mock.rank.earned, wsg = mock.bagItems[20558], ab = mock.bagItems[20559],
+                tab = S.windowTab, time = _G.time, npcGuid = mock.npcGuid, units = mock.units, map = mock.map, zone = mock.zone, subzone = mock.subzone }
+
+            -- ── the data ──
+            do
+                local count, bad = 0, 0
+                for _, q in pairs(DB) do
+                    count = count + 1
+                    local okBg = ({ AV = 1, WSG = 1, AB = 1, DI = 1, ALL = 1, SEASON = 1 })[q.bg]
+                    local okKind = ({ offer = 1, ["repeat"] = 1, weekly = 1 })[q.kind]
+                    if not (okBg and okKind and type(q.name) == "string") then bad = bad + 1 end
+                end
+                local source = 0
+                for line in io.lines(ROOT .. "/tools/quests_source.json") do
+                    if line:find('^%s*{"id":') then source = source + 1 end
+                end
+                check(count == source and count == 208 and bad == 0, "quest data: " .. count .. " quests, the source file has " .. source .. ", every row has a known battleground and kind")
+                local weeklyOk = true
+                for week = 1, 10 do
+                    local q = DB[96911 + week]
+                    if not (q and q.kind == "weekly" and q.week == week and q.bg == "SEASON" and q.faction == nil and q.name == "Field of Honor: Week " .. week) then weeklyOk = false end
+                end
+                check(weeklyOk and #ids(function(q) return q.kind == "weekly" end) == 10, "quest data: the ten weekly quests with their weeks")
+                check(DB[5892].bg == "AV" and DB[5892].faction == "Alliance" and DB[5892].level == 55 and DB[5893].faction == "Horde"
+                    and DB[8367].bg == "ALL" and DB[8367].faction == "Horde" and DB[8371].faction == "Alliance" and DB[99108].bg == "SEASON" and DB[96913].bg == "SEASON",
+                    "quest data: known ids by battleground and faction")
+            end
+
+            -- ── the shared read ──
+            mock.currencies[1792].quantity, mock.rank.earned, mock.money = 5000, 200, 99900
+            mock.bagItems[20558], mock.bagItems[20559] = 12, 3
+            local st = Q.ReadState()
+            check(st.honor == 5000 and st.rank == HL.Rank:TotalForRank(mock.rank.level) + 200 and st.money == 99900 and st.marks.WSG == 12 and st.marks.AB == 3 and st.marks.AV == 0,
+                "shared read: honor, rank points as one total, money and marks")
+            local realInfo, realProgress, realCount, realMoney = C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo, C_Item.GetItemCount, _G.GetMoney
+            C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo = function() return secret() end, function() return { renownLevel = secret(), renownReputationEarned = 5 } end
+            C_Item.GetItemCount, _G.GetMoney = function() return secret() end, function() return nil end
+            st = Q.ReadState()
+            check(st.honor == nil and st.rank == nil and st.money == nil and next(st.marks) == nil, "shared read: a secret or missing answer is nil")
+            C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo, C_Item.GetItemCount, _G.GetMoney = realInfo, realProgress, realCount, realMoney
+
+            -- ── the hand-in store ──
+            HonorLogDB.questRewards = nil
+            mock.npcGuid = "Creature-0-1-2-3-13777-0000"
+            mock.units = { npc = { name = "Sergeant Durgen" } }
+            mock.map, mock.zone, mock.subzone = { id = 1459, x = 0.368, y = 0.772 }, "Alterac Mountains", "Dun Baldar"
+            mock.level = 58
+            local function setUp() mock.currencies[1792].quantity, mock.rank.earned, mock.bagItems[20558], mock.money = 5000, 200, 12, 99900 end
+            local function handIn(id, withWindow, gains)
+                gains = gains or {}
+                mock.deferTimers = true
+                if withWindow then
+                    mock.quest = { id = id }
+                    mock.fireEvent("QUEST_COMPLETE")
+                end
+                mock.currencies[1792].quantity = mock.currencies[1792].quantity + (gains.honor or 0)
+                mock.rank.earned = mock.rank.earned + (gains.rank or 0)
+                mock.bagItems[20558] = mock.bagItems[20558] + (gains.marks or 0)
+                mock.money = mock.money + (gains.money or 0)
+                mock.fireEvent("QUEST_TURNED_IN", id, gains.xp or 0, gains.money or 0)
+                mock.flushTimers()
+                mock.deferTimers = false
+                mock.quest = nil
+            end
+            setUp()
+            handIn(5892, true, { honor = 1200, rank = 500, marks = 3, money = 4500, xp = 250 })
+            local rec = HonorLogDB.questRewards[5892]
+            check(rec and rec.count == 1 and rec.honor == 1200 and rec.rank == 500 and rec.marks.WSG == 3 and rec.money == 4500 and rec.xp == 250 and rec.level == 58 and type(rec.last) == "number",
+                "hand-in with its window: every measured value is stored")
+            check(rec.place.name == "Sergeant Durgen" and rec.place.npc == 13777 and rec.place.map == 1459 and rec.place.x == 36.8 and rec.place.y == 77.2
+                and rec.place.zone == "Alterac Mountains" and rec.place.subzone == "Dun Baldar", "hand-in with its window: the place is stored")
+            handIn(5892, true, { honor = 1300 })
+            rec = HonorLogDB.questRewards[5892]
+            check(rec.count == 2 and rec.honor == 1300 and rec.rank == 500 and rec.marks.WSG == 3, "a second hand-in raises the count and keeps what it did not measure")
+            handIn(5893, false, { honor = 700 })
+            rec = HonorLogDB.questRewards[5893]
+            check(rec and rec.count == 1 and rec.honor == nil and rec.rank == nil and rec.place == nil and rec.level == 58, "hand-in without its window: counted only")
+            handIn(9999, false, { honor = 700 })
+            check(HonorLogDB.questRewards[9999] == nil, "an unlisted quest handed in without the window is not stored")
+            handIn(9998, true, { honor = 800, rank = 5 })
+            check(HonorLogDB.questRewards[9998] and HonorLogDB.questRewards[9998].honor == 800 and HonorLogDB.questRewards[9998].count == 1, "an unlisted quest that paid honor is learned")
+            handIn(9997, true, { money = 100, xp = 90 })
+            check(HonorLogDB.questRewards[9997] == nil, "an unlisted quest that paid no honor, rank points or marks is not stored")
+            -- a quest that costs marks pays nothing in marks
+            handIn(9996, true, { marks = -2 })
+            check(HonorLogDB.questRewards[9996] == nil, "marks taken away are not a payment")
+            -- secret and missing readings: left out, nothing raised
+            C_CurrencyInfo.GetCurrencyInfo = function() return secret() end
+            C_MajorFactions.GetMajorFactionProgressionInfo = function() return nil end
+            local errs = #mock.handledErrors
+            check(pcall(handIn, 5894, true, { honor = 5, marks = 2, xp = 7 }), "secret and missing readings raise nothing")
+            C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo = realInfo, realProgress
+            rec = HonorLogDB.questRewards[5894]
+            check(rec and rec.honor == nil and rec.rank == nil and rec.marks.WSG == 2 and rec.xp == 7 and #mock.handledErrors == errs, "secret and missing readings are left out, the rest is kept")
+            mock.fireEvent("QUEST_TURNED_IN", secret(), 1, 1)
+            mock.fireEvent("QUEST_TURNED_IN", nil, 1, 1)
+            mock.quest = { id = secret() }
+            check(pcall(mock.fireEvent, "QUEST_COMPLETE"), "a secret quest id raises nothing")
+            mock.quest = nil
+            -- the limit
+            HonorLogDB.questRewards = {}
+            local tick = 0
+            _G.time = function() tick = tick + 1 return 1000 + tick end
+            for i = 1, 410 do handIn(20000 + i, true, { honor = 10 }) end
+            local n = 0
+            for _ in pairs(HonorLogDB.questRewards) do n = n + 1 end
+            check(n == Q.KEPT and Q.KEPT == 400 and HonorLogDB.questRewards[20001] == nil and HonorLogDB.questRewards[20010] == nil and HonorLogDB.questRewards[20011] ~= nil and HonorLogDB.questRewards[20410] ~= nil,
+                "the store keeps 400 quests, oldest hand-in dropped first: " .. n)
+            _G.time = saved.time
+            HonorLogDB.questRewards = nil
+            mock.level, mock.rank.earned = saved.level, saved.earned
+
+            -- ── Rank:GetWeeklyQuest reads the new store before the probe's ──
+            do
+                mock.rankWindow.week = 2
+                local probeStore = HonorLogDB.probe
+                HonorLogDB.probe = { quests = { [96913] = { last = { rank = 90, t = 0 } } } }
+                check(HL.Rank:GetWeeklyQuest().measured == 90, "weekly quest: the probe's store still answers when the new one is empty")
+                HonorLogDB.questRewards = { [96912] = { rank = 75, last = 10 } }
+                check(HL.Rank:GetWeeklyQuest().measured == 75, "weekly quest: the new store comes first, any week's quest")
+                HonorLogDB.questRewards[96914] = { rank = 60, last = 50 }
+                check(HL.Rank:GetWeeklyQuest().measured == 60, "weekly quest: the most recent of the ten")
+                HonorLogDB.questRewards[96913] = { rank = 110, last = 1 }
+                check(HL.Rank:GetWeeklyQuest().measured == 110, "weekly quest: this week's own hand-in wins")
+                HonorLogDB.questRewards = { [96913] = { rank = 0, last = 1 } }
+                check(HL.Rank:GetWeeklyQuest().measured == 90, "weekly quest: a hand-in that gave 0 falls back to the probe's store")
+                HonorLogDB.questRewards, HonorLogDB.probe = nil, probeStore
+            end
+
+            -- ── the list ──
+            mock.faction, mock.level, mock.rankWindow.week = "Alliance", 60, 2
+            mock.questTitles, mock.questLog, mock.questsDone = {}, {}, {}
+            HonorLogDB.questRewards = nil
+            local list = Q:GetList()
+            local byId = listIds(list)
+            local allian = true
+            for _, r in ipairs(list) do if DB[r.id].faction == "Horde" then allian = false end end
+            check(#list > 0 and allian and byId[5893] == nil and byId[8371] ~= nil and byId[8367] == nil, "list: the player's faction and the quests with none")
+            mock.faction = "Horde"
+            check(listIds(Q:GetList())[5893] == nil and listIds(Q:GetList({ levels = "all" }))[5893] ~= nil and listIds(Q:GetList({ levels = "all" }))[5892] == nil, "list: a Horde player gets the Horde quests")
+            mock.faction = "Alliance"
+            local lv35 = ids(function(q) return q.level == 35 and (q.faction == "Alliance" or not q.faction) end)[1]
+            local lv39 = ids(function(q) return q.level == 39 and (q.faction == "Alliance" or not q.faction) end)[1]
+            local lv59 = ids(function(q) return q.level == 59 and (q.faction == "Alliance" or not q.faction) end)[1]
+            local lv55 = 5892
+            local lv60 = ids(function(q) return q.level == 60 and (q.faction == "Alliance" or not q.faction) end)[1]
+            local nolv = 6846
+            local function shows(id, level, filters)
+                mock.level = level
+                return listIds(Q:GetList(filters))[id] ~= nil
+            end
+            check(lv35 and lv39 and lv59 and lv60, "list: the test data has quests of levels 35, 39, 59 and 60")
+            check(shows(lv35, 35) and shows(lv39, 35) and not shows(lv59, 35) and not shows(lv60, 35) and not shows(lv55, 35), "level range: at level 35 the 30s quests only")
+            check(shows(lv59, 59) and shows(lv55, 59) and not shows(lv60, 59) and not shows(lv35, 59), "level range: at level 59 the 50s quests, not the level 60 ones")
+            check(shows(lv60, 60) and not shows(lv59, 60) and not shows(lv55, 60), "level range: at level 60 only level 60 quests")
+            check(shows(nolv, 35) and shows(nolv, 60), "level range: a quest with no level is always listed")
+            check(shows(lv59, 35, { levels = "all" }) and shows(lv60, 35, { levels = "all" }), "level range: All levels lists every row")
+            mock.questLog[lv59] = { objectives = {} }
+            local logged = shows(lv59, 35)
+            mock.questLog[lv59] = nil
+            mock.questsDone[lv59] = true
+            local doneShown = shows(lv59, 35)
+            mock.questsDone[lv59] = nil
+            HonorLogDB.questRewards = { [lv59] = { count = 1, last = 1 } }
+            local paidShown = shows(lv59, 35)
+            HonorLogDB.questRewards = nil
+            check(logged and doneShown and paidShown and not shows(lv59, 35), "level range: a quest in the log, done or paid is listed at any level")
+            mock.level = 60
+            -- the weekly rule
+            local function weeklies(week)
+                mock.rankWindow.week = week
+                local got = {}
+                for id = 96912, 96921 do if listIds(Q:GetList())[id] then got[#got + 1] = id end end
+                return got
+            end
+            check(#weeklies(2) == 2 and weeklies(2)[2] == 96913 and #weeklies(1) == 1 and #weeklies(10) == 10, "weekly rule: the current week and the weeks before it")
+            mock.rankWindow.noData = true
+            check(#weeklies(2) == 0, "weekly rule: no season data lists none")
+            mock.rankWindow.noData, mock.rankWindow.week = false, 2
+            -- states, titles, objectives, places and order
+            local a, b, c, d2 = 8371, nil, 6781, nil
+            local openId = ids(function(q, id) return (q.faction == "Alliance" or not q.faction) and q.level == 60 and id ~= 8371 and id ~= 6781 end)
+            b, d2 = openId[1], openId[2]
+            mock.questLog[a] = { complete = true, objectives = { { text = "Bring 10 supplies", finished = true } } }
+            mock.questLog[b] = { complete = false, objectives = { { text = "Kill 5 wolves", finished = true }, { text = "Gather 3 hides", finished = false }, { text = "", finished = false } } }
+            mock.questsDone[c] = true
+            mock.questTitles[b] = "Wolf Hunt"
+            HonorLogDB.questRewards = { [d2] = { count = 2, last = 5, honor = 100, place = { name = "Quartermaster", map = 1459, x = 36.8, y = 77.2, zone = "Alterac Mountains" } },
+                [c] = { count = 1, last = 4, place = { name = "No Position", map = 1459 } } }
+            list = Q:GetList()
+            byId = listIds(list)
+            check(byId[a].state == "ready" and byId[a].ready and byId[a].inLog and byId[b].state == "log" and not byId[b].ready and byId[c].state == "done" and byId[c].done and byId[d2].state == "open",
+                "list: the four states")
+            check(byId[b].title == "Wolf Hunt" and byId[a].title == DB[a].name, "list: the client's title, else the data's name")
+            check(#byId[b].objectives == 2 and byId[b].objectives[1].text == "Kill 5 wolves" and byId[b].objectives[1].finished == true and byId[b].objectives[2].finished == false
+                and byId[d2].objectives == nil and byId[c].objectives == nil, "list: objectives only for a quest in the log")
+            check(byId[d2].place and byId[d2].place.map == 1459 and byId[d2].place.x == 36.8 and byId[d2].place.name == "Quartermaster" and byId[d2].paid.honor == 100
+                and byId[c].place == nil and byId[c].paid and byId[a].paid == nil and byId[a].place == nil, "list: the place only with a map and a position, paid only when stored")
+            local rank, lastState, orderOk = { ready = 1, log = 2, open = 3, done = 4 }, 0, true
+            for _, r in ipairs(list) do
+                if rank[r.state] < lastState then orderOk = false end
+                lastState = rank[r.state]
+            end
+            check(orderOk and list[1].id == a and list[2].id == b, "list: ready, then in the log, then open, then done")
+            local avRows, otherRows = Q:GetList({ bg = "AV", levels = "all" }), Q:GetList({ bg = "other", levels = "all" })
+            local avOk, otherOk = #avRows > 0, #otherRows > 0
+            for _, r in ipairs(avRows) do if r.bg ~= "AV" then avOk = false end end
+            for _, r in ipairs(otherRows) do if r.bg ~= "ALL" and r.bg ~= "SEASON" then otherOk = false end end
+            check(avOk and otherOk and #Q:GetList({ bg = "all", levels = "all" }) > #avRows + #otherRows, "list: the battleground filter, and Other is ALL and SEASON together")
+            local counts = Q:GetCounts(list)
+            check(counts.ready == 1 and counts.log == 1 and counts.done == 1 and counts.open == #list - 3, "counts: how many of each state")
+            check(Q:GetCounts(nil).ready == 0 and Q:GetCounts({}).open == 0, "counts: an empty list")
+            -- order inside a state: battleground, level, title, id
+            local sorted = true
+            local prev
+            for _, r in ipairs(list) do
+                if r.state == "open" then
+                    if prev and prev.bg == r.bg and (prev.level or 1000) > (r.level or 1000) then sorted = false end
+                    prev = r
+                end
+            end
+            check(sorted, "list: inside a state by battleground, then level")
+            -- every client read gone or secret
+            local liveQL = C_QuestLog
+            for k in pairs(qlSaved) do liveQL[k] = function() return secret() end end
+            check(pcall(Q.GetList, Q), "list: secret quest log answers raise nothing")
+            _G.C_QuestLog = nil
+            check(pcall(Q.GetList, Q) and #Q:GetList() > 0, "list: no quest log at all still lists the data")
+            _G.C_QuestLog = liveQL
+            for k, v in pairs(qlSaved) do liveQL[k] = v end
+            _G.UnitFactionGroup = function() return secret() end
+            check(pcall(Q.GetList, Q), "list: a secret faction raises nothing")
+            _G.UnitFactionGroup = gSaved.UnitFactionGroup
+
+            -- ── the screen ──
+            mock.level = 60
+            S.windowQuestBG, S.windowQuestLevels, S.windowQuest = nil, nil, nil
+            local errBefore = #mock.handledErrors
+            Window:Show("quests")
+            check(#mock.handledErrors == errBefore, "quests: it builds and draws without an error: " .. tostring(mock.handledErrors[errBefore + 1]))
+            local scr = Window.frames.quests
+            local P = scr.honorLogParts
+            check(scr and Window.current == "quests" and S.windowTab == "quests" and Window:GetScreen("quests").title == "Quests" and Window:GetScreen("quests").order == 5
+                and Window.screens[5].key == "quests" and Window.tabs.list[5].honorLogKey == "quests" and Window.tabs.list[4].honorLogKey == "battlegrounds", "tabs: Quests comes after Battlegrounds")
+            S.windowTab = "overview"
+            Window:Hide()
+            Window:Show()
+            check(Window.current == "overview", "tabs: the saved tab opens the window")
+            S.windowTab = "quests"
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show()
+            check(Window.current == "quests" and Window.frames.quests:IsShown(), "tabs: a saved Quests tab restores the screen")
+            scr = Window.frames.quests
+            P = scr.honorLogParts
+            -- chips and their saved settings
+            local bgBtn = P.bgChips.honorLogButtons
+            check(#bgBtn == 6 and bgBtn[1]:GetText() == "All" and bgBtn[2].honorLogKey == "AV" and bgBtn[2]:GetText() == HL:GetBGShortName("AV") and bgBtn[5].honorLogKey == "DI" and bgBtn[6].honorLogKey == "other" and bgBtn[6]:GetText() == "Other",
+                "chips: All, the four short names and Other")
+            check(P.bgChips.honorLogChosen == "all" and P.levelChips.honorLogChosen == "mine" and S.windowQuestBG == nil, "chips: a missing key reads as All and Your level range, and is not saved by a read")
+            check(P.levelChips.honorLogButtons[1]:GetText() == "Your level range" and P.levelChips.honorLogButtons[2]:GetText() == "All levels", "chips: the level range chips")
+            -- list groups and rows
+            local pools = P.list.stack.pools
+            local function titles()
+                local t = {}
+                for i, row in ipairs(pools.title or {}) do if row:IsShown() then t[#t + 1] = row.text:GetText() end end
+                return table.concat(t, "|")
+            end
+            check(titles() == "Ready to hand in|In your log|Not picked up|Done", "list: a group title over each non-empty group: " .. titles())
+            local function rowOf(id)
+                for _, row in ipairs(pools.quest or {}) do
+                    if row:IsShown() and row.honorLogEntry.quest.id == id then return row end
+                end
+            end
+            local rReady, rLog, rOpen, rDone = rowOf(a), rowOf(b), rowOf(d2), rowOf(c)
+            check(rReady and rLog and rOpen and rDone and rReady:GetHeight() == 40, "list: a row of each state, 40 high")
+            check(rReady.ready:IsShown() and rReady.ready:GetText() == "!" and same(textColor(rReady.ready), Kit.COLORS.gold) and not rReady.dot:IsShown() and not rReady.tick:IsShown(), "row: ready is a gold exclamation mark")
+            check(rLog.dot:IsShown() and not rLog.ready:IsShown() and not rLog.tick:IsShown() and not rLog.ring[1]:IsShown(), "row: in the log is a white dot")
+            check(rOpen.ring[1]:IsShown() and not rOpen.dot:IsShown() and not rOpen.ready:IsShown() and not rOpen.tick:IsShown(), "row: open is a hollow grey ring")
+            check(rDone.tick:IsShown() and rDone.tick.__texture == "Interface\\RaidFrame\\ReadyCheck-Ready" and not rDone.ring[1]:IsShown(), "row: done is a tick")
+            check(rLog.title:GetText() == "Wolf Hunt" and same(textColor(rLog.title), Kit.COLORS.white) and same(textColor(rDone.title), Kit.COLORS.grey) and rLog.title.__wrapWidth == 268,
+                "row: the title on one line, white, grey when done, in a fixed width")
+            check(rLog.sub:GetText() == HL:GetBGShortName(DB[b].bg) .. " \194\183 Level 60 \194\183 Gather 3 hides" and rOpen.sub:GetText() == HL:GetBGShortName(DB[d2].bg) .. " \194\183 Level 60",
+                "row: under the title the battleground, the level and the first unfinished objective: " .. tostring(rLog.sub:GetText()))
+            check(rOpen.paid[1].text:GetText() == "+100 honor" and same(textColor(rOpen.paid[1].text), Kit.COLORS.white) and not rOpen.paid[1].icon:IsShown() and not rOpen.paid[2].text:IsShown(),
+                "row: what it paid, in short")
+            check(rLog.paid[1].text:GetText() == "not measured yet" and same(textColor(rLog.paid[1].text), Kit.COLORS.grey) and rDone.paid[1].text:GetText() == "nothing measured",
+                "row: grey not measured yet, or nothing measured for a hand-in that paid none of the three")
+            HonorLogDB.questRewards[d2] = { count = 1, last = 5, honor = 100, rank = 500, marks = { WSG = 3, AV = 2 } }
+            Window:RefreshCurrent()
+            rOpen = rowOf(d2)
+            check(rOpen.paid[1].text:GetText() == "+500 rank" and rOpen.paid[2].text:GetText() == "+100 honor" and not rOpen.paid[1].icon:IsShown(), "row: the largest two payments")
+            HonorLogDB.questRewards[d2] = { count = 1, last = 5, marks = { WSG = 3, AV = 7 } }
+            Window:RefreshCurrent()
+            rOpen = rowOf(d2)
+            check(rOpen.paid[1].icon:IsShown() and rOpen.paid[1].icon.honorLogBG == "AV" and rOpen.paid[1].text:GetText() == "+7" and rOpen.paid[2].icon.honorLogBG == "WSG" and rOpen.paid[2].text:GetText() == "+3",
+                "row: a mark icon with the count")
+            -- the chosen row
+            check(S.windowQuest == nil and P.list.stack.pools.quest[1].honorLogEntry.chosen == true and rReady.wash:IsShown() and rReady.edge:IsShown() and not rLog.wash:IsShown(),
+                "chosen: with nothing saved the first row, with the wash and the gold edge")
+            local lookups = 0
+            local realList = Q.GetList
+            Q.GetList = function(...) lookups = lookups + 1 return realList(...) end
+            click(rowOf(b).click)
+            Q.GetList = realList
+            check(S.windowQuest == b and lookups == 0 and rowOf(b).wash:IsShown() and rowOf(b).edge:IsShown() and not rowOf(a).wash:IsShown(), "chosen: a click saves it and draws it without asking the client again")
+            rowOf(b).click.__scripts.OnEnter(rowOf(b).click)
+            check(mock.tip.lines[1].text == "Wolf Hunt" and mock.tip.owner == rowOf(b), "row: the tooltip has the full title")
+            rowOf(b).click.__scripts.OnLeave(rowOf(b).click)
+            S.windowQuest = 123456
+            Window:RefreshCurrent()
+            check(S.windowQuest == 123456 and rowOf(a).wash:IsShown() and not rowOf(b).wash:IsShown(), "chosen: a saved quest that is not listed falls back to the first row")
+            S.windowQuest = b
+            Window:RefreshCurrent()
+            -- the detail
+            local D = P.detail
+            check(D.title:GetText() == "Wolf Hunt" and D.title.__wrapWidth == 316 and D.state:GetText() == "In your log." and D.sub:GetText() == HL:GetBGDisplayName(DB[b].bg) .. " \194\183 Level 60",
+                "detail: the title, the battleground and level, and one sentence for the state")
+            D.titleHit.__scripts.OnEnter(D.titleHit)
+            check(mock.tip.lines[1].text == "Wolf Hunt", "detail: the title's tooltip")
+            check(D.objects[1]:IsShown() and D.objects[1].text:GetText() == "Kill 5 wolves" and D.objects[1].tick:IsShown() and D.objects[2].text:GetText() == "Gather 3 hides" and not D.objects[2].tick:IsShown()
+                and D.objects[2].edges[1]:IsShown() and not D.objects[3]:IsShown() and not D.objNone:IsShown(), "detail: each objective, a tick when finished and an empty box when not")
+            D.objects[2].__scripts.OnEnter(D.objects[2])
+            check(mock.tip.lines[1].text == "Gather 3 hides", "detail: an objective's tooltip has its full text")
+            check(D.paidNone:IsShown() and D.paidNone:GetText() == "Hand it in once and HonorLog remembers what it pays." and D.placeNone:IsShown()
+                and D.placeNone:GetText() == "Hand it in once and HonorLog remembers where." and not D.link:IsShown() and not D.map:IsShown(), "detail: nothing stored, the two grey sentences")
+            check(D.foot:GetText() == "HonorLog lists the PvP quests the game data names. Some may not be offered at your level.", "detail: the foot")
+            click(rowOf(d2).click)
+            D = P.detail
+            check(D.state:GetText() == "Not picked up yet." and D.objNone:IsShown() and D.objNone:GetText() == "Pick it up to see its objectives." and not D.objects[1]:IsShown(), "detail: an open quest shows how to see its objectives")
+            HonorLogDB.questRewards[d2] = { count = 3, last = time(), honor = 1200, rank = 500, marks = { WSG = 3 }, money = 12345, xp = 880,
+                place = { name = "Quartermaster Fiery-Name", map = 1459, x = 36.8, y = 77.2, zone = "Alterac Mountains", subzone = "Dun Baldar" } }
+            Window:RefreshCurrent()
+            D = P.detail
+            local lines = {}
+            for _, p in ipairs(D.paidLines) do if p.label:IsShown() then lines[#lines + 1] = p.label:GetText() .. "=" .. p.value:GetText() end end
+            check(table.concat(lines, ";") == "Honor=1,200;Rank points=500;" .. HL:GetBGShortName("WSG") .. " marks=3;Money=1g 23s 45c;Experience=880", "detail: label and value lines for what was measured: " .. table.concat(lines, ";"))
+            check(D.paidLines[3].icon:IsShown() and D.paidLines[3].icon.honorLogBG == "WSG" and not D.paidLines[1].icon:IsShown(), "detail: the marks line has the mark icon")
+            check(D.paidFoot:GetText() == "Handed in 3 times, last on " .. date("%Y-%m-%d", HonorLogDB.questRewards[d2].last) .. "." and not D.paidNone:IsShown(), "detail: how often and when")
+            check(D.link:IsShown() and D.link.honorLogName:GetText() == "Quartermaster Fiery-Name" and D.zone:GetText() == "Alterac Mountains \194\183 Dun Baldar" and D.map:IsShown() and D.map:GetText() == "Show on map" and not D.placeNone:IsShown(),
+                "detail: the place, its zone in grey and the Show on map button")
+            local shownPlace
+            local realShow = HL.ShowPlaceOnMap
+            HL.ShowPlaceOnMap = function(_, place) shownPlace = place return true end
+            click(D.map)
+            check(shownPlace and shownPlace.map == 1459 and shownPlace.x == 36.8 and shownPlace.y == 77.2 and shownPlace.name == "Quartermaster Fiery-Name", "detail: Show on map calls the map with the stored place")
+            shownPlace = nil
+            click(D.link)
+            check(shownPlace and shownPlace.map == 1459, "detail: the place link does the same")
+            HL.ShowPlaceOnMap = realShow
+            HonorLogDB.questRewards[d2].count = 1
+            Window:RefreshCurrent()
+            check(P.detail.paidFoot:GetText():find("^Handed in once, on "), "detail: a single hand-in reads as once")
+            -- filters: saved, and they send the list back to the top
+            for _, btn in ipairs(P.bgChips.honorLogButtons) do if btn.honorLogKey == "AV" then P.list.area:SetVerticalScroll(40) click(btn) end end
+            check(S.windowQuestBG == "AV" and P.bgChips.honorLogChosen == "AV" and P.list.area:GetVerticalScroll() == 0, "filters: the battleground is saved and the list goes back to the top")
+            local onlyAV = true
+            for _, row in ipairs(pools.quest) do if row:IsShown() and row.honorLogEntry.quest.bg ~= "AV" then onlyAV = false end end
+            check(onlyAV, "filters: only that battleground's rows")
+            click(P.levelChips.honorLogButtons[2])
+            check(S.windowQuestLevels == "all" and P.levelChips.honorLogChosen == "all", "filters: the level setting is saved")
+            click(P.bgChips.honorLogButtons[1])
+            check(S.windowQuestBG == "all" and #P.list.stack.pools.quest > 40, "filters: All levels lists many more rows")
+            P.list.area:SetVerticalScroll(60)
+            Window:RefreshCurrent()
+            check(P.list.area:GetVerticalScroll() == 60, "scroll: kept across a refresh")
+            click(P.levelChips.honorLogButtons[1])
+            check(P.list.area:GetVerticalScroll() == 0, "scroll: reset when a filter changes")
+            S.windowQuestBG, S.windowQuestLevels = "bogus", "bogus"
+            Window:RefreshCurrent()
+            check(P.bgChips.honorLogChosen == "all" and P.levelChips.honorLogChosen == "mine", "filters: an unknown saved value reads as the default")
+            S.windowQuestBG, S.windowQuestLevels = "all", "mine"
+            -- a hand-in rebuilds the list while this screen is open
+            local rebuilt = 0
+            Q.GetList = function(...) rebuilt = rebuilt + 1 return realList(...) end
+            HonorLogDB.questRewards = nil
+            HL:Fire("HonorLog_QuestPaid", d2)
+            check(rebuilt == 1 and rowOf(d2).paid[1].text:GetText() == "not measured yet", "rebuilt: a stored hand-in refreshes the open screen")
+            -- the quest log's event: one refresh a second at most, only while this is the open screen
+            rebuilt = 0
+            mock.deferTimers = true
+            local timersBefore = #mock.timers
+            check(scr.honorLogEvents.__events.QUEST_LOG_UPDATE == true, "log event: registered while the screen is drawn")
+            for _ = 1, 5 do mock.fireEvent("QUEST_LOG_UPDATE") end
+            check(rebuilt == 0 and #mock.timers == timersBefore + 1, "log event: a burst is answered by one timer")
+            mock.questLog[d2] = { complete = true, objectives = {} }
+            mock.flushTimers()
+            check(rebuilt == 1 and rowOf(d2).ready:IsShown(), "log event: the screen is refreshed once, with the new state")
+            mock.fireEvent("QUEST_LOG_UPDATE")
+            Window:Show("overview")
+            mock.flushTimers()
+            check(rebuilt == 1, "log event: nothing is refreshed once another screen is open")
+            mock.fireEvent("QUEST_LOG_UPDATE")
+            mock.flushTimers()
+            mock.deferTimers = false
+            check(rebuilt == 1 and next(scr.honorLogEvents.__events) == nil, "log event: the screen stops listening when hidden")
+            rebuilt = 0
+            HL:Fire("HonorLog_QuestPaid", d2)
+            check(rebuilt == 0, "rebuilt: a hand-in refreshes nothing while another screen is open")
+            Q.GetList = realList
+            mock.questLog = {}
+            Window:Show("quests")
+            -- empty
+            local realDB = HL.QuestDB
+            HL.QuestDB = {}
+            Window:RefreshCurrent()
+            check(P.list.empty:IsShown() and P.list.empty:GetText() == "No quests match." and P.detail.empty:IsShown() and P.detail.empty:GetText() == "Choose a quest on the left."
+                and not P.detail.title:IsShown() and titles() == "", "empty: both grey sentences, no group titles")
+            HL.QuestDB = realDB
+            Window:RefreshCurrent()
+            check(not P.list.empty:IsShown() and not P.detail.empty:IsShown() and P.detail.title:IsShown(), "empty: gone again with quests")
+            -- long titles and objectives stay in their boxes
+            mock.questTitles[b] = string.rep("Very long title ", 8)
+            mock.questLog[b] = { objectives = { { text = string.rep("Slay the many creatures ", 6), finished = false } } }
+            Window:RefreshCurrent()
+            click(rowOf(b).click)
+            check(rowOf(b).title.__wrapWidth == 268 and rowOf(b).sub.__wrapWidth == 268 and P.detail.title.__wrapWidth == 316 and P.detail.objects[1].text.__wrapWidth == 294, "widths: long texts sit in fixed widths")
+            rowOf(b).click.__scripts.OnEnter(rowOf(b).click)
+            check(mock.tip.lines[1].text == string.rep("Very long title ", 8), "widths: the row tooltip has the full title")
+            mock.questTitles[b], mock.questLog[b] = nil, nil
+
+            -- hygiene
+            do
+                local function inScreen(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == scr then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inScreen(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "quests: no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 10 and #foreign == 0, "quests: only honorLog names are added to template frames (" .. templated .. "): " .. table.concat(foreign, ","))
+                for _, file in ipairs({ "UI/Screens/Quests.lua", "Modules/Quests.lua" }) do
+                    local source = io.open(ROOT .. "/" .. file):read("*a")
+                    check(not source:find("OnUpdate", 1, true), "quests: " .. file .. " has no OnUpdate")
+                end
+            end
+
+            -- every client read gone or secret
+            local errorsMid = #mock.handledErrors
+            C_Item.GetItemCount, C_CurrencyInfo.GetCurrencyInfo, _G.GetMoney = function() return secret() end, function() return secret() end, function() return secret() end
+            _G.GetQuestID, _G.UnitLevel, _G.GetRealZoneText, _G.GetSubZoneText = function() return secret() end, function() return secret() end, function() return secret() end, function() return secret() end
+            C_QuestLog.GetTitleForQuestID, C_QuestLog.IsOnQuest, C_QuestLog.GetQuestObjectives = function() return secret() end, function() return secret() end, function() return secret() end
+            C_QuestLog.IsQuestFlaggedCompleted, C_QuestLog.IsComplete, C_QuestLog.ReadyForTurnIn = function() return secret() end, function() return secret() end, function() return secret() end
+            mock.fireEvent("QUEST_COMPLETE")
+            mock.fireEvent("QUEST_TURNED_IN", 5892, secret(), secret())
+            Window:RefreshCurrent()
+            C_QuestLog.GetTitleForQuestID, C_QuestLog.IsOnQuest, C_QuestLog.GetQuestObjectives = function() return nil end, function() return nil end, function() return nil end
+            C_QuestLog.IsQuestFlaggedCompleted, C_QuestLog.IsComplete, C_QuestLog.ReadyForTurnIn = function() return nil end, function() return nil end, function() return nil end
+            C_Item.GetItemCount, C_CurrencyInfo.GetCurrencyInfo = function() return nil end, function() return nil end
+            _G.GetQuestID, _G.UnitLevel, _G.GetRealZoneText, _G.GetSubZoneText = function() return nil end, function() return nil end, function() return nil end, function() return nil end
+            mock.fireEvent("QUEST_COMPLETE")
+            mock.fireEvent("QUEST_TURNED_IN", 5892, nil, nil)
+            Window:RefreshCurrent()
+            check(#mock.handledErrors == errorsMid, "quests: nothing raises when every client read is nil or a secret: " .. tostring(mock.handledErrors[errorsMid + 1]))
+            -- a failing part is reported and the others are still drawn
+            C_QuestLog.GetTitleForQuestID = function(id) return mock.questTitles[id] end
+            local realFormat = HL.Rank.FormatNumber
+            HL.Rank.FormatNumber = function() error("format gone") end
+            HonorLogDB.questRewards = { [d2] = { count = 1, last = 1, honor = 5 } }
+            Window:RefreshCurrent()
+            HL.Rank.FormatNumber = realFormat
+            check(#mock.handledErrors > errorsMid and P.bgChips.honorLogChosen == "all", "quests: a failing part is reported and the others are still drawn")
+            for i = #mock.handledErrors, errorsMid + 1, -1 do mock.handledErrors[i] = nil end
+            check(#mock.handledErrors == errorsStart, "quests: the section left no error behind")
+
+            -- put it back
+            for k, v in pairs(qlSaved) do C_QuestLog[k] = v end
+            for _, k in ipairs({ "GetQuestID", "UnitLevel", "GetRealZoneText", "GetSubZoneText", "GetMoney", "UnitFactionGroup" }) do _G[k] = gSaved[k] end
+            C_Item.GetItemCount, C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo = gSaved.count, gSaved.currency, gSaved.progress
+            mock.runShowScripts = prevScripts
+            HonorLogDB.questRewards = nil
+            mock.level, mock.faction, mock.rankWindow.week, mock.money = saved.level, saved.faction, saved.week, saved.money
+            mock.currencies[1792].quantity, mock.rank.earned, mock.bagItems[20558], mock.bagItems[20559] = saved.honor, saved.earned, saved.wsg, saved.ab
+            mock.npcGuid, mock.units, mock.map, mock.zone, mock.subzone = saved.npcGuid, saved.units, saved.map, saved.zone, saved.subzone
+            mock.questTitles, mock.questLog, mock.questsDone = {}, {}, {}
+            S.windowTab, S.windowQuest, S.windowQuestBG, S.windowQuestLevels = "overview", nil, nil, nil
             Window:Hide()
         end)()
 

@@ -6,6 +6,12 @@ HonorLog 2.0 is built for **WoW Forever** (client 1.60.1). TBC Anniversary stays
 1.2.3: if you play TBC, keep that version.
 
 ### Added
+- **Quests**, the window's fifth screen. The PvP quests the game data names (208 of them, by battleground and
+  faction): which are ready to hand in, in your log (with their objectives), not picked up or done, what each paid
+  you (honor, rank points, marks, money, experience) and where to hand it in, with a button that shows the place
+  on the map. HonorLog now remembers what a quest paid and where it was handed in, always, with no command; titles
+  and objectives come from the game, so they are in your language. The Rank plan's weekly quest uses what it
+  measured.
 - **Pop-up cards** for the moments that matter, in place of the plain centre-screen text: a game report after
   each battleground (the result, honor, rank points, marks, reputation or killing blows, a highlight, your
   next goal and how close the honor cap is), a rank-up card (the new rank, what it unlocks, what comes next)
