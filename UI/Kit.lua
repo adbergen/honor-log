@@ -462,8 +462,10 @@ local RING = {
     glow = "UI-Character-Info-Honor-Bar-BG-Glow",
     horde = "UI-Character-Info-Honor-Bar-BG-Horde",
     alliance = "UI-Character-Info-Honor-Bar-BG-Alliance",
+    -- The ring art. Build 1.60.1.71037 has only the second name (asked in game with /honorlog probe ui);
+    -- the first is what the published PVPRankFrame.lua sets.
     bar = "UI-Character-Info-Honor-Bar",
-    barOld = "pvpqueue-sidebar-honorbar-background", -- what PVPRankFrame.xml names before its Lua swaps it
+    barOld = "pvpqueue-sidebar-honorbar-background",
     badge = "UI-Character-Info-Honor-RewardRing",
     iconHorde = "UI-Character-Info-Honor-Icon-Horde",
     iconAlliance = "UI-Character-Info-Honor-Icon-Alliance",
@@ -574,6 +576,8 @@ function Kit:Ring(parent, size)
         end
         setRankIcon(self.Icon, rank, faction)
         self.Badge.Label:SetText(rank > 0 and tostring(rank) or "")
+        -- no rank yet: no empty badge under the faction emblem
+        if self.honorLogFull then self.Badge:SetShown(rank > 0) end
     end
 
     function ring:SetProgress(fraction)

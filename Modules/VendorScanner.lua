@@ -118,7 +118,7 @@ function HonorLog:ScanCurrentVendor(quiet)
     end
     self:InitScanner()
 
-    local vendor = UnitName("npc") or "Unknown Vendor"
+    local vendor = Util.unitName("npc") or "Unknown Vendor"
     local numItems = GetMerchantNumItems()
     local kept = 0
     for i = 1, numItems do
@@ -128,7 +128,7 @@ function HonorLog:ScanCurrentVendor(quiet)
         if itemID and (known or cost.honor > 0 or next(cost.marks)) then
             HonorLogDB.scannedGear[itemID] = {
                 honor = cost.honor, marks = cost.marks, gold = cost.gold,
-                seen = time(), npc = UnitName("npc"),
+                seen = time(), npc = Util.unitName("npc"),
             }
             kept = kept + 1
         end
@@ -161,7 +161,7 @@ end
 function HonorLog:AutoScanVendor()
     if self.db and self.db.settings and self.db.settings.autoVendorScan == false then return end
     if not (MerchantFrame and MerchantFrame:IsShown()) then return end
-    local npc = UnitName("npc")
+    local npc = Util.unitName("npc")
     if not npc or not SellsGearDBItem() then return end
     self.autoScanAt = self.autoScanAt or {}
     local now = GetTime()

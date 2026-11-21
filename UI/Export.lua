@@ -267,7 +267,7 @@ end
 
 function HonorLog:GenerateTextExport(scope)
     local lines = {}
-    local scopeLabel = scope == "account" and "Account-Wide" or ("Character: " .. UnitName("player"))
+    local scopeLabel = scope == "account" and "Account-Wide" or ("Character: " .. (HonorLog.Util.unitName("player") or "?"))
 
     table.insert(lines, "╔══════════════════════════════════════╗")
     table.insert(lines, "║          HonorLog Summary            ║")

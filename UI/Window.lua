@@ -101,7 +101,7 @@ end
 
 function Window:UpdateTitleBar()
     if not self.frame then return end
-    local name = str(call(UnitName, "player"))
+    local name = Util.unitName("player")
     local level = num(call(UnitLevel, "player"))
     local class = str((call(UnitClass, "player")))
     local left

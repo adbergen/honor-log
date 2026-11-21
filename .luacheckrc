@@ -38,7 +38,7 @@ read_globals = {
     "GetBindingKey", "CreateVector2D", "GetItemIcon", "GetSubZoneText", "IsAltKeyDown",
     "LibStub", "hooksecurefunc", "wipe", "unpack", "bit", "date", "time",
     "issecretvalue", "GetTime", "GetBuildInfo", "GetRealmName", "GetRealZoneText", "GetInstanceInfo",
-    "UnitName", "UnitClass", "UnitRace", "UnitFactionGroup", "UnitLevel", "UnitGUID", "GetPlayerInfoByGUID",
+    "UnitName", "GetUnitName", "UnitClass", "UnitRace", "UnitFactionGroup", "UnitLevel", "UnitGUID", "GetPlayerInfoByGUID",
     "UnitExists", "UnitIsPlayer", "UnitIsEnemy", "UnitIsDeadOrGhost", "UnitIsFeignDeath",
     "COMBATLOG_HONORGAIN", "COMBATLOG_HONORGAIN_NO_RANK", "COMBATLOG_HONORGAIN_EXHAUSTION1", "COMBATLOG_HONORAWARD",
     "GetInventoryItemID", "GetCursorPosition", "SetCursor", "ResetCursor",
@@ -97,5 +97,6 @@ files["Tests/"] = {
         "GetQuestID", "GetTitleText", "GetRewardMoney", "GetRewardXP", "GetRewardHonor", "GetNumQuestRewards",
         "GetNumQuestChoices", "GetQuestItemInfo", "C_QuestInfoSystem", "C_QuestOffer",
         "C_ChatInfo", "IsInGuild", "IsInGroup", "IsInRaid",
+        "GetUnitName",
     },
 }

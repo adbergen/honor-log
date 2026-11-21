@@ -500,7 +500,7 @@ local function OnMerchantShow()
     if not next(pins) then return end
     local npc
     if HonorLog.ReadVendorLocation then npc = HonorLog:ReadVendorLocation().npc end
-    local name = Util.str(call(UnitName, "npc"))
+    local name = Util.unitName("npc")
     local done = {}
     for key, pin in pairs(pins) do
         if pin.kind == "vendor" then
