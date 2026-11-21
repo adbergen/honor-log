@@ -2354,7 +2354,63 @@ local function run()
         playGame("Arathi Basin", 529, function() mock.repAmounts[509].current = 3650 end)
         local rp = lastEvent("REP_DELTA")
         check(rp and rp.faction == 509 and rp.startAmount == 3500 and rp.endAmount == 3650 and rp.gained == 150 and rp.readable == true, "probe after a game: the reputation delta read")
+
+        -- Quest rewards: the offer is read when a quest window opens, the real change when it is handed in.
+        -- (The file-level slash() belongs to the first load; the reloaded addon's own probe has the live frame.)
+        SlashCmdList.HONORLOG("probe on")
+        mock.quest = { id = 8426, title = "Battle of Warsong Gulch", money = 4500, xp = 0, honor = 10,
+            rewards = { { "Some Token", 134400, 1, 2, true, 99999 } } }
+        mock.fireEvent("QUEST_DETAIL")
+        local q = HonorLogDB.probe.quests and HonorLogDB.probe.quests[8426]
+        check(q and q.title == "Battle of Warsong Gulch" and q.offer.money == 4500 and q.offer.honor == 10
+            and q.offer.items[1][1] == "Some Token" and q.offer.items[1][6] == 99999 and q.offerFrom == "QUEST_DETAIL", "probe at QUEST_DETAIL: the offer is stored by quest id")
+        check(q.pvp == true and q.turnIns == 0, "an offer that pays honor marks the quest as PvP")
+        local logBeforeQuest = #HonorLogDB.probe.log
+        mock.deferTimers = true
+        mock.fireEvent("QUEST_COMPLETE")
+        check(q.offerFrom == "QUEST_COMPLETE", "the hand-in window refreshes the offer")
+        mock.currencies[1792].quantity = mock.currencies[1792].quantity + 10
+        mock.rank.earned = mock.rank.earned + 500
+        mock.bagItems[20558] = mock.bagItems[20558] - 3
+        mock.money = mock.money + 4500
+        mock.fireEvent("QUEST_TURNED_IN", 8426, 0, 4500)
+        check(q.turnIns == 1 and q.last.measured == false and q.last.money == 4500, "probe at QUEST_TURNED_IN: counted at once, measured a moment later")
+        mock.flushTimers()
+        mock.deferTimers = false
+        check(q.last.measured == true and q.last.honor == 10 and q.last.rank == 500 and q.last.moneyChange == 4500 and q.last.marks.WSG_20558 == -3,
+            "…then honor, rank points, money and marks are measured: " .. tostring(q.last.honor) .. "/" .. tostring(q.last.rank) .. "/" .. tostring(q.last.moneyChange))
+        check(next(q.last.marks, "WSG_20558") == nil, "only the marks that changed are listed")
+        check(#HonorLogDB.probe.log == logBeforeQuest, "quest readings stay out of the ring log")
+        mock.currencies[1792].quantity = mock.currencies[1792].quantity - 10
+        mock.rank.earned = mock.rank.earned - 500
+        mock.bagItems[20558] = mock.bagItems[20558] + 3
+        mock.money = mock.money - 4500
+        -- A quest handed in without its window is counted, not measured, and a secret id is ignored.
+        mock.fireEvent("QUEST_TURNED_IN", 777, 100, 0)
+        local q2 = HonorLogDB.probe.quests[777]
+        check(q2 and q2.turnIns == 1 and q2.last.measured == false and q2.pvp == nil, "a hand-in without its window is counted, not measured")
+        check(pcall(mock.fireEvent, "QUEST_TURNED_IN", mock.newSecret(), 0, 0), "a secret quest id raises nothing")
+        mock.quest = nil
+        check(pcall(mock.fireEvent, "QUEST_DETAIL"), "no quest window: nothing raised")
+        -- The store is capped; records that never touched honor, rank points or marks go first.
+        for i = 1, 320 do
+            mock.quest = { id = 100000 + i, title = "Filler " .. i }
+            mock.fireEvent("QUEST_DETAIL")
+        end
+        mock.quest = nil
+        local questCount = 0
+        for _ in pairs(HonorLogDB.probe.quests) do questCount = questCount + 1 end
+        check(questCount == 300 and HonorLogDB.probe.quests[8426] ~= nil and HonorLogDB.probe.quests[777] == nil, "the quest store caps at 300 and keeps the PvP quest: " .. questCount)
+        local printedBeforeStatus = #printed
+        SlashCmdList.HONORLOG("probe status")
+        check(table.concat(printed, "\n", printedBeforeStatus + 1):find("quests seen: 300 (1 paid honor, rank points or marks)", 1, true), "probe status counts the quests")
+
+        SlashCmdList.HONORLOG("probe off")
         slash("probe off")
+        mock.quest = { id = 555, title = "Seen while off" }
+        mock.fireEvent("QUEST_DETAIL")
+        mock.quest = nil
+        check(HonorLogDB.probe.quests[555] == nil, "a disarmed probe stores no quests")
         local countBefore = #HonorLogDB.probe.log
         mock.fireEvent("MERCHANT_SHOW")
         check(#HonorLogDB.probe.log == countBefore, "a disarmed probe logs nothing at MERCHANT_SHOW")

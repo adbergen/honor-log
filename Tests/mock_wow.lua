@@ -228,6 +228,7 @@ for _, e in ipairs({
     "BAG_UPDATE_DELAYED", "POST_MATCH_CURRENCY_REWARD_UPDATE", "POST_MATCH_ITEM_REWARD_UPDATE", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
     "PARTY_KILL", "UPDATE_FACTION", "PLAYER_LEVEL_UP", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
+    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
@@ -623,6 +624,24 @@ end
 function GetBuildInfo() return "1.60.1", "70938", "Nov 1 2026", 16001 end
 M.money = 123456 -- copper
 function GetMoney() return M.money end
+
+-- The open quest window: M.quest = { id, title, money, xp, honor, rewards = { { name, texture, count,
+-- quality, usable, itemID } }, choices = {...}, currencies = {...}, factions = {...} }, or nil when none.
+M.quest = nil
+function GetQuestID() return M.quest and M.quest.id or 0 end
+function GetTitleText() return M.quest and M.quest.title end
+function GetRewardMoney() return M.quest and M.quest.money or 0 end
+function GetRewardXP() return M.quest and M.quest.xp or 0 end
+function GetRewardHonor() return M.quest and M.quest.honor or 0 end
+function GetNumQuestRewards() return M.quest and #(M.quest.rewards or {}) or 0 end
+function GetNumQuestChoices() return M.quest and #(M.quest.choices or {}) or 0 end
+function GetQuestItemInfo(kind, i)
+    local list = M.quest and (kind == "choice" and M.quest.choices or M.quest.rewards) or {}
+    local r = list[i]
+    if r then return r[1], r[2], r[3], r[4], r[5], r[6] end
+end
+C_QuestInfoSystem = { GetQuestRewardCurrencies = function() return M.quest and M.quest.currencies or {} end }
+C_QuestOffer = { GetQuestOfferMajorFactionReputationRewards = function() return M.quest and M.quest.factions or {} end }
 function GetTime() return M.now or os.clock() end
 function PlaySound() end
 SOUNDKIT = { IG_MAINMENU_OPTION_CHECKBOX_ON = 856, IG_MAINMENU_OPTION_CHECKBOX_OFF = 857 }

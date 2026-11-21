@@ -8,6 +8,11 @@
 --   /honorlog probe status   show what is armed and how much is stored
 --   /honorlog probe clear    wipe the log and the scoreboard attempts
 --
+-- While armed it also learns what quests pay (HonorLogDB.probe.quests): no data an
+-- addon can read ahead of time says what a PvP quest rewards, so the offer is read
+-- when a quest window opens and the real change in honor, rank points, marks and
+-- money is measured when the quest is handed in.
+--
 -- Rules this file follows (Forever API docs, build 70888):
 --   * A value that may be secret is checked with issecretvalue() before it is
 --     compared, concatenated, indexed or stored; a secret is stored as the
@@ -56,6 +61,10 @@ local EVENTS = {
     -- and rank points directly, without currency deltas.
     "POST_MATCH_CURRENCY_REWARD_UPDATE",
     "POST_MATCH_ITEM_REWARD_UPDATE",
+    -- Quest windows and hand-ins, for the quest reward store.
+    "QUEST_DETAIL",
+    "QUEST_COMPLETE",
+    "QUEST_TURNED_IN",
 }
 
 -- Flagged HasRestrictions in the Forever docs. Never called, never registered.
@@ -75,8 +84,13 @@ local UPDATE_SCORE_THROTTLE = 2 -- seconds between logged UPDATE_BATTLEFIELD_SCO
 local SCOREBOARD_DELAYS = { 1, 3, 10 }
 local SCOREBOARD_MAX_EVENT_ATTEMPTS = 20
 
+local QUEST_CAP = 300    -- quest records kept
+local QUEST_SETTLE = 1.5 -- seconds after a hand-in before the rewards are measured
+local QUEST_WINDOW = 120 -- seconds a hand-in window's reading stays usable
+
 local frame
 local lastScoreLog = 0
+local questBefore -- { id, gt, state }: the reading taken when a hand-in window opened
 local watch -- the scoreboard watch in progress, nil when none
 
 --------------------------------------------------------------------------------
@@ -431,6 +445,136 @@ function Probe:LogRepRead(bgType, startRep, endRep, rep)
     entry.readable = rep ~= nil
 end
 
+--------------------------------------------------------------------------------
+-- Quest rewards
+--------------------------------------------------------------------------------
+-- Kept per quest id, outside the ring log, so a levelling session does not push the
+-- battleground entries out. The old quest-window globals (GetQuestID, GetRewardMoney, ...)
+-- are not in the docs, so not flagged restricted; every read runs under pcall.
+
+local function plain(v)
+    if type(v) == "number" then return v end
+end
+
+-- Honor, rank points (faction 2800's standing as one running total), money and marks, as plain
+-- numbers where the client gives them.
+local function questState()
+    local honor = readNs("C_CurrencyInfo", "GetCurrencyInfo", HONOR_CURRENCY)
+    local progress = readNs("C_MajorFactions", "GetMajorFactionProgressionInfo", RANK_FACTION)
+    local rank
+    if type(progress) == "table" then
+        local level, earned = plain(progress.renownLevel), plain(progress.renownReputationEarned)
+        local curve = HonorLog.Rank
+        if level and earned then
+            rank = ((curve and curve.TotalForRank) and curve:TotalForRank(level) or 0) + earned
+        end
+    end
+    return {
+        honor = type(honor) == "table" and plain(honor.quantity) or nil,
+        rank = rank,
+        money = plain(readGlobal("GetMoney")),
+        marks = markCounts(),
+    }
+end
+
+local function questItems(kind, countFn)
+    local list = {}
+    for i = 1, math.min(plain(readGlobal(countFn)) or 0, 10) do
+        list[i] = readGlobal("GetQuestItemInfo", kind, i)
+    end
+    return list
+end
+
+-- What the open quest window offers.
+local function questOffer(id)
+    return {
+        money = readGlobal("GetRewardMoney"),
+        xp = readGlobal("GetRewardXP"),
+        honor = readGlobal("GetRewardHonor"),
+        items = questItems("reward", "GetNumQuestRewards"),
+        choices = questItems("choice", "GetNumQuestChoices"),
+        currencies = readNs("C_QuestInfoSystem", "GetQuestRewardCurrencies", id),
+        factions = readNs("C_QuestOffer", "GetQuestOfferMajorFactionReputationRewards"),
+    }
+end
+
+local function questRecord(id)
+    local p = db()
+    p.quests = p.quests or {}
+    local rec = p.quests[id]
+    if not rec then
+        rec = { id = id, turnIns = 0 }
+        p.quests[id] = rec
+    end
+    rec.t = time()
+    return rec
+end
+
+-- Over the cap, the oldest records that never touched honor, rank points or marks go first.
+local function trimQuests()
+    local quests = db().quests
+    local list = {}
+    for _, rec in pairs(quests or {}) do list[#list + 1] = rec end
+    if #list <= QUEST_CAP then return end
+    table.sort(list, function(a, b)
+        if (a.pvp == true) ~= (b.pvp == true) then return a.pvp ~= true end
+        if (a.t or 0) ~= (b.t or 0) then return (a.t or 0) < (b.t or 0) end
+        return a.id < b.id
+    end)
+    for i = 1, #list - QUEST_CAP do quests[list[i].id] = nil end
+end
+
+-- QUEST_DETAIL (a quest is offered) or QUEST_COMPLETE (its hand-in window is open).
+local function onQuestWindow(event)
+    local id = plain(readGlobal("GetQuestID"))
+    if not id or id == 0 then return end
+    local rec = questRecord(id)
+    rec.title = readGlobal("GetTitleText")
+    rec.offer = questOffer(id)
+    rec.offerFrom = event
+    local offer = rec.offer
+    if (plain(offer.honor) or 0) > 0 or (type(offer.factions) == "table" and next(offer.factions) ~= nil) then
+        rec.pvp = true
+    end
+    if event == "QUEST_COMPLETE" then
+        questBefore = { id = id, gt = GetTime(), state = questState() }
+    end
+    trimQuests()
+end
+
+-- QUEST_TURNED_IN: compare the reading from the hand-in window with one taken a moment later.
+-- A quest handed in without its window has nothing to compare against and is only counted.
+local function onQuestTurnedIn(id, xp, money)
+    if isSecret(id) or type(id) ~= "number" then return end
+    local rec = questRecord(id)
+    rec.turnIns = (rec.turnIns or 0) + 1
+    local last = { t = time(), xp = safe(xp), money = safe(money), measured = false }
+    rec.last = last
+    local before
+    if questBefore and questBefore.id == id and GetTime() - questBefore.gt <= QUEST_WINDOW then
+        before = questBefore.state
+    end
+    questBefore = nil
+    trimQuests()
+    if not before then return end
+    C_Timer.After(QUEST_SETTLE, function()
+        local after = questState()
+        local function change(key)
+            if before[key] and after[key] then return after[key] - before[key] end
+        end
+        local marks = {}
+        for key, count in pairs(after.marks) do
+            local was = before.marks[key]
+            if type(count) == "number" and type(was) == "number" and count ~= was then
+                marks[key] = count - was
+            end
+        end
+        last.honor, last.rank, last.moneyChange, last.marks = change("honor"), change("rank"), change("money"), marks
+        last.measured = true
+        if (last.honor or 0) ~= 0 or (last.rank or 0) ~= 0 or next(marks) ~= nil then rec.pvp = true end
+    end)
+end
+
 -- PARTY_KILL: are the GUIDs secret, in or out of a battleground?
 local function onPartyKill(attacker, target)
     local entry = { t = time(), gt = GetTime(), event = "PARTY_KILL" }
@@ -547,6 +691,10 @@ local function onEvent(_, event, ...)
     elseif event == "BAG_UPDATE_DELAYED" then
         local entry = push(event)
         entry.marks = markCounts()
+    elseif event == "QUEST_DETAIL" or event == "QUEST_COMPLETE" then
+        onQuestWindow(event)
+    elseif event == "QUEST_TURNED_IN" then
+        onQuestTurnedIn(...)
     else
         push(event, ...)
     end
@@ -610,9 +758,15 @@ function Probe:HandleCommand(arg)
         watch = nil
         say("Probe log and scoreboard attempts cleared.")
     elseif arg == "status" then
+        local quests, pvpQuests = 0, 0
+        for _, rec in pairs(p.quests or {}) do
+            quests = quests + 1
+            if rec.pvp then pvpQuests = pvpQuests + 1 end
+        end
         say("Probe armed: " .. tostring(p.armed == true) .. ", log entries: " .. #p.log
             .. "/" .. LOG_CAP .. ", scoreboard watches: " .. #(p.scoreboard or {})
-            .. ", snapshot: " .. (p.snapshot and "yes" or "no"))
+            .. ", snapshot: " .. (p.snapshot and "yes" or "no")
+            .. ", quests seen: " .. quests .. " (" .. pvpQuests .. " paid honor, rank points or marks)")
     else
         self:TakeSnapshot()
         say("Probe snapshot saved to HonorLogDB.probe.snapshot (written to disk on /reload or logout).")
