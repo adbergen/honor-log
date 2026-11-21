@@ -3617,10 +3617,10 @@ local function run()
 
         -- next goal
         local goalPart = parts.goal
-        local pickerCalls, tabCalls = 0, {}
+        local pickerCalls, tabCalls = 0, 0
         local realPicker, realSwitch = HL.ShowGoalPicker, HL.SwitchTab
         HL.ShowGoalPicker = function() pickerCalls = pickerCalls + 1 end
-        HL.SwitchTab = function(_, tab) tabCalls[#tabCalls + 1] = tab end
+        HL.SwitchTab = function() tabCalls = tabCalls + 1 end
         HL.GetAllGoalsProgress = function() return {} end
         ov:Refresh()
         check(goalPart.none:IsShown() and goalPart.none:GetText() == "No goals yet" and goalPart.add:IsShown() and not goalPart.view:IsShown() and not goalPart.icon:IsShown(), "overview: no goals")
@@ -3663,12 +3663,10 @@ local function run()
         check(#openCalls == 2 and openCalls[2][1] == "goals" and openCalls[2][2] == vendorItem, "overview: a click on the next-goal card opens that goal on the Gear goals screen")
         goalPart.icon.__scripts.OnClick(goalPart.icon)
         check(#openCalls == 2, "overview: the goal's item icon keeps its own click")
-        HL.GearScreen.Open = realOpen
-        local miniShown = HL.mainFrame:IsShown()
-        if miniShown then HL:ToggleMainFrame() end
         goalPart.view.__scripts.OnClick(goalPart.view)
-        check(tabCalls[1] == "goals" and HL.mainFrame:IsShown(), "overview: View goal opens the goals panel in the small frame")
-        if not miniShown then HL:ToggleMainFrame() end
+        check(#openCalls == 3 and openCalls[3][1] == "goals" and openCalls[3][2] == vendorItem and tabCalls == 0,
+            "overview: View goal opens that goal on the Gear goals screen, not the small frame's panel")
+        HL.GearScreen.Open = realOpen
         -- an unmet-rep-free goal and a goal whose rows are all requirements work with the real model too
         HL.GetAllGoalsProgress = realGoals
         HL.ShowGoalPicker, HL.SwitchTab = realPicker, realSwitch
@@ -4424,12 +4422,14 @@ local function run()
             local star = Kit:Star(holder, 20)
             local toggles = {}
             star.honorLogOnToggle = function(s, on) toggles[#toggles + 1] = on end
-            check(star:IsOn() == false and not star.honorLogFill:IsShown() and same(star.honorLogEdges[1].__color, Kit.COLORS.line), "star: off is hollow with a grey edge")
+            local art = star.honorLogArt
+            check(star:IsOn() == false and art.__texture == Kit.STAR.file and same(art.__texCoord, Kit.STAR.off) and art.__desaturated == true and art.__alpha == 0.55,
+                "star: off is the client's empty star, greyed and dimmed")
             click(star)
-            check(star:IsOn() == true and toggles[1] == true and star.honorLogFill:IsShown() and same(star.honorLogFill.__color, Kit.COLORS.gold) and same(star.honorLogEdges[1].__color, Kit.COLORS.gold),
-                "star: a click turns it on, fills it gold and calls back")
+            check(star:IsOn() == true and toggles[1] == true and same(art.__texCoord, Kit.STAR.on) and art.__desaturated == false and art.__alpha == 1,
+                "star: a click turns it on, shows the gold star and calls back")
             click(star)
-            check(star:IsOn() == false and toggles[2] == false and not star.honorLogFill:IsShown(), "star: a second click turns it off")
+            check(star:IsOn() == false and toggles[2] == false and same(art.__texCoord, Kit.STAR.off) and art.__desaturated == true, "star: a second click turns it off")
             star:SetOn(true)
             check(star:IsOn() and #toggles == 2, "star: SetOn changes the look without calling back")
             star.__scripts.OnEnter(star)
@@ -4509,6 +4509,7 @@ local function run()
             local gps = HL:GetAllGoalsProgress()
             check(#gps == 3 and list.stack.count == 3 and not list.none:IsShown(), "goals: a row for each goal, and the empty text goes")
             local pool = list.stack.pools.goal
+            check(pool[1].icon:GetFrameLevel() > pool[1].click:GetFrameLevel(), "goals: a row's item icon sits above the row's click area, so its own click and tooltip win")
             for i, id in ipairs(order) do
                 local row, gp = pool[i], gps[i]
                 check(gp.itemID == id and row.icon.honorLogItemID == id, "goals: row " .. i .. " is goal " .. i .. " in order")
@@ -4893,7 +4894,9 @@ local function run()
             click(cb[2])
             local allClass = HL:GetVendorStock(armor.vendor, { class = "ALL" })
             check(S.windowVendorClass == "all" and stock.stack.count == #allClass and #allClass > #rowsNow and stock.classChips.honorLogChosen == "all", "stock: All classes shows every class's items and saves the choice")
-            check(#HL:GetVendorSets(armor.vendor, "ALL") >= #sets, "stock: and the sets follow the class")
+            local chipsAll = 0
+            for _, c in ipairs(sb) do if c:IsShown() then chipsAll = chipsAll + 1 end end
+            check(chipsAll == 1 and sb[1]:GetText() == "All" and #HL:GetVendorSets(armor.vendor, "ALL") >= #sets, "stock: with every class shown there are no set chips, only All")
             click(cb[1])
             check(S.windowVendorClass == "player" and stock.stack.count == #rowsNow, "stock: the player's class again")
             click(sb[2])
@@ -4901,6 +4904,29 @@ local function run()
             check(stock.setChips.honorLogChosen == "all" or stock.setChips.honorLogChosen == sets[1].id, "stock: a set the new filter still offers stays chosen")
             click(cb[1])
             click(stock.setChips.honorLogButtons[1])
+
+            -- set chips drop the words every set name starts with
+            local Lead = HL.GearVendors.SharedLead
+            check(Lead({ { name = "Champion's Earthshaker" }, { name = "Champion's Thunderfist" }, { name = "Champion's Wartide" } }) == "Champion's ", "chips: the shared first word is dropped")
+            check(Lead({ { name = "The Defiler's Will" }, { name = "The Defiler's Intent" } }) == "The Defiler's ", "chips: two shared words are dropped")
+            check(Lead({ { name = "Champion's Battlegear" } }) == "" and Lead({}) == "", "chips: one set keeps its whole name")
+            check(Lead({ { name = "Alpha" }, { name = "Alpha Beta" } }) == "" and Lead({ { name = "Warsong" }, { name = "Warlord" } }) == "", "chips: never a whole name, never half a word")
+
+            -- the vendor list is counted once, not on every click; a vendor scan counts it again
+            local realList, listCalls = HL.GetVendorList, 0
+            HL.GetVendorList = function(...) listCalls = listCalls + 1 return realList(...) end
+            Window:RefreshCurrent()
+            Window:RefreshCurrent()
+            check(listCalls == 0, "vendors: a refresh with nothing scanned since does not count the stock again")
+            HonorLogDB.scannedVendors = HonorLogDB.scannedVendors or {}
+            HonorLogDB.scannedVendors["Kept List Vendor"] = { timestamp = 12345, itemCount = 0 }
+            Window:RefreshCurrent()
+            check(listCalls == 1, "vendors: a new vendor scan counts it again")
+            Window:RefreshCurrent()
+            check(listCalls == 1, "vendors: and then it is kept again")
+            HonorLogDB.scannedVendors["Kept List Vendor"] = nil
+            HL.GetVendorList = realList
+            Window:RefreshCurrent()
 
             -- the star: add, remove, and the row follows
             local function itemRow(id) for _, f in ipairs(stock.stack.pools.item) do if f:IsShown() and f.honorLogEntry.row.itemID == id then return f end end end

@@ -1091,30 +1091,34 @@ end
 --------------------------------------------------------------------------------
 
 -- A toggle for "this is a goal". star:SetOn(bool), star:IsOn(); a click flips it and calls
--- star.honorLogOnToggle(star, on). On is a filled gold square with a gold edge, off a hollow one with a grey
--- edge, so the state is not colour alone. (The build's UI source names only one star atlas, no matching
--- empty one, so it is drawn.)
+-- star.honorLogOnToggle(star, on). The art is the client's own star, Interface\Common\ReputationStar (the file
+-- Forever's reputation window draws its star from; a file cannot be asked for the way an atlas can): the gold
+-- star when on, the empty star, greyed and dimmed, when off, so the state is not colour alone.
+local STAR_FILE = "Interface\\Common\\ReputationStar"
+local STAR_ON, STAR_OFF, STAR_GLOW = { 0, 0.5, 0, 0.5 }, { 0.5, 1, 0, 0.5 }, { 0, 0.5, 0.5, 1 }
+Kit.STAR = { file = STAR_FILE, on = STAR_ON, off = STAR_OFF }
+
 function Kit:Star(parent, size)
     size = size or 18
     local star = CreateFrame("Button", nil, parent)
     star:SetSize(size, size)
     star.honorLogOn = false
-    star.honorLogGround = fill(star, 0.04, 0.035, 0.03, 1)
-    star.honorLogEdges = Kit:Edges(star, 1, 0.82, 0, 1)
-    star.honorLogFill = star:CreateTexture(nil, "ARTWORK")
-    star.honorLogFill:SetPoint("TOPLEFT", star, "TOPLEFT", 3, -3)
-    star.honorLogFill:SetPoint("BOTTOMRIGHT", star, "BOTTOMRIGHT", -3, 3)
-    star.honorLogFill:SetColorTexture(1, 0.82, 0, 1)
+    star.honorLogArt = star:CreateTexture(nil, "ARTWORK")
+    star.honorLogArt:SetAllPoints(star)
+    star.honorLogArt:SetTexture(STAR_FILE)
     local hl = star:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints(star)
-    hl:SetColorTexture(1, 1, 1, 0.15)
+    hl:SetTexture(STAR_FILE)
+    hl:SetTexCoord(STAR_GLOW[1], STAR_GLOW[2], STAR_GLOW[3], STAR_GLOW[4])
+    hl:SetBlendMode("ADD")
 
     function star:SetOn(on)
         on = on and true or false
         self.honorLogOn = on
-        local c = on and Kit.COLORS.gold or Kit.COLORS.line
-        for _, edge in ipairs(self.honorLogEdges) do edge:SetColorTexture(c[1], c[2], c[3], 1) end
-        self.honorLogFill:SetShown(on)
+        local c = on and STAR_ON or STAR_OFF
+        self.honorLogArt:SetTexCoord(c[1], c[2], c[3], c[4])
+        self.honorLogArt:SetDesaturated(not on)
+        self.honorLogArt:SetAlpha(on and 1 or 0.55)
     end
     function star:IsOn() return self.honorLogOn end
 

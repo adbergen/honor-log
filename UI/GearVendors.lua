@@ -500,11 +500,50 @@ local function buildStock(root, handlers)
     return t
 end
 
--- Name and count as one chip text, the name cut so both fit the width.
-local function setChipText(set, maxWidth)
+-- The words every set name starts with ("Champion's " for "Champion's Earthshaker" and "Champion's
+-- Wartide"), or "" with fewer than two sets or when dropping them would leave a name empty. The chips leave
+-- them out so three sets fit; the tooltip keeps the whole name.
+function GearVendors.SharedLead(sets)
+    if #sets < 2 then return "" end
+    local lead = tostring(sets[1].name)
+    for i = 2, #sets do
+        local name = tostring(sets[i].name)
+        local n = 0
+        while n < #lead and n < #name and lead:byte(n + 1) == name:byte(n + 1) do n = n + 1 end
+        lead = lead:sub(1, n)
+    end
+    lead = lead:match("^(.*%s)") or "" -- whole words only
+    for _, set in ipairs(sets) do
+        if #tostring(set.name) <= #lead then return "" end
+    end
+    return lead
+end
+
+-- Name and count as one chip text, without the shared lead, the name cut so both fit the width.
+local function setChipText(set, lead, maxWidth)
     local suffix = " " .. tostring(set.count)
     local room = math.floor((maxWidth - 16) / 6) - #suffix
-    return Kit:Cut(set.name, math.max(4, room)) .. suffix
+    return Kit:Cut(tostring(set.name):sub(#lead + 1), math.max(4, room)) .. suffix
+end
+
+-- GetVendorList counts every vendor's stock, a pass over the whole gear database each, and nothing a click in
+-- the browser changes its answer: only a vendor scan does (or another character). This names that state.
+local function listSignature()
+    -- str() turns a missing or secret answer into nil instead of raising
+    local _, classTag = call(UnitClass, "player")
+    local parts = { str((call(UnitFactionGroup, "player"))) or "?", str(classTag) or "?" }
+    local store = type(HonorLogDB) == "table" and HonorLogDB.scannedVendors
+    local scans = {}
+    if type(store) == "table" then
+        for name, rec in pairs(store) do
+            if type(rec) == "table" then
+                scans[#scans + 1] = table.concat({ tostring(name), tostring(rec.timestamp), tostring(rec.itemCount),
+                    tostring(rec.x), tostring(rec.y) }, ":")
+            end
+        end
+    end
+    table.sort(scans)
+    return table.concat(parts, "/") .. "|" .. table.concat(scans, "|")
 end
 
 local function refreshStock(t, state)
@@ -537,8 +576,9 @@ local function refreshStock(t, state)
     for i = 1, math.min(#state.sets, MAX_SET_CHIPS) do sets[i] = state.sets[i] end
     local options = { { key = "all", text = L["All"] } }
     local each = #sets > 0 and math.floor((available - 36 - #sets * 4) / #sets) or 0
+    local lead = GearVendors.SharedLead(sets)
     for _, set in ipairs(sets) do
-        local text = setChipText(set, math.min(each, 120))
+        local text = setChipText(set, lead, math.min(each, 170))
         options[#options + 1] = { key = set.id, text = text, tip = string.format("%s (%d)", set.name, set.count) }
     end
     t.setChips:SetOptions(options, state.set or "all")
@@ -624,7 +664,13 @@ function GearVendors:Create(parent, onBack)
 
     function gv:Refresh()
         local s = settings() or {}
-        local vendors = safe(HonorLog.GetVendorList, HonorLog) or {}
+        local signature = listSignature()
+        if not self.vendors or self.vendorsSignature ~= signature then
+            local list = safe(HonorLog.GetVendorList, HonorLog)
+            -- a failed read is not kept, so the next refresh asks again
+            self.vendors, self.vendorsSignature = list, list and signature or nil
+        end
+        local vendors = self.vendors or {}
         local chosen
         for _, v in ipairs(vendors) do
             if v.key == s.windowVendor then chosen = v break end
@@ -632,7 +678,8 @@ function GearVendors:Create(parent, onBack)
         chosen = chosen or vendors[1]
         local classMode = s.windowVendorClass == "all" and "all" or "player"
         local classArg = classMode == "all" and "ALL" or nil
-        local sets = chosen and safe(HonorLog.GetVendorSets, HonorLog, chosen, classArg) or {}
+        -- sets belong to a class: with every class shown there are too many for chips, so there are none
+        local sets = chosen and classMode == "player" and safe(HonorLog.GetVendorSets, HonorLog, chosen, classArg) or {}
         -- a set the new filter no longer offers is dropped
         local offered = nil
         for _, set in ipairs(sets) do

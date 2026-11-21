@@ -109,6 +109,8 @@ local function goalRowCreate(row)
     hl:SetColorTexture(1, 1, 1, 0.07)
     row.icon = Kit:ItemIcon(row, 32)
     row.icon:SetPoint("LEFT", row, "LEFT", 8, 0)
+    -- above the row's click area, which covers it: two frames at one level have no promised order
+    row.icon:SetFrameLevel((num(row.click:GetFrameLevel()) or 0) + 1)
     row.name = fixedText(row, "value", A_AREA_W - 46 - 8 - 56 - 6)
     row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -9)
     row.status = fixedText(row, "grey", A_AREA_W - 46 - 8 - 56 - 6)

@@ -107,7 +107,8 @@ function methods.GetScale(self) return self.__scale or 1 end
 function methods.SetScale(self, v) self.__scale = v; return self end
 function methods.GetEffectiveScale() return 1 end
 function methods.GetCenter() return 400, 300 end
-function methods.GetFrameLevel() return 0 end
+function methods.GetFrameLevel(self) return self.__level or 0 end
+function methods.SetFrameLevel(self, level) self.__level = level; return self end
 -- A scroll frame remembers where it was scrolled to, like the client's, and reports the range its scroll child allows.
 function methods.GetVerticalScroll(self) return self.__vscroll or 0 end
 function methods.SetVerticalScroll(self, v) self.__vscroll = v; return self end
@@ -154,6 +155,8 @@ function methods.SetColorTexture(self, r, g, b, a) self.__color = { r, g, b, a }
 function methods.SetVertexColor(self, r, g, b, a) self.__vertex = { r, g, b, a }; return self end
 function methods.SetTextColor(self, r, g, b, a) self.__textColor = { r, g, b, a }; return self end
 function methods.SetTexture(self, tex) self.__texture = tex; self.__atlas = nil; return self end
+function methods.SetTexCoord(self, ...) self.__texCoord = { ... }; return self end
+function methods.SetDesaturated(self, on) self.__desaturated = on and true or false; return self end
 function methods.SetFontObject(self, font) self.__font = font; return self end
 
 function methods.SetText(self, txt)

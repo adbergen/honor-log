@@ -253,12 +253,6 @@ end
 -- Next goal
 --------------------------------------------------------------------------------
 
-local function openGoals()
-    local main = HonorLog.mainFrame
-    if main and not main:IsShown() then HonorLog:ToggleMainFrame() end
-    HonorLog:SwitchTab("goals")
-end
-
 local function buildGoal(col)
     local inset = Kit:Inset(col)
     inset:SetPoint("TOPRIGHT", col, "TOPRIGHT", 0, -(TILE_HEIGHT + 8))
@@ -315,7 +309,9 @@ local function buildGoal(col)
     g.none:SetText(L["No goals yet"])
     g.view = Kit:Button(inset, L["View goal"], "red")
     g.view:SetPoint("BOTTOM", inset, "BOTTOM", 0, 10)
-    g.view:SetScript("OnClick", openGoals)
+    g.view:SetScript("OnClick", function()
+        if g.itemID and HonorLog.GearScreen then HonorLog.GearScreen:Open("goals", g.itemID) end
+    end)
     g.add = Kit:Button(inset, L["Add a goal"], "red")
     g.add:SetPoint("BOTTOM", inset, "BOTTOM", 0, 10)
     g.add:SetScript("OnClick", function() HonorLog.GearScreen:Open("vendors") end)
