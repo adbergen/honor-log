@@ -88,13 +88,13 @@ end
 -- The highlight line of the report card
 --------------------------------------------------------------------------------
 
-local KILLING_BLOWS_MIN, STREAK_MIN = 3, 3
+local KILLING_BLOWS_MIN, WEEK_GAMES_MIN, STREAK_MIN = 2, 3, 3
 
--- The one gold line a finished game earns, the first that applies, else nil: the most killing blows of this
--- week's games in that battleground when there are at least three, or a run of three or more wins in a row
--- (across battlegrounds). `history` is the saved games newest first (the record itself may be in it);
--- `weekStart` is a timestamp, by default seven days before the record. Returns the text and its kind
--- ("kills" or "streak").
+-- The one gold line a finished game earns, the first that applies, else nil: more killing blows than any other
+-- of this week's games in that battleground, when the week has at least three games there (a best of one game
+-- says nothing, and a tie is not a best), or a run of three or more wins in a row (across battlegrounds).
+-- `history` is the saved games newest first (the record itself may be in it); `weekStart` is a timestamp, by
+-- default seven days before the record. Returns the text and its kind ("kills" or "streak").
 function Moments.Highlight(record, history, weekStart)
     if type(record) ~= "table" then return nil end
     history = type(history) == "table" and history or {}
@@ -103,15 +103,19 @@ function Moments.Highlight(record, history, weekStart)
 
     local kb, bgType = num(record.kb), record.bgType
     if kb and kb >= KILLING_BLOWS_MIN and bgType then
-        local best = true
+        local best, games = true, 1
         for _, g in ipairs(history) do
             if type(g) == "table" and g ~= record and g.bgType == bgType then
                 local at, theirs = num(g.timestamp), num(g.kb)
                 local inWeek = weekStart == nil or (at ~= nil and at >= weekStart)
-                if inWeek and theirs and theirs > kb then best = false break end
+                -- a copy of the record (the same time) is the same game, not another one
+                if inWeek and not (stamp and at == stamp) then
+                    games = games + 1
+                    if theirs and theirs >= kb then best = false end
+                end
             end
         end
-        if best then
+        if best and games >= WEEK_GAMES_MIN then
             return string.format(L["%d killing blows, your best in %s this week."], kb, bgName(bgType)), "kills"
         end
     end
@@ -984,7 +988,7 @@ end
 -- The three kinds, the events and the slash command
 --------------------------------------------------------------------------------
 
-KINDS.report = { setting = "momentReport", width = 420, name = "HonorLogReportCard", title = L["HonorLog: game report"], build = buildReport }
+KINDS.report = { setting = "momentReport", width = 480, name = "HonorLogReportCard", title = L["HonorLog: game report"], build = buildReport }
 KINDS.rankUp = { setting = "momentRankUp", width = 360, name = "HonorLogRankUpCard", title = L["HonorLog: rank up"], build = buildRankUp }
 KINDS.honorCap = { setting = "momentHonorCap", width = 360, name = "HonorLogHonorCapCard", title = L["HonorLog: honor cap"], build = buildHonorCap }
 

@@ -5868,15 +5868,20 @@ local function run()
                 local now = time()
                 local function g(bgType, result, kb, ago) return { bgType = bgType, result = result, kb = kb, timestamp = now - (ago or 0) } end
                 local r = g("AB", "loss", 3, 0)
-                local text, kind = M.Highlight(r, { r })
-                check(text == "3 killing blows, your best in Arathi Basin this week." and kind == "kills", "highlight: three killing blows is enough: " .. tostring(text))
-                check(M.Highlight(g("AB", "loss", 2), {}) == nil, "highlight: two killing blows is not")
+                local text, kind = M.Highlight(r, { r, g("AB", "win", 1, 60), g("AB", "loss", 2, 120) })
+                check(text == "3 killing blows, your best in Arathi Basin this week." and kind == "kills", "highlight: the most of three games this week: " .. tostring(text))
+                check(M.Highlight(r, { r }) == nil and M.Highlight(r, { r, g("AB", "win", 1, 60) }) == nil, "highlight: a best of one or two games says nothing")
+                check(M.Highlight(g("AB", "loss", 1), { g("AB", "win", 0, 60), g("AB", "loss", 0, 120) }) == nil, "highlight: one killing blow is not worth a line")
                 r = g("AB", "loss", 6)
-                check(M.Highlight(r, { r, g("AB", "win", 8, 3600) }) == nil, "highlight: not the best of the week")
-                text = M.Highlight(r, { r, g("AB", "win", 8, 3600 * 24 * 9), g("WSG", "win", 20, 60), g("AB", "win", 6, 100) })
-                check(text and text:find("^6 killing blows"), "highlight: an older week, another battleground and a tie do not count against it")
-                text = M.Highlight(r, { r, g("AB", "win", 8, 3600 * 24 * 2) }, now - 3600)
+                check(M.Highlight(r, { r, g("AB", "win", 8, 3600), g("AB", "win", 1, 7200) }) == nil, "highlight: not the best of the week")
+                check(M.Highlight(r, { r, g("AB", "win", 6, 100), g("AB", "win", 1, 200) }) == nil, "highlight: a tie is not a best")
+                text = M.Highlight(r, { r, g("AB", "win", 8, 3600 * 24 * 9), g("WSG", "win", 20, 60), g("AB", "win", 5, 100), g("AB", "win", 2, 200) })
+                check(text and text:find("^6 killing blows"), "highlight: an older week and another battleground do not count against it")
+                check(M.Highlight(r, { r, g("AB", "win", 2, 3600 * 24 * 9), g("WSG", "win", 1, 60), g("AB", "win", 5, 100) }) == nil, "highlight: ...nor towards the three games")
+                text = M.Highlight(r, { r, g("AB", "win", 8, 3600 * 24 * 2), g("AB", "win", 1, 60), g("AB", "win", 2, 120) }, now - 3600)
                 check(text and text:find("^6 killing blows"), "highlight: the week start can be given")
+                local same = { bgType = "AB", result = "loss", kb = 6, timestamp = r.timestamp }
+                check(M.Highlight(same, { r, g("AB", "win", 1, 60), g("AB", "win", 2, 120) }) ~= nil, "highlight: a copy of the saved game is not counted against itself")
                 local win = g("AV", "win", 0)
                 text, kind = M.Highlight(win, { win, g("WSG", "win"), g("AB", "win") })
                 check(text == "That is 3 wins in a row." and kind == "streak", "highlight: three wins in a row across battlegrounds: " .. tostring(text))
@@ -5889,7 +5894,7 @@ local function run()
                 text = M.Highlight(copy, { win, g("WSG", "win"), g("AB", "win") })
                 check(text == "That is 3 wins in a row.", "highlight: a copy of a saved game is found by its time")
                 local both = g("AB", "win", 5)
-                text = M.Highlight(both, { both, g("AV", "win"), g("AV", "win") })
+                text = M.Highlight(both, { both, g("AB", "win", 1, 60), g("AB", "win", 2, 120) })
                 check(text:find("killing blows") ~= nil, "highlight: killing blows come before the run")
                 check(M.Highlight(nil, nil) == nil and M.Highlight({}, nil) == nil, "highlight: nothing to say about no record")
             end
@@ -5906,7 +5911,7 @@ local function run()
                 HL.GetCurrentMarks = function() return 9 end
                 db.char.history = { rec }
                 local p, st = reportOf(rec)
-                check(st.card.honorLogTitle == "HonorLog: game report" and st.card:GetWidth() == 420, "report: titled and 420 wide")
+                check(st.card.honorLogTitle == "HonorLog: game report" and st.card:GetWidth() == 480, "report: titled and 480 wide")
                 check(p.word:GetText() == "Victory" and p.mark.honorLogKind == "up" and p.mark.honorLogColor == "green" and p.word.__textColor[2] > p.word.__textColor[1], "report: Victory in green with an up arrow")
                 check(p.name:GetText() == "Arathi Basin", "report: the full battleground name")
                 check(p.sub:GetText() == HL:FormatDuration(872) .. " \194\183 1,600 to 1,180", "report: length and score: " .. tostring(p.sub:GetText()))
@@ -5939,7 +5944,7 @@ local function run()
                 mock.reputation[509] = 4
                 p = reportOf(rec)
                 local t = p.tiles
-                check(p.tileCount == 4 and t[1]:IsShown() and t[4]:IsShown() and t[1]:GetWidth() == 92 and t[4]:GetWidth() == 92, "report: four tiles of 92 px")
+                check(p.tileCount == 4 and t[1]:IsShown() and t[4]:IsShown() and t[1]:GetWidth() == 107 and t[4]:GetWidth() == 107, "report: four tiles of 107 px")
                 check(t[1].label:GetText() == "Honor" and t[1].value:GetText() == "+412" and t[1].note:GetText() == "Average 398", "report: the honor tile and its average")
                 check(t[2].label:GetText() == "Rank points" and t[2].value:GetText() == "+25" and t[2].note:GetText() == "+25" and t[2].honorLogTipButton.honorLogText == "+25", "report: the rank points tile with the whole text as tooltip")
                 check(t[3].label:GetText() == "Marks" and t[3].value:GetText() == "+3" and t[3].note:GetText() == "9 in your bags" and p.markIcon.honorLogBG == "AB", "report: the marks tile with the battleground's mark")
@@ -5953,7 +5958,7 @@ local function run()
                 check(p.tileCount == 4 and p.tiles[4].label:GetText() == "Killing blows" and p.tiles[4].value:GetText() == "6" and p.tiles[4].note:GetText() == "20 honorable kills", "report: killing blows take the fourth tile when there is no reputation")
                 noRep.kb = nil
                 p = reportOf(noRep)
-                check(p.tileCount == 3 and not p.tiles[4]:IsShown() and p.tiles[1]:GetWidth() == 126 and p.tiles[3]:GetWidth() == 126, "report: three tiles of 126 px when there is nothing for a fourth")
+                check(p.tileCount == 3 and not p.tiles[4]:IsShown() and p.tiles[1]:GetWidth() == 146 and p.tiles[3]:GetWidth() == 146, "report: three tiles of 146 px when there is nothing for a fourth")
                 noRep.kb, noRep.rep = 0, { faction = 509, gained = 0 }
                 p = reportOf(noRep)
                 check(p.tileCount == 3, "report: no killing blows and no reputation gain: three tiles")
@@ -5973,6 +5978,9 @@ local function run()
                 -- the highlight
                 db.char.history = { rec }
                 p = reportOf(rec)
+                check(not p.light:IsShown(), "report: one game this week earns no line")
+                db.char.history = { rec, { bgType = rec.bgType, result = "loss", kb = 2, timestamp = time() - 600 }, { bgType = rec.bgType, result = "win", kb = 1, timestamp = time() - 1200 } }
+                p = reportOf(rec)
                 check(p.light:IsShown() and p.lightText:GetText() == "6 killing blows, your best in Arathi Basin this week." and p.lightTip.honorLogText == p.lightText:GetText(), "report: the killing blows line")
                 local streak = { bgType = "AV", result = "win", timestamp = time() }
                 db.char.history = { streak, { bgType = "AB", result = "win", timestamp = time() - 5 }, { bgType = "WSG", result = "win", timestamp = time() - 9 } }
@@ -5981,7 +5989,9 @@ local function run()
                 db.char.history = { { bgType = "AV", result = "win", timestamp = time() } }
                 p = reportOf(db.char.history[1])
                 check(not p.light:IsShown(), "report: no line when neither applies")
+                db.char.history = { rec, { bgType = rec.bgType, result = "loss", kb = 2, timestamp = time() - 600 }, { bgType = rec.bgType, result = "win", kb = 1, timestamp = time() - 1200 } }
                 local sectionsBefore = select(2, reportOf(rec)).card:GetHeight()
+                db.char.history = { { bgType = "AV", result = "win", timestamp = time() } }
                 p, st = reportOf(db.char.history[1])
                 check(st.card:GetHeight() < sectionsBefore, "report: the card is shorter without the line")
 
