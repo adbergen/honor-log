@@ -7802,6 +7802,30 @@ local function run()
         setGlobal("time", realTime)
     end)()
 
+    -- A secret answer for the honor currency or the rank data is never indexed: the reads say "unknown"
+    -- (honor 0, no cap, no rank data) and nothing that builds on them raises.
+    ;(function()
+        local realCurrency, realRank = C_CurrencyInfo.GetCurrencyInfo, C_MajorFactions.GetMajorFactionProgressionInfo
+        local errorsBefore = #mock.handledErrors
+        C_CurrencyInfo.GetCurrencyInfo = function() return mock.newSecret() end
+        check(HL:GetCurrentHonor() == 0 and HL:GetHonorCap() == nil, "secret reads: a secret honor record reads as honor 0 and no cap")
+        local summary = HL:GetHonorSummary()
+        check(summary.current == 0 and summary.cap == 0 and summary.percent == 0, "secret reads: the honor summary holds no secret")
+        check(pcall(HL.GetAllGoalsProgress, HL) and pcall(HL.GetHonorCapAdvice, HL), "secret reads: goal progress and the cap advice do not raise")
+        C_CurrencyInfo.GetCurrencyInfo = function() return { quantity = mock.newSecret(), maxQuantity = mock.newSecret() } end
+        check(HL:GetCurrentHonor() == 0 and HL:GetHonorCap() == nil and HL:GetHonorSummary().current == 0, "secret reads: secret amounts inside a readable record read as unknown")
+        C_CurrencyInfo.GetCurrencyInfo = function() error("blocked") end
+        check(HL:GetCurrentHonor() == 0 and HL:GetHonorCap() == nil, "secret reads: a currency read that raises reads as unknown")
+        C_CurrencyInfo.GetCurrencyInfo = realCurrency
+        C_MajorFactions.GetMajorFactionProgressionInfo = function() return mock.newSecret() end
+        local ok, info = pcall(HL.Rank.GetInfo, HL.Rank)
+        check(ok and info == nil, "secret reads: secret rank data reads as no rank data: " .. tostring(info))
+        check(pcall(HL.Rank.GetPace, HL.Rank) and pcall(HL.GetAdvice, HL, 3), "secret reads: the pace and the advice do not raise without rank data")
+        C_MajorFactions.GetMajorFactionProgressionInfo = realRank
+        check(HL:GetCurrentHonor() == mock.currencies[1792].quantity and type(HL.Rank:GetInfo()) == "table", "secret reads: the real reads are back")
+        check(#mock.handledErrors == errorsBefore, "secret reads: nothing reached the error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+    end)()
+
     -- The mock's registration rules are live: the restricted event raises.
     local ok = pcall(UIParent.RegisterEvent, UIParent, "COMBAT_LOG_EVENT_UNFILTERED")
     check(not ok, "registering COMBAT_LOG_EVENT_UNFILTERED raises in the mock")
