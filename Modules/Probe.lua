@@ -7,6 +7,10 @@
 --                            HonorLogDB.probe.armed, ring buffer in .log)
 --   /honorlog probe status   show what is armed and how much is stored
 --   /honorlog probe clear    wipe the log and the scoreboard attempts
+--   /honorlog probe guild    send ONE hidden test message to the guild's addon channel and record
+--   /honorlog probe group    whether the client allows it and whether it comes back (group: the
+--                            battleground, raid or party the player is in). Nothing is ever sent
+--                            without one of these two commands.
 --
 -- While armed it also learns what quests pay (HonorLogDB.probe.quests): no data an
 -- addon can read ahead of time says what a PvP quest rewards, so the offer is read
@@ -88,8 +92,13 @@ local QUEST_CAP = 300    -- quest records kept
 local QUEST_SETTLE = 1.5 -- seconds after a hand-in before the rewards are measured
 local QUEST_WINDOW = 120 -- seconds a hand-in window's reading stays usable
 
+local MESSAGE_PREFIX = "HonorLogProbe" -- addon-message prefix of the test (16 characters at most)
+local MESSAGE_WAIT = 5                 -- seconds to wait for the message to come back
+local MESSAGE_KEPT = 20                -- test records kept
+
 local frame
 local lastScoreLog = 0
+local messageFrame, messageTest -- the listener, and the test waiting for its echo
 local questBefore -- { id, gt, state }: the reading taken when a hand-in window opened
 local watch -- the scoreboard watch in progress, nil when none
 
@@ -575,6 +584,82 @@ local function onQuestTurnedIn(id, xp, money)
     end)
 end
 
+--------------------------------------------------------------------------------
+-- Addon messages: can copies of HonorLog talk to each other here?
+--------------------------------------------------------------------------------
+-- The guild ladder depends on it, and only the game can answer. One hidden message per command, to the
+-- guild or to the player's group; the client plays a sender's own message back, so an echo within a few
+-- seconds means it went out and can be read. The payload is the word "ping" and a clock value, nothing
+-- about the player. C_ChatInfo.SendAddonMessage is not flagged HasRestrictions (SendChatMessage is).
+
+local function messageChannel(which)
+    if which == "guild" then
+        if readGlobal("IsInGuild") ~= true then return nil, "You are not in a guild, so there is no guild channel to test." end
+        return "GUILD"
+    end
+    if readGlobal("IsInGroup", 2) == true then return "INSTANCE_CHAT" end -- 2 = the instance group (battlegrounds)
+    if readGlobal("IsInRaid") == true then return "RAID" end
+    if readGlobal("IsInGroup") == true then return "PARTY" end
+    return nil, "You are not in a group, so there is no group channel to test."
+end
+
+local function finishMessageTest()
+    local test = messageTest
+    if not test then return end
+    messageTest = nil
+    if messageFrame then messageFrame:UnregisterAllEvents() end
+    local p = db()
+    p.messaging = p.messaging or {}
+    p.messaging[#p.messaging + 1] = test.record
+    while #p.messaging > MESSAGE_KEPT do table.remove(p.messaging, 1) end
+    local r = test.record
+    local sentOK = r.sent == 0 or r.sent == true
+    if r.echoed then
+        say(string.format("Message test on %s: sent and received back after %.1f s. HonorLog can share on this channel here.", r.channel, r.echoDelay or 0))
+    elseif sentOK then
+        say(string.format("Message test on %s: the game accepted it, but nothing came back in %d seconds.", r.channel, MESSAGE_WAIT))
+    else
+        say(string.format("Message test on %s: the game refused it (result: %s).", r.channel, tostring(r.sent)))
+    end
+end
+
+-- which: "guild" or "group". Sends one message and records what happened in HonorLogDB.probe.messaging.
+function Probe:TestMessaging(which)
+    if messageTest then
+        say("A message test is still waiting for its echo.")
+        return false
+    end
+    local chatType, why = messageChannel(which)
+    if not chatType then
+        say(why)
+        return false
+    end
+    local record = { t = time(), channel = chatType, instance = readGlobal("GetInstanceInfo"), echoed = false }
+    record.registered = readNs("C_ChatInfo", "RegisterAddonMessagePrefix", MESSAGE_PREFIX)
+    messageFrame = messageFrame or CreateFrame("Frame")
+    record.listening = pcall(messageFrame.RegisterEvent, messageFrame, "CHAT_MSG_ADDON") and true or false
+    local payload = "ping " .. tostring(time())
+    messageFrame:SetScript("OnEvent", function(_, _, prefix, text, channel, sender)
+        local test = messageTest
+        if not test then return end
+        if isSecret(prefix) then
+            test.record.prefixSecret = true
+            return
+        end
+        if prefix ~= MESSAGE_PREFIX then return end
+        test.record.echoed = true
+        test.record.echoDelay = GetTime() - test.sentAt
+        test.record.echoChannel = safe(channel)
+        test.record.senderReadable = not isSecret(sender)
+        test.record.textReadable = (not isSecret(text)) and text == test.payload
+    end)
+    messageTest = { record = record, payload = payload, sentAt = GetTime() }
+    record.sent = readNs("C_ChatInfo", "SendAddonMessage", MESSAGE_PREFIX, payload, chatType)
+    say("Sent one hidden test message on " .. chatType .. ". The result follows in " .. MESSAGE_WAIT .. " seconds.")
+    C_Timer.After(MESSAGE_WAIT, finishMessageTest)
+    return true
+end
+
 -- PARTY_KILL: are the GUIDs secret, in or out of a battleground?
 local function onPartyKill(attacker, target)
     local entry = { t = time(), gt = GetTime(), event = "PARTY_KILL" }
@@ -757,6 +842,8 @@ function Probe:HandleCommand(arg)
         p.scoreboard = {}
         watch = nil
         say("Probe log and scoreboard attempts cleared.")
+    elseif arg == "guild" or arg == "group" then
+        self:TestMessaging(arg)
     elseif arg == "status" then
         local quests, pvpQuests = 0, 0
         for _, rec in pairs(p.quests or {}) do
@@ -766,7 +853,8 @@ function Probe:HandleCommand(arg)
         say("Probe armed: " .. tostring(p.armed == true) .. ", log entries: " .. #p.log
             .. "/" .. LOG_CAP .. ", scoreboard watches: " .. #(p.scoreboard or {})
             .. ", snapshot: " .. (p.snapshot and "yes" or "no")
-            .. ", quests seen: " .. quests .. " (" .. pvpQuests .. " paid honor, rank points or marks)")
+            .. ", quests seen: " .. quests .. " (" .. pvpQuests .. " paid honor, rank points or marks)"
+            .. ", message tests: " .. #(p.messaging or {}))
     else
         self:TakeSnapshot()
         say("Probe snapshot saved to HonorLogDB.probe.snapshot (written to disk on /reload or logout).")

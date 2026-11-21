@@ -303,7 +303,7 @@ for _, e in ipairs({
     "BAG_UPDATE_DELAYED", "POST_MATCH_CURRENCY_REWARD_UPDATE", "POST_MATCH_ITEM_REWARD_UPDATE", "PVP_MATCH_ACTIVE", "PVP_MATCH_COMPLETE", "PLAYER_PVP_KILLS_CHANGED",
     "PLAYER_PVP_RANK_CHANGED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ADDON_RESTRICTION_STATE_CHANGED",
     "PARTY_KILL", "UPDATE_FACTION", "PLAYER_LEVEL_UP", "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "PLAYER_LEAVING_WORLD",
-    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN",
+    "QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_TURNED_IN", "CHAT_MSG_ADDON",
 }) do M.knownEvents[e] = true end
 -- Known to the client but flagged HasRestrictions in the docs.
 M.restrictedEvents = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
@@ -710,6 +710,30 @@ end
 function GetBuildInfo() return "1.60.1", "70938", "Nov 1 2026", 16001 end
 M.money = 123456 -- copper
 function GetMoney() return M.money end
+
+-- Addon messages. M.chat: inGuild, group (nil, "party", "raid" or "instance"), sendResult (the enum the
+-- client returns; 0 = success), echo (the client plays a sender's own message back), secretSender,
+-- sent (every message handed to SendAddonMessage).
+M.chat = { inGuild = true, group = nil, sendResult = 0, echo = true, secretSender = false, sent = {}, registered = {} }
+function IsInGuild() return M.chat.inGuild end
+function IsInRaid() return M.chat.group == "raid" end
+function IsInGroup(category)
+    if category == 2 then return M.chat.group == "instance" end
+    return M.chat.group ~= nil
+end
+C_ChatInfo = {
+    RegisterAddonMessagePrefix = function(prefix)
+        M.chat.registered[prefix] = true
+        return 0
+    end,
+    SendAddonMessage = function(prefix, text, chatType, target)
+        M.chat.sent[#M.chat.sent + 1] = { prefix = prefix, text = text, chatType = chatType, target = target }
+        if M.chat.sendResult == 0 and M.chat.echo then
+            M.fireEvent("CHAT_MSG_ADDON", prefix, text, chatType, M.chat.secretSender and M.newSecret() or "Tester-Realm")
+        end
+        return M.chat.sendResult
+    end,
+}
 
 -- The open quest window: M.quest = { id, title, money, xp, honor, rewards = { { name, texture, count,
 -- quality, usable, itemID } }, choices = {...}, currencies = {...}, factions = {...} }, or nil when none.

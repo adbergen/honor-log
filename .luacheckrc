@@ -96,5 +96,6 @@ files["Tests/"] = {
         "GetBindingKey", "CreateVector2D",
         "GetQuestID", "GetTitleText", "GetRewardMoney", "GetRewardXP", "GetRewardHonor", "GetNumQuestRewards",
         "GetNumQuestChoices", "GetQuestItemInfo", "C_QuestInfoSystem", "C_QuestOffer",
+        "C_ChatInfo", "IsInGuild", "IsInGroup", "IsInRaid",
     },
 }
