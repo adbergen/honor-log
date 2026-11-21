@@ -68,6 +68,7 @@ end
 
 local Util = HonorLog.Util
 local isSecret, num, str, call = Util.isSecret, Util.num, Util.str, Util.call
+local L = HonorLog.L
 
 local function pvp(name, ...)
     if not C_PvP then return end
@@ -249,9 +250,22 @@ local function ReadMarks()
     return marks
 end
 
-local function TakeSnapshot()
+-- Reputation with the battleground's own faction: { faction, amount } (the client's absolute number),
+-- or nil when the battleground has no faction or the client will not say. A faction not met yet
+-- reads as 0, the start of Neutral.
+local function ReadRep(bgType)
+    local faction = bgType and HonorLog:GetBGRepFaction(bgType)
+    if not faction then return nil end
+    local progress = HonorLog:GetReputationProgress(faction)
+    if not progress then return nil end
+    local amount = progress.current
+    if amount == nil and progress.standing == 0 then amount = 0 end
+    return { faction = faction, amount = amount }
+end
+
+local function TakeSnapshot(bgType)
     return { honor = ReadHonor(), honorCap = ReadHonorCap(), marks = ReadMarks(), rank = ReadRank(),
-             level = num(call(UnitLevel, "player")), t = time() }
+             level = num(call(UnitLevel, "player")), rep = ReadRep(bgType), t = time() }
 end
 
 -- Mark counts gained since the snapshot (can be negative when marks are spent).
@@ -327,6 +341,7 @@ end
 -- A vendor opened: let the scanner decide whether it sells PvP gear. A short delay lets the
 -- merchant frame fill in its item links first.
 function HonorLog:MERCHANT_SHOW()
+    if self.Probe and self.Probe.LogMerchantRead then self.Probe:LogMerchantRead(self:ReadVendorLocation()) end
     C_Timer.After(0.3, function() self:AutoScanVendor() end)
 end
 
@@ -372,7 +387,7 @@ function HonorLog:OnBattlegroundEnter(bgType, mapID, name)
     match = {
         bgType = bgType, mapID = mapID, name = name,
         startTime = GetTime(), startStamp = time(),
-        snapshot = TakeSnapshot(),
+        snapshot = TakeSnapshot(bgType),
         honorGained = 0,
         marks = {},
     }
@@ -738,8 +753,17 @@ FinalizeMatch = function(reason)
     end
     duration = math.max(0, math.floor(duration))
 
+    -- Reputation the game gave with its battleground's own faction.
+    local startRep, endRep = m.snapshot.rep, ReadRep(bgType)
+    local rep
+    if startRep and startRep.amount and endRep and endRep.faction == startRep.faction and endRep.amount then
+        rep = { faction = startRep.faction, gained = endRep.amount - startRep.amount }
+    end
+    if HonorLog.Probe and HonorLog.Probe.LogRepRead then HonorLog.Probe:LogRepRead(bgType, startRep, endRep, rep) end
+
     local extra = {
         result = result,
+        rep = rep,
         joinedInProgress = m.joinedInProgress,
         rankPoints = rankPoints,
         rankState = rankState,
@@ -1197,6 +1221,8 @@ function HonorLog:HandleSlashCommand(msg)
         else
             print("|cff00ff00HonorLog|r Usage: /honorlog reset [today|character|account]")
         end
+    elseif cmd == "vendor" then
+        self:ShowVendorForArg(arg)
     elseif cmd == "export" then
         self:ShowExportFrame(arg)
     elseif cmd == "config" or cmd == "options" then
@@ -1328,11 +1354,13 @@ function HonorLog:HandleSlashCommand(msg)
                             if row.kind == "honor" then pieces[#pieces + 1] = string.format("%d honor", row.remaining)
                             elseif row.kind == "marks" then pieces[#pieces + 1] = string.format("%d %s marks", row.remaining, row.bg)
                             elseif row.kind == "gold" then pieces[#pieces + 1] = "gold"
+                            elseif row.kind == "level" then pieces[#pieces + 1] = string.format(L["Level %d"], row.needed)
                             elseif row.kind == "rank" then pieces[#pieces + 1] = "rank " .. row.needed
                             elseif row.kind == "rep" then pieces[#pieces + 1] = (row.standingName or "standing") .. " rep" end
                         end
                         status = "needs " .. table.concat(pieces, ", ")
-                        if goal.readyDate then status = status .. ", ready " .. date("%b %d", goal.readyDate) end
+                        if goal.readyDate then status = status .. ", ready " .. date("%b %d", goal.readyDate)
+                        elseif goal.readyText then status = status .. ", " .. goal.readyText end
                     end
                     print(string.format("  %d. %s%s|r - %s", i, statusColor, goal.name, status))
                 end
@@ -1342,12 +1370,25 @@ function HonorLog:HandleSlashCommand(msg)
             self.db.char.goals.items = {}
             print("|cff00ff00[HonorLog]|r All goals cleared.")
             self:UpdateGoalsPanel()
+        elseif subCmd == "vendor" then
+            self:ShowVendorForArg(subArg)
         elseif subCmd == "picker" then
             self:ShowGoalPicker()
         elseif subCmd == "advice" then
             local advice = self:GetHonorCapAdvice()
             if advice then
                 print(string.format("|cffffd700[HonorLog]|r Honor %d of %d: %s", advice.current, advice.cap, advice.text))
+                if advice.buyable and #advice.buyable > 0 then
+                    print(L["You could buy right now:"])
+                    for _, entry in ipairs(advice.buyable) do
+                        local cost = { string.format("%s honor", BreakUpLargeNumbers(entry.honor)) }
+                        for bgType, count in pairs(entry.marks or {}) do cost[#cost + 1] = string.format("%d %s marks", count, bgType) end
+                        if entry.gold > 0 then cost[#cost + 1] = self:FormatMoney(entry.gold) end
+                        print(string.format("  %s (%s)", entry.name or ("item " .. entry.itemID), table.concat(cost, ", ")))
+                    end
+                elseif advice.blocked then
+                    print(L["Nothing in the database is buyable for this character right now."])
+                end
             else
                 print("|cff00ff00[HonorLog]|r No honor-cap advice right now.")
             end
@@ -1359,6 +1400,7 @@ function HonorLog:HandleSlashCommand(msg)
             print("  |cffffffff/honorlog goal clear|r - Clear all goals")
             print("  |cffffffff/honorlog goal picker|r - Open goal picker")
             print("  |cffffffff/honorlog goal advice|r - What to spend before honor caps")
+            print("  |cffffffff/honorlog vendor [item name or goal number]|r - Show the vendor on the map")
         end
     elseif cmd == "currency" or cmd == "cur" then
         -- Diagnostic: show current honor and marks detection
@@ -1590,6 +1632,7 @@ function HonorLog:PrintHelp()
     print("  |cffffffff/honorlog cap [on|off|percent]|r - Honor cap warning")
     print("  |cffffffff/honorlog rank [n]|r - PvP rank summary, or the plan to rank n")
     print("  |cffffffff/honorlog probe [on|off|status|clear]|r - Record what PvP data the client exposes (dev)")
+    print("  |cffffffff/honorlog vendor [item or goal number]|r - Show a gear vendor on the map")
     print("  |cffffffff/honorlog scan|r - Scan current PvP vendor (dev)")
     print("  |cffffffff/honorlog scan export|r - Export scanned data as Lua")
     print("  |cffffffff/honorlog help|r - Show this help")

@@ -6,6 +6,7 @@ local ADDON_NAME, HonorLog = ...
 -- Forever-safe wrappers (defined in Data.lua)
 local GetItemInfo = HonorLog.Compat.GetItemInfo
 local GetItemCount = HonorLog.Compat.GetItemCount
+local L = HonorLog.L
 
 --------------------------------------------------------------------------------
 -- ANIMATION IMPORTS (from UI/Animation.lua)
@@ -304,6 +305,13 @@ local GOLD_HEX, RANK_HEX = "e6cc80", "c8a0ff"
 local TICK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12:0:0|t"
 local CROSS = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12:12:0:0|t"
 
+-- Hex colour of a Rank tag ("level", "nopoints", ...), or the fallback.
+local function TagHex(tag, fallback)
+    local c = HonorLog.RANK_TAG_COLORS and HonorLog.RANK_TAG_COLORS[tag]
+    if type(c) ~= "table" then return fallback end
+    return string.format("%02x%02x%02x", math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5))
+end
+
 -- 12,345 copper -> "1g", 150 -> "1s", 3 -> "3c" (whole units; the exact price is in the tooltip)
 local function GoldShort(copper)
     copper = math.floor(tonumber(copper) or 0)
@@ -344,10 +352,16 @@ local function RowText(row, factor)
         return string.format("|cff%s%s/%s|r", current >= row.needed and done or GOLD_HEX, GoldShort(current), GoldShort(row.needed))
     elseif row.kind == "rank" then
         return string.format("|cff%sRank %s/%d|r", row.met and done or RANK_HEX, row.current and tostring(row.current) or "?", row.needed)
+    elseif row.kind == "level" then
+        return string.format("|cff%s%s|r", row.met and done or TagHex("level", RANK_HEX),
+            string.format(L["Level %d / %d"], row.current or 0, row.needed))
     elseif row.kind == "rep" then
         local need = row.standingName or tostring(row.needed)
         if row.faction and row.known then
             local have = HonorLog.STANDING_NAMES[row.current] or "Unknown"
+            if row.amount and row.ceiling and not row.met then
+                return string.format("|cff7fc8ff%s %s / %s|r", have, BreakUpLargeNumbers(row.amount), BreakUpLargeNumbers(row.ceiling))
+            end
             return string.format("|cff%s%s/%s|r", row.met and done or "7fc8ff", have, need)
         end
         return string.format("|cff9aa5b5%s reputation|r", need)
@@ -360,6 +374,8 @@ local function CurrencyLine(gp, factor)
     for _, row in ipairs(gp.rows) do
         if (row.kind == "honor" or row.kind == "gold") then
             if row.needed > 0 then parts[#parts + 1] = RowText(row, factor) end
+        elseif row.kind == "level" then
+            if not row.met then parts[#parts + 1] = RowText(row, factor) end -- shown only while unmet
         else
             parts[#parts + 1] = RowText(row, factor)
         end
@@ -383,23 +399,47 @@ local function OverallPercent(gp)
     return percent
 end
 
+-- What else is short, as plain words ("800 honor, 10 AV marks"), for the status line.
+local function OtherMissingText(gp)
+    local out = {}
+    for _, row in ipairs(gp.missing) do
+        if row.kind == "honor" then out[#out + 1] = string.format("%s honor", BreakUpLargeNumbers(row.remaining))
+        elseif row.kind == "marks" then out[#out + 1] = string.format("%d %s marks", row.remaining, row.bg)
+        elseif row.kind == "gold" then out[#out + 1] = GoldShort(row.remaining)
+        elseif row.kind == "rep" then out[#out + 1] = string.format("%s reputation", row.standingName or "standing") end
+    end
+    return table.concat(out, ", ")
+end
+
 local function ReadyText(gp)
     if gp.isComplete then return "|cff40d860Ready to purchase|r" end
     local pieces = {}
+    local level = gp.level
+    local levelUnmet = level and level.known and not level.met
+    if levelUnmet then
+        pieces[#pieces + 1] = string.format("|cff%s%s|r", TagHex("level", RANK_HEX), string.format(L["Ready at level %d"], level.needed))
+    end
     local rank = gp.rank
     if rank and not rank.met then
         if rank.known and rank.limitedBy == "cap" and rank.week then
             pieces[#pieces + 1] = string.format("|cff%sRank %d locked until week %d|r", RANK_HEX, rank.needed, rank.week)
         elseif rank.known and rank.date then
             pieces[#pieces + 1] = string.format("|cff%sRank %d · %s|r", RANK_HEX, rank.needed, HonorLog.Rank.FormatDate(rank.date))
+        elseif rank.known and rank.plan and (rank.limitedBy == "level" or rank.limitedBy == "nopoints") then
+            pieces[#pieces + 1] = string.format("|cff%sRank %d · %s|r", TagHex(rank.limitedBy, RANK_HEX), rank.needed, HonorLog.Rank.PlanWhen(rank.plan))
         elseif rank.known then
             pieces[#pieces + 1] = string.format("|cff%sRank %d not reachable this season|r", RANK_HEX, rank.needed)
         else
             pieces[#pieces + 1] = string.format("|cff%sRank %d|r", RANK_HEX, rank.needed)
         end
     end
-    if gp.readyDate then
+    if levelUnmet then
+        local others = OtherMissingText(gp)
+        if others ~= "" then pieces[#pieces + 1] = string.format("|cff9aa5b5%s|r", string.format(L["also needs %s"], others)) end
+    elseif gp.readyDate then
         pieces[#pieces + 1] = string.format("|cffb4c8e0ready %s%s|r", gp.estimated and "~" or "on ", HonorLog.Rank.FormatDate(gp.readyDate))
+    elseif gp.readyLimitedBy == "norep" and gp.readyText then
+        pieces[#pieces + 1] = string.format("|cff888888%s|r", gp.readyText)
     elseif gp.readyLimitedBy == "nopace" then
         pieces[#pieces + 1] = "|cff888888play a game for a date|r"
     end
@@ -503,23 +543,39 @@ local function CreateGoalCard(parent, index)
                         GameTooltip:AddLine(string.format("  %d %s marks", row.remaining, row.bg), 1, 1, 1)
                     elseif row.kind == "gold" then
                         GameTooltip:AddLine("  " .. HonorLog:FormatMoney(row.remaining), 1, 1, 1)
+                    elseif row.kind == "level" then
+                        GameTooltip:AddLine("  " .. string.format(L["Level %d"], row.needed), 1, 1, 1)
                     elseif row.kind == "rank" then
                         GameTooltip:AddLine(string.format("  Rank %d (you are %s)", row.needed, row.current and tostring(row.current) or "unknown"), 1, 1, 1)
                     elseif row.kind == "rep" then
                         GameTooltip:AddLine(string.format("  %s with %s", row.standingName or "Standing", row.factionName or "the faction"), 1, 1, 1)
+                        if row.remainingRep and row.remainingRep > 0 then
+                            GameTooltip:AddLine("  " .. string.format(L["%s reputation to go"], BreakUpLargeNumbers(row.remainingRep)), 0.7, 0.78, 0.9)
+                            if row.perGame and row.perGame > 0 and row.games then
+                                GameTooltip:AddLine("  " .. string.format(L["about %d games at %s reputation a game"], row.games, BreakUpLargeNumbers(math.floor(row.perGame + 0.5))), 0.7, 0.78, 0.9)
+                            end
+                        end
                     end
                 end
                 if gp.readyDate then
                     GameTooltip:AddLine(string.format("Ready %s%s", gp.estimated and "around " or "on ", HonorLog.Rank.FormatDate(gp.readyDate)), 0.7, 0.9, 1)
+                elseif gp.readyText then
+                    GameTooltip:AddLine(gp.readyText, 0.6, 0.65, 0.7)
                 end
                 GameTooltip:AddLine(" ")
             end
+            if gp and gp.unconfirmed then
+                GameTooltip:AddLine(L["Price unconfirmed: no vendor scan has seen this item yet."], 0.6, 0.65, 0.7, true)
+            end
+            local vendorLine = HonorLog:GetVendorLine(self.itemID)
+            if vendorLine then GameTooltip:AddLine(vendorLine, 0.7, 0.9, 1) end
             for _, row in ipairs(gp and gp.unverified or {}) do
                 if row.kind == "rep" then
                     GameTooltip:AddLine(string.format("Needs %s with one of several factions", row.standingName or "standing"), 0.6, 0.65, 0.7)
                 end
             end
             GameTooltip:AddLine("|cff888888Ctrl+Click to preview|r", 1, 1, 1)
+            GameTooltip:AddLine("|cff888888" .. L["Alt+Click to show the vendor on the map"] .. "|r", 1, 1, 1)
             GameTooltip:Show()
             if IsShiftKeyDown() then
                 GameTooltip_ShowCompareItem()
@@ -577,6 +633,10 @@ local function CreateGoalCard(parent, index)
 
     -- Ctrl+Click to preview item in dressing room
     card:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and IsAltKeyDown and IsAltKeyDown() and self.itemID then
+            HonorLog:ShowVendorForItem(self.itemID)
+            return
+        end
         if button == "LeftButton" and IsControlKeyDown() and self.itemID and DressUpItemLink then
             local _, itemLink = GetItemInfo(self.itemID)
             if itemLink then
@@ -2416,13 +2476,13 @@ local function CreateGoalPicker()
     local slotChoices = { "HEAD", "SHOULDER", "CHEST", "HANDS", "LEGS", "WAIST", "FEET", "WRIST", "MAIN_HAND", "TWO_HAND",
         "OFF_HAND", "RANGED", "NECK", "FINGER", "TRINKET", "BACK", "RELIC", "TOKEN", "MOUNT", "TABARD", "OTHER" }
 
-    UIDropDownMenu_Initialize(slotDropdown, InitChoiceDropdown(slotDropdown, "All Slots", slotChoices, function(v) return SLOT_NAMES[v] or v end, "filterSlot"))
+    UIDropDownMenu_Initialize(slotDropdown, InitChoiceDropdown(slotDropdown, "All Slots", slotChoices, function(v) return SLOT_NAMES[v] or v end, "slot"))
     UIDropDownMenu_SetText(slotDropdown, "All Slots")
-    UIDropDownMenu_Initialize(sourceDropdown, InitChoiceDropdown(sourceDropdown, "All Sources", SOURCE_ORDER, function(v) return SOURCE_NAMES[v] end, "filterSource"))
+    UIDropDownMenu_Initialize(sourceDropdown, InitChoiceDropdown(sourceDropdown, "All Sources", SOURCE_ORDER, function(v) return SOURCE_NAMES[v] end, "source"))
     UIDropDownMenu_SetText(sourceDropdown, "All Sources")
-    UIDropDownMenu_Initialize(classDropdown, InitChoiceDropdown(classDropdown, "Any class", HonorLog.CLASSES or {}, ClassName, "filterClass"))
+    UIDropDownMenu_Initialize(classDropdown, InitChoiceDropdown(classDropdown, "Any class", HonorLog.CLASSES or {}, ClassName, "class"))
     UIDropDownMenu_SetText(classDropdown, ClassName(frame.filters.class))
-    UIDropDownMenu_Initialize(armorDropdown, InitChoiceDropdown(armorDropdown, "Any armor", ARMOR_ORDER, function(v) return ARMOR_NAMES[v] end, "filterArmor"))
+    UIDropDownMenu_Initialize(armorDropdown, InitChoiceDropdown(armorDropdown, "Any armor", ARMOR_ORDER, function(v) return ARMOR_NAMES[v] end, "armor"))
     UIDropDownMenu_SetText(armorDropdown, "Any armor")
 
     -- Search handler
@@ -2542,7 +2602,10 @@ local function CreateGoalPicker()
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetItemByID(self.itemID)
                 GameTooltip:AddLine(" ")
+                local vendorLine = HonorLog:GetVendorLine(self.itemID)
+                if vendorLine then GameTooltip:AddLine(vendorLine, 0.7, 0.9, 1) end
                 GameTooltip:AddLine("|cff888888Ctrl+Click to preview|r", 1, 1, 1)
+                GameTooltip:AddLine("|cff888888" .. L["Alt+Click to show the vendor on the map"] .. "|r", 1, 1, 1)
                 GameTooltip:Show()
                 -- Show compare tooltip if shift is held
                 if IsShiftKeyDown() then
@@ -2598,6 +2661,10 @@ local function CreateGoalPicker()
 
         -- Ctrl+Click to preview item in dressing room
         row:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" and IsAltKeyDown and IsAltKeyDown() and self.itemID then
+                HonorLog:ShowVendorForItem(self.itemID)
+                return
+            end
             if button == "LeftButton" and IsControlKeyDown() and self.itemID and DressUpItemLink then
                 local _, itemLink = GetItemInfo(self.itemID)
                 if itemLink then
@@ -2683,6 +2750,8 @@ local function CreateGoalPicker()
             if data.source == "UPGRADE" then slotLabel = slotLabel .. " · Epic" end
             if entry.scanned then
                 slotLabel = slotLabel .. " · scanned"
+            elseif entry.unconfirmed then
+                slotLabel = slotLabel .. " · " .. L["price unconfirmed"]
             elseif data.legacy then
                 slotLabel = slotLabel .. " · unverified"
             end

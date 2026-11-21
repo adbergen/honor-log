@@ -32,6 +32,7 @@ read_globals = {
     "GameFontHighlightSmall", "UIErrorsFrame", "RaidBossEmoteFrame", "MerchantFrame", "DressUpFrame", "DEFAULT_CHAT_FRAME",
     "C_Timer", "C_AddOns", "C_Container", "C_CurrencyInfo", "C_Item", "C_PvP", "C_MajorFactions",
     "C_SeasonInfo", "C_RestrictedActions", "C_DeathRecap", "C_DateAndTime", "C_MerchantFrame", "C_Reputation", "Enum", "Settings",
+    "C_Map", "C_SuperTrack", "UiMapPoint", "GetSubZoneText", "IsAltKeyDown",
     "LibStub", "hooksecurefunc", "wipe", "unpack", "bit", "date", "time",
     "issecretvalue", "GetTime", "GetBuildInfo", "GetRealmName", "GetRealZoneText", "GetInstanceInfo",
     "UnitName", "UnitClass", "UnitRace", "UnitFactionGroup", "UnitLevel", "UnitGUID", "GetPlayerInfoByGUID",
@@ -84,5 +85,6 @@ files["Tests/"] = {
         "strmatch", "strfind", "strsub", "strlen", "strlower", "strupper", "strrep", "strbyte", "strchar",
         "strtrim", "format", "gsub", "gmatch", "tinsert", "tremove", "sort", "floor", "ceil", "abs", "min", "max",
         "HonorLogDB", "HonorLogCharDB", "SLASH_HONORLOG1", "SLASH_HONORLOG2",
+        "C_Map", "C_SuperTrack", "UiMapPoint", "GetSubZoneText", "IsAltKeyDown",
     },
 }

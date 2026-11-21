@@ -446,12 +446,19 @@ end
 MerchantFrame = CreateFrame("Frame", "MerchantFrame")
 MerchantFrame:Hide()
 -- Reputation standing (reaction id, 4 Neutral .. 8 Exalted) by faction id; a missing faction is not met yet.
+-- M.repAmounts[id] = { current, floor, ceiling } (the client's absolute numbers) when a test wants amounts;
+-- M.repSecret[id] = true makes the standing a secret value.
 M.reputation = {}
+M.repAmounts = {}
+M.repSecret = {}
 C_Reputation = {
     GetFactionDataByID = function(id)
         local reaction = M.reputation[id]
         if not reaction then return nil end
-        return { factionID = id, name = "Faction " .. id, reaction = reaction, currentStanding = 0 }
+        local amounts = M.repAmounts[id] or {}
+        return { factionID = id, name = "Faction " .. id, reaction = M.repSecret[id] and M.newSecret() or reaction,
+            currentStanding = amounts.current or 0, currentReactionThreshold = amounts.floor,
+            nextReactionThreshold = amounts.ceiling }
     end,
 }
 Enum = { AddOnRestrictionType = { Combat = 0, Encounter = 1, ChallengeMode = 2, PvPMatch = 3, Map = 4, Chat = 5 },
@@ -481,9 +488,32 @@ function UnitClass(unit)
     return "Warrior", "WARRIOR", 1
 end
 function UnitRace() return "Human", "Human" end
-function UnitGUID() return "Player-1-1" end
+-- UnitGUID("npc") is the open vendor's GUID (nil when no test sets one); M.npcGuidSecret makes it secret.
+M.npcGuid, M.npcGuidSecret = nil, false
+function UnitGUID(unit)
+    if unit == "npc" then return M.npcGuidSecret and M.newSecret() or M.npcGuid end
+    return "Player-1-1"
+end
 function GetRealmName() return "TestRealm" end
-function GetRealZoneText() return "Stormwind City" end
+M.zone, M.subzone = "Stormwind City", ""
+function GetRealZoneText() return M.zone end
+function GetSubZoneText() return M.subzone end
+-- Maps: M.map = { id, x, y } is where the player stands (x, y in 0..1; nil x means no position).
+-- A test can set M.map.restricted to make the position unavailable, as inside an instance.
+M.map = { id = 1453, x = 0.744, y = 0.674 }
+M.waypoint, M.superTracked, M.waypointBlocked = nil, nil, false
+C_Map = {
+    GetBestMapForUnit = function() return M.map.id end,
+    GetPlayerMapPosition = function()
+        if M.map.restricted or not M.map.x then return nil end
+        local x, y = M.map.x, M.map.y
+        return { GetXY = function() return x, y end }
+    end,
+    CanSetUserWaypointOnMap = function() return not M.waypointBlocked end,
+    SetUserWaypoint = function(point) M.waypoint = point end,
+}
+UiMapPoint = { CreateFromCoordinates = function(map, x, y) return { uiMapID = map, position = { x = x, y = y } } end }
+C_SuperTrack = { SetSuperTrackedUserWaypoint = function(on) M.superTracked = on end }
 -- The instance the player is in; tests change it. mapID is the 8th return.
 M.instance = { name = "Stormwind City", type = "none", mapID = 0 }
 function GetInstanceInfo()
@@ -519,12 +549,19 @@ function GetMoney() return M.money end
 function GetTime() return M.now or os.clock() end
 function PlaySound() end
 SOUNDKIT = { IG_MAINMENU_OPTION_CHECKBOX_ON = 856, IG_MAINMENU_OPTION_CHECKBOX_OFF = 857 }
+M.alt = false -- tests set it to simulate Alt held
+function IsAltKeyDown() return M.alt end
 function IsShiftKeyDown() return false end
 function IsControlKeyDown() return false end
 function GetCursorPosition() return 0, 0 end
 function SetCursor() end
 function ResetCursor() end
-function BreakUpLargeNumbers(n) return tostring(n) end
+function BreakUpLargeNumbers(n)
+    local text = tostring(math.floor(tonumber(n) or 0))
+    local sign, digits = text:match("^(%-?)(%d+)$")
+    digits = digits:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+    return sign .. digits
+end
 function CreateColor(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 -- Blizzard's Lua aliases.
 strmatch, strfind, strsub, strlen, strlower, strupper = string.match, string.find, string.sub, string.len, string.lower, string.upper
@@ -551,11 +588,27 @@ if not bit then
 end
 
 -- Dropdown helpers (Blizzard_SharedXML).
+-- A dropdown remembers its initialiser and its text. M.openDropdown(frame) runs the initialiser and
+-- returns the entries it adds (the info tables); M.pickDropdown(frame, text) runs one entry's func, as
+-- a click on it would. Tests drive the callbacks this way, not the state they write.
 function UIDropDownMenu_CreateInfo() return {} end
-function UIDropDownMenu_AddButton() end
-function UIDropDownMenu_Initialize() end
+function UIDropDownMenu_AddButton(info) if M.ddCollect then M.ddCollect[#M.ddCollect + 1] = info end end
+function UIDropDownMenu_Initialize(frame, fn) frame.__ddInit = fn end
 function UIDropDownMenu_SetSelectedValue() end
-function UIDropDownMenu_SetText() end
+function UIDropDownMenu_SetText(frame, text) frame.__ddText = text end
+function M.openDropdown(frame)
+    local list = {}
+    M.ddCollect = list
+    frame.__ddInit(frame, 1)
+    M.ddCollect = nil
+    return list
+end
+function M.pickDropdown(frame, text)
+    for _, info in ipairs(M.openDropdown(frame)) do
+        if info.text == text then info.func(info) return info end
+    end
+    error("dropdown has no entry " .. tostring(text))
+end
 function UIDropDownMenu_SetWidth() end
 function ToggleDropDownMenu() end
 function CloseDropDownMenus() end

@@ -11,6 +11,9 @@ local ADDON_NAME, HonorLog = ...
 
 local HONOR_CURRENCY = 1792
 
+local Util = HonorLog.Util
+local call = Util.call
+
 local SCANNER_DEBUG = false
 
 local function say(text) print("|cff40d860HonorLog|r " .. text) end
@@ -71,6 +74,39 @@ function HonorLog:ReadMerchantCost(index)
     return itemID, cost
 end
 
+-- Where the open vendor is, as far as the client lets an addon say: the NPC id from its GUID, the
+-- map the player stands on, the player's position (a vendor's own is not readable; the player is
+-- next to it) in percent of that map, and the zone and subzone names. Every value is checked for
+-- secrecy; whatever is withheld is left out. guidReadable and positionAvailable are for the probe.
+function HonorLog:ReadVendorLocation()
+    local loc = {}
+    local guid = Util.str(call(UnitGUID, "npc"))
+    loc.guidReadable = guid ~= nil
+    if guid then
+        local id = guid:match("^Creature%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
+        loc.npc = id and tonumber(id) or nil
+    end
+    local map = C_Map and Util.num(call(C_Map.GetBestMapForUnit, "player")) or nil
+    loc.map = map
+    local position = map and C_Map.GetPlayerMapPosition and call(C_Map.GetPlayerMapPosition, map, "player")
+    if type(position) == "table" and not Util.isSecret(position) then
+        local x, y
+        if type(position.GetXY) == "function" then
+            x, y = call(position.GetXY, position)
+        else
+            x, y = position.x, position.y
+        end
+        x, y = Util.num(x), Util.num(y)
+        if x and y and (x ~= 0 or y ~= 0) then
+            loc.x, loc.y = math.floor(x * 1000 + 0.5) / 10, math.floor(y * 1000 + 0.5) / 10
+        end
+    end
+    loc.positionAvailable = loc.x ~= nil
+    loc.zone = Util.str(call(GetRealZoneText))
+    loc.subzone = Util.str(call(GetSubZoneText))
+    return loc
+end
+
 function HonorLog:ScanCurrentVendor(quiet)
     if not (MerchantFrame and MerchantFrame:IsShown()) then
         say("|cffff6666Error:|r No vendor window open. Talk to a PvP vendor first.")
@@ -97,7 +133,9 @@ function HonorLog:ScanCurrentVendor(quiet)
             kept = kept + 1
         end
     end
-    HonorLogDB.scannedVendors[vendor] = { timestamp = time(), itemCount = kept }
+    local loc = self:ReadVendorLocation()
+    HonorLogDB.scannedVendors[vendor] = { timestamp = time(), itemCount = kept,
+        npc = loc.npc, map = loc.map, x = loc.x, y = loc.y, zone = loc.zone, subzone = loc.subzone }
 
     if not quiet then
         say(string.format("Scanned |cffffffff%s|r: %d PvP items of %d.", vendor, kept, numItems))

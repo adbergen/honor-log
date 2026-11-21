@@ -1,5 +1,6 @@
 -- HonorLog Export
--- Copyable export dialog with text/CSV formats
+-- Copyable export dialog with text/CSV formats. The dialog opens on the format named in
+-- /honorlog export [text|csv], else on the Export Format setting (UI/Options.lua).
 
 local ADDON_NAME, HonorLog = ...
 
@@ -36,17 +37,25 @@ local function CreateExportFrame()
     formatLabel:SetPoint("TOPLEFT", 20, -45)
     formatLabel:SetText("Format:")
 
-    local formatDropdown = CreateFrame("Frame", "HonorLogExportFormatDropdown", frame, "UIDropDownMenuTemplate")
+    -- Not the name UI/Options.lua gives its Export Format setting: one frame name, one frame.
+    local formatDropdown = CreateFrame("Frame", "HonorLogExportDialogFormatDropdown", frame, "UIDropDownMenuTemplate")
     formatDropdown:SetPoint("LEFT", formatLabel, "RIGHT", 0, -2)
     UIDropDownMenu_SetWidth(formatDropdown, 150)
 
-    local currentFormat = "text"
+    local FORMATS = {
+        { text = "Text (Discord/Forums)", value = "text" },
+        { text = "CSV (Spreadsheet)", value = "csv" },
+    }
+    local function FormatText(value)
+        for _, item in ipairs(FORMATS) do
+            if item.value == value then return item.text end
+        end
+        return FORMATS[1].text
+    end
+    local currentFormat = HonorLog:GetExportFormat()
 
     UIDropDownMenu_Initialize(formatDropdown, function(self, level)
-        local items = {
-            { text = "Text (Discord/Forums)", value = "text" },
-            { text = "CSV (Spreadsheet)", value = "csv" },
-        }
+        local items = FORMATS
         for _, item in ipairs(items) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = item.text
@@ -61,7 +70,7 @@ local function CreateExportFrame()
         end
     end)
 
-    UIDropDownMenu_SetText(formatDropdown, "Text (Discord/Forums)")
+    UIDropDownMenu_SetText(formatDropdown, FormatText(currentFormat))
     frame.formatDropdown = formatDropdown
 
     -- Scope dropdown
@@ -136,28 +145,41 @@ local function CreateExportFrame()
 
     -- Store references for scope
     frame.GetCurrentFormat = function() return currentFormat end
+    frame.SetFormat = function(self, value)
+        currentFormat = value == "csv" and "csv" or "text"
+        UIDropDownMenu_SetText(formatDropdown, FormatText(currentFormat))
+    end
     frame.GetCurrentScope = function() return currentScope end
 
     frame:Hide()
     return frame
 end
 
+-- "text" or "csv": the Export Format setting, text when it holds anything else.
+function HonorLog:GetExportFormat()
+    local value = self.db and self.db.settings and self.db.settings.exportFormat
+    return value == "csv" and "csv" or "text"
+end
+
+-- format is the /honorlog export argument: "csv", "text", or anything else for the setting.
 function HonorLog:ShowExportFrame(format)
     if not exportFrame then
         exportFrame = CreateExportFrame()
     end
 
-    if format then
-        local formatText = format == "csv" and "CSV (Spreadsheet)" or "Text (Discord/Forums)"
-        UIDropDownMenu_SetText(exportFrame.formatDropdown, formatText)
+    format = type(format) == "string" and format:lower():gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if format == "csv" or format == "text" then
+        exportFrame:SetFormat(format)
+    else
+        exportFrame:SetFormat(self:GetExportFormat())
     end
 
-    self:UpdateExportContent(exportFrame.GetCurrentFormat())
     exportFrame:Show()
+    self:UpdateExportContent(exportFrame.GetCurrentFormat())
 end
 
 function HonorLog:UpdateExportContent(format)
-    if not exportFrame or not exportFrame:IsShown() then return end
+    if not exportFrame then return end
 
     format = format or exportFrame.GetCurrentFormat() or "text"
     local scope = exportFrame.GetCurrentScope() or self.db.settings.viewMode
@@ -323,25 +345,40 @@ function HonorLog:GenerateTextExport(scope)
     return table.concat(lines, "\n")
 end
 
+-- One CSV field: wrapped in double quotes when it holds a comma, a quote or a line break, with
+-- inner quotes doubled.
+local function csvField(value)
+    local text = value == nil and "" or tostring(value)
+    if text:find('[",\r\n]') then text = '"' .. text:gsub('"', '""') .. '"' end
+    return text
+end
+
+local function csvRow(...)
+    local fields = { ... }
+    local n = select("#", ...)
+    for i = 1, n do fields[i] = csvField(fields[i]) end
+    return table.concat(fields, ",", 1, n)
+end
+
 function HonorLog:GenerateCSVExport(scope)
     local lines = {}
 
     -- Header
-    table.insert(lines, "Battleground\tPlayed\tWins\tLosses\tDraws\tLeft\tWinrate\tAvg Duration (s)\tHonor\tMarks")
+    table.insert(lines, csvRow("Battleground", "Played", "Wins", "Losses", "Draws", "Left", "Winrate", "Avg Duration (s)", "Honor", "Marks"))
 
     -- BG data
     for _, bgType in ipairs(HonorLog.BG_ORDER) do
         local stats = self:GetBGStats(bgType, scope)
         local derived = self:GetDerivedStats(bgType, scope)
 
-        table.insert(lines, string.format("%s\t%d\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d",
+        table.insert(lines, csvRow(
             self:GetBGDisplayName(bgType),
-            stats.played,
-            stats.wins,
-            stats.losses,
-            stats.draws or 0,
-            stats.left or 0,
-            derived.winrate,
+            int(stats.played),
+            int(stats.wins),
+            int(stats.losses),
+            int(stats.draws),
+            int(stats.left),
+            string.format("%.2f", derived.winrate),
             math.floor(derived.avgDuration),
             int(stats.honorLifetime),
             int(stats.marksLifetime)
@@ -352,42 +389,41 @@ function HonorLog:GenerateCSVExport(scope)
     local world = self:GetWorldPvPStats(scope)
     table.insert(lines, "")
     table.insert(lines, "--- World PvP ---")
-    table.insert(lines, "Kills\tDeaths\tKilling Blows\tUnknown Kills\tHonor\tHonor (kills)\tHonor (awards)\tHonor (other)")
+    table.insert(lines, csvRow("Kills", "Deaths", "Killing Blows", "Unknown Kills", "Honor", "Honor (kills)", "Honor (awards)", "Honor (other)"))
     local kill, award = world.honorKill or 0, world.honorAward or 0
-    table.insert(lines, string.format("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d",
+    table.insert(lines, csvRow(
         int(world.kills), int(world.deaths), int(world.killingBlows), int(world.unknownKills),
         int(world.honor), int(kill), int(award), int(math.max(0, (world.honor or 0) - kill - award))))
 
     -- Every stored game
     table.insert(lines, "")
     table.insert(lines, "--- Games History ---")
-    table.insert(lines, "Date\tBattleground\tResult\tJoined In Progress\tDuration (s)\tK\tHK\tD\tDamage\tHealing\tObjectives\tHonor\tMarks\tRank Points")
+    table.insert(lines, csvRow("Date", "Battleground", "Result", "Joined In Progress", "Duration (s)", "K", "HK", "D", "Damage", "Healing", "Objectives", "Honor", "Marks", "Rank Points"))
     local history = self:GetHistory(scope, 500)
     for _, entry in ipairs(history) do
-        table.insert(lines, table.concat({
+        table.insert(lines, csvRow(
             Stamp(entry),
             RowBGName(self, entry),
             ResultName(entry),
             entry.joinedInProgress and "yes" or "no",
-            tostring(int(entry.duration)),
-            entry.kb ~= nil and tostring(int(entry.kb)) or "",
-            entry.hk ~= nil and tostring(int(entry.hk)) or "",
-            entry.deaths ~= nil and tostring(int(entry.deaths)) or "",
-            entry.damage ~= nil and tostring(int(entry.damage)) or "",
-            entry.healing ~= nil and tostring(int(entry.healing)) or "",
+            int(entry.duration),
+            entry.kb ~= nil and int(entry.kb) or "",
+            entry.hk ~= nil and int(entry.hk) or "",
+            entry.deaths ~= nil and int(entry.deaths) or "",
+            entry.damage ~= nil and int(entry.damage) or "",
+            entry.healing ~= nil and int(entry.healing) or "",
             ObjectivesText(entry.objectives),
-            tostring(int(entry.honor)),
-            tostring(int(entry.marks)),
-            entry.rankPoints ~= nil and tostring(int(entry.rankPoints)) or "",
-        }, "\t"))
+            int(entry.honor),
+            int(entry.marks),
+            entry.rankPoints ~= nil and int(entry.rankPoints) or ""))
     end
 
     -- Opponents are kept per character, whatever the scope
     table.insert(lines, "")
     table.insert(lines, "--- Opponents (this character) ---")
-    table.insert(lines, "Name\tClass\tKills\tDeaths\tLast Seen")
+    table.insert(lines, csvRow("Name", "Class", "Kills", "Deaths", "Last Seen"))
     for _, o in ipairs(SortedOpponents(self)) do
-        table.insert(lines, string.format("%s\t%s\t%d\t%d\t%s", o.name, o.class, o.kills, o.deaths,
+        table.insert(lines, csvRow(o.name, o.class, o.kills, o.deaths,
             o.lastSeen > 0 and date("%Y-%m-%d %H:%M", o.lastSeen) or ""))
     end
 

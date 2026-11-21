@@ -73,6 +73,8 @@ HonorLog.RANK_TAG_COLORS = {
     pace = { 0.35, 0.78, 1.0, 1 },
     season = { 0.95, 0.35, 0.35, 1 },
     reached = { 0.30, 0.90, 0.40, 1 },
+    level = { 0.78, 0.63, 1.0, 1 },
+    nopoints = { 0.62, 0.65, 0.70, 1 },
 }
 
 -- Rank icons: the atlas Blizzard's own rank window uses, then the classic badge file, then a neutral icon.
