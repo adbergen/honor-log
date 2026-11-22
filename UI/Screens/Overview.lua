@@ -105,8 +105,10 @@ local function refreshTiles(tiles)
     end
 
     -- Honor today
-    tiles[2].value:SetText(m and string.format(L["+%s"], commas(m.honor or 0)) or "")
-    color(tiles[2].value, "gold")
+    -- nothing gained reads "0" in white on every tile, a gain reads "+N"
+    local honorToday = m and (num(m.honor) or 0) or nil
+    tiles[2].value:SetText(honorToday and (honorToday > 0 and string.format(L["+%s"], commas(honorToday)) or "0") or "")
+    color(tiles[2].value, honorToday and honorToday > 0 and "gold" or "white")
     setNote(tiles[2], m and m.honorPerHour and string.format(L["%s an hour"], commas(m.honorPerHour)) or "")
 
     -- Rank points today
@@ -133,7 +135,8 @@ local function refreshTiles(tiles)
     end
 
     -- Marks today
-    tiles[4].value:SetText(m and string.format("+%d", m.marksTotal or 0) or "")
+    local marksToday = m and (num(m.marksTotal) or 0) or nil
+    tiles[4].value:SetText(marksToday and (marksToday > 0 and string.format("+%d", marksToday) or "0") or "")
     color(tiles[4].value, "white")
     local row = tiles[4].noteRow
     tiles[4].note:Hide()
