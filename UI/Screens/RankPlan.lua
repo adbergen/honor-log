@@ -215,7 +215,6 @@ local function buildTable(bottom)
     t.empty:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -34)
     t.empty:SetText(L["No rank data yet. Play a battleground to start your season."])
 
-    local badgeRing = Kit.RING_ATLASES.badge
     t.rows = Kit:Rows(list, ROW_HEIGHT, function(row)
         row.wash = row:CreateTexture(nil, "BACKGROUND")
         row.wash:SetAllPoints(row)
@@ -223,23 +222,8 @@ local function buildTable(bottom)
         row.wash:Hide()
 
         -- a small round badge with the rank number
-        row.badge = CreateFrame("Frame", nil, row)
-        row.badge:SetSize(20, 20)
+        row.badge = Kit:RankBadge(row, 20)
         row.badge:SetPoint("LEFT", row, "LEFT", COL.badge - 1, 0)
-        if Kit:HasAtlas(badgeRing) then
-            Kit:RoundGround(row.badge)
-            local ring = row.badge:CreateTexture(nil, "ARTWORK")
-            ring:SetAllPoints(row.badge)
-            ring:SetAtlas(badgeRing)
-        else
-            local ground = row.badge:CreateTexture(nil, "BACKGROUND")
-            ground:SetAllPoints(row.badge)
-            ground:SetColorTexture(0.1, 0.1, 0.1, 1)
-            Kit:Edges(row.badge, 0.85, 0.66, 0.23, 1)
-        end
-        row.badge.number = Kit:Text(row.badge, "labelSmall")
-        row.badge.number:SetPoint("CENTER", 0, 0)
-        row.badge.number:SetJustifyH("CENTER")
 
         row.title = Kit:Text(row, "value")
         row.title:SetPoint("LEFT", row, "LEFT", COL.title, 0)

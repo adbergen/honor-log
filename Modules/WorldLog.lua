@@ -3,6 +3,10 @@
 -- that a later World PvP screen can show today's numbers, the log with filters, where the player fights,
 -- all-time totals and the history with one opponent. No screen draws it yet.
 --
+-- Readers: GetToday(), GetList(filters) (kind, name, text, limit), GetZones(limit) (each row with the map and
+-- a place to pin), GetSpan() (how many entries are kept and when the oldest was made), GetTotals(scope),
+-- GetWith(name).
+--
 -- An entry: { t (time), kind ("kill" | "death"), kb (true for a killing blow), name, class, rank (the
 -- victim's rank text, from the kill message), honor (what the kill message said the kill gave), map, x, y
 -- (percent of the map), zone, subzone }. A value that is unknown, of the wrong type or a secret is left out;
@@ -169,27 +173,49 @@ function WorldLog:GetToday()
     return out
 end
 
--- filters: kind ("all" | "kill" | "death"), name (part of a name, any case), limit (default 100).
+-- filters: kind ("all" | "kill" | "death"), name (part of an opponent's name, any case), text (part of the
+-- opponent's name, the zone or the subzone, any case, plain find), limit (default 100).
 function WorldLog:GetList(filters)
     filters = type(filters) == "table" and filters or {}
     local kind = filters.kind
     if kind ~= "kill" and kind ~= "death" then kind = nil end
     local part = nonEmpty(filters.name)
     part = part and part:lower() or nil
+    local text = nonEmpty(filters.text)
+    text = text and text:lower() or nil
     local limit = limitOf(filters.limit)
     local rows = {}
     for _, e in ipairs(entries()) do
         if #rows >= limit then break end
         local name = nonEmpty(e.name)
-        if (not kind or e.kind == kind) and (not part or (name and name:lower():find(part, 1, true))) then
+        local matches = not text
+        if text then
+            local fields = { name, nonEmpty(e.zone), nonEmpty(e.subzone) }
+            for i = 1, 3 do -- not ipairs: a kill nobody was named for leaves a hole at 1
+                if fields[i] and fields[i]:lower():find(text, 1, true) then matches = true break end
+            end
+        end
+        if (not kind or e.kind == kind) and matches and (not part or (name and name:lower():find(part, 1, true))) then
             rows[#rows + 1] = row(e)
         end
     end
     return rows
 end
 
--- Where the player fights: { zone, kills, deaths, total }, most fights first, then by name. An entry with
--- no zone is in no row.
+-- How much the log holds: { count, oldest (time of the oldest entry, nil when empty) }. The log began with
+-- 2.1, so this is what "fights counted since" is told from, not the character's own start date.
+function WorldLog:GetSpan()
+    local list = entries()
+    local oldest
+    for _, e in ipairs(list) do
+        if not oldest or e.t < oldest then oldest = e.t end
+    end
+    return { count = #list, oldest = oldest }
+end
+
+-- Where the player fights: { zone, kills, deaths, total, map, place }, most fights first, then by name. An
+-- entry with no zone is in no row. map is the newest entry's map of that zone that stored one (nil when none
+-- did); place is the newest entry that stored map, x and y, ready for ShowPlaceOnMap (nil when none did).
 function WorldLog:GetZones(limit)
     local by, list = {}, {}
     for _, e in ipairs(entries()) do
@@ -203,6 +229,16 @@ function WorldLog:GetZones(limit)
             end
             if e.kind == "kill" then z.kills = z.kills + 1 else z.deaths = z.deaths + 1 end
             z.total = z.total + 1
+            -- entries run newest first, so the first one that has a map is the newest
+            if not z.map and num(e.map) then z.map = e.map end
+            if not z.place and num(e.map) and num(e.x) and num(e.y) then
+                z.place = { map = e.map, x = e.x, y = e.y, name = zone, kind = "place" }
+            end
+        end
+    end
+    for _, z in ipairs(list) do
+        if z.place then
+            z.place.detail = z.total == 1 and HonorLog.L["Latest fight"] or string.format(HonorLog.L["Latest of %d fights"], z.total)
         end
     end
     table.sort(list, function(a, b)

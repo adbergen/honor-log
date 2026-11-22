@@ -161,14 +161,34 @@ function methods.SetFontObject(self, font) self.__font = font; return self end
 
 function methods.SetText(self, txt)
     self.__text = txt
+    if self.__type == "EditBox" then
+        -- The client fires OnTextChanged(self, false) for a text set from code.
+        local fn = self.__scripts.OnTextChanged
+        if fn then fn(self, false) end
+        return self
+    end
     if self.__type == "FontString" then
         self.__height = 12
         self.__width = #tostring(txt or "") * 6
     end
     return self
 end
-function methods.GetText(self) return self.__text end
+function methods.GetText(self)
+    if self.__type == "EditBox" then return self.__text or "" end
+    return self.__text
+end
 function methods.GetStringWidth(self) return self.__width or (#tostring(self.__text or "") * 6) end
+
+-- Edit boxes keep their focus; SetAutoFocus is recorded. M.typeText(box, text) is the player typing.
+function methods.SetFocus(self) self.__focus = true; return self end
+function methods.ClearFocus(self) self.__focus = false; return self end
+function methods.HasFocus(self) return self.__focus == true end
+function methods.SetAutoFocus(self, on) self.__autoFocus = on and true or false; return self end
+function M.typeText(box, text)
+    box.__text = text
+    local fn = box.__scripts.OnTextChanged
+    if fn then fn(box, true) end
+end
 
 function methods.SetScript(self, name, fn) self.__scripts[name] = fn; return self end
 function methods.GetScript(self, name) return self.__scripts[name] end
@@ -246,7 +266,27 @@ M.templateInit = {
         M.portraitMixin(f)
     end,
     PortraitFrameBaseTemplate = function(f) M.portraitMixin(f) end,
+    -- Like SearchBoxTemplate: Instructions (the placeholder), searchIcon and clearButton, and an OnTextChanged
+    -- of its own that shows or hides the placeholder and the clear button (a kit that replaced it would lose that).
+    SearchBoxTemplate = function(f)
+        local instructions = newObject("FontString", f)
+        rawset(f, "Instructions", instructions)
+        rawset(f, "searchIcon", newObject("Texture", f))
+        local clear = newObject("Button", f)
+        rawset(f, "clearButton", clear)
+        f.__templateText = 0
+        f.__scripts.OnTextChanged = function(self)
+            self.__templateText = (self.__templateText or 0) + 1
+            instructions:SetShown((self.__text or "") == "")
+            clear:SetShown((self.__text or "") ~= "")
+        end
+    end,
 }
+-- The template's clear button: empty the box from code and let go of the keyboard (SearchBoxTemplate_ClearText).
+function M.clickClear(box)
+    box:SetText("")
+    box:ClearFocus()
+end
 function CreateFrame(objType, name, parent, template)
     if template then
         for t in tostring(template):gmatch("[^,%s]+") do
@@ -674,6 +714,13 @@ function UnitClass(unit)
     if u then return u.class, u.class, 1 end
     return "Warrior", "WARRIOR", 1
 end
+-- Class names and colours: LocalizedClassList is a function in this build, RAID_CLASS_COLORS a table of colours.
+M.classNames = { WARRIOR = "Warrior", MAGE = "Mage", ROGUE = "Rogue", PRIEST = "Priest", HUNTER = "Hunter", SHAMAN = "Shaman" }
+function LocalizedClassList() return M.classNames end
+RAID_CLASS_COLORS = {
+    WARRIOR = { r = 0.78, g = 0.61, b = 0.43 }, MAGE = { r = 0.25, g = 0.78, b = 0.92 }, ROGUE = { r = 1, g = 0.96, b = 0.41 },
+    PRIEST = { r = 1, g = 1, b = 1 }, HUNTER = { r = 0.67, g = 0.83, b = 0.45 }, SHAMAN = { r = 0, g = 0.44, b = 0.87 },
+}
 function UnitRace() return "Human", "Human" end
 -- UnitGUID("npc") is the open vendor's GUID (nil when no test sets one); M.npcGuidSecret makes it secret.
 M.npcGuid, M.npcGuidSecret = nil, false

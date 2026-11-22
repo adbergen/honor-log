@@ -63,7 +63,9 @@ function MapPin.MapName(map)
     return name ~= "" and name or nil
 end
 
+-- place.key wins: a caller that always passes one key reuses one pin instead of piling up a pin a place.
 local function PlaceKey(place)
+    if place.key ~= nil then return place.key end
     if place.npc then return place.npc end
     return string.format("%s:%s:%s", tostring(place.map), tostring(place.x), tostring(place.y))
 end
@@ -529,7 +531,7 @@ function MapPin:SayCombat()
     HonorLog:Say(string.format(L["The map can't open during combat. Press %s to see the marked spot."], key or "M"))
 end
 
--- place = { map, x, y (percent 0-100), name, detail, reason, icon, npc, kind = "vendor" | "place" }
+-- place = { map, x, y (percent 0-100), name, detail, reason, icon, npc, key, kind = "vendor" | "place" }
 -- Returns true when a pin was placed.
 function HonorLog:ShowPlaceOnMap(place)
     if type(place) ~= "table" then return false end

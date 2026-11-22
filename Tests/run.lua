@@ -3327,6 +3327,187 @@ local function run()
             pl.__scripts.OnEnter(pl)
             pl.__scripts.OnLeave(pl)
             HL.ShowVendorOnMap, HL.ShowPlaceOnMap = realVendor, realPlace
+
+            -- the pieces the 2.1 screens build on
+            ;(function()
+                local function lineTexts()
+                    local out = {}
+                    for _, line in ipairs(mock.tip.lines) do out[#out + 1] = line.text end
+                    return table.concat(out, "|")
+                end
+                -- search box
+                local changes = {}
+                local box = Kit:SearchBox(parent, "Find a player", 200, function(text) changes[#changes + 1] = text end)
+                check(box.honorLogTemplate == (present and "SearchBoxTemplate" or false), label .. "search box: the search template, else drawn")
+                check(box.__autoFocus == false and box:GetWidth() == 200 and box:GetHeight() == 20, label .. "search box: no auto focus, the asked size")
+                if present then
+                    check(box.Instructions:GetText() == "Find a player" and box.honorLogHint == false, label .. "search box: the placeholder goes through the template's Instructions")
+                    check(box.Instructions:IsShown(), label .. "search box: the placeholder shows while empty")
+                else
+                    check(box.honorLogHint:GetText() == "Find a player" and box.honorLogHint:IsShown(), label .. "search box: a drawn box has a hint of its own")
+                end
+                mock.typeText(box, "  Ali  ")
+                check(#changes == 1 and changes[1] == "Ali" and box:honorLogGetText() == "Ali", label .. "search box: typing reports the trimmed text")
+                if present then
+                    check(box.__templateText == 1 and not box.Instructions:IsShown() and box.clearButton:IsShown(), label .. "search box: the template's own handler still runs (hooked, not replaced)")
+                else
+                    check(not box.honorLogHint:IsShown(), label .. "search box: the hint hides once there is text")
+                end
+                mock.typeText(box, "Ali ")
+                check(#changes == 1, label .. "search box: the same trimmed text is not reported twice")
+                box:SetText("code set")
+                check(#changes == 1, label .. "search box: a text set from code is not reported")
+                box:honorLogSetText("  Bob ")
+                check(#changes == 1 and box:honorLogGetText() == "Bob", label .. "search box: honorLogSetText is silent")
+                mock.typeText(box, "Bob")
+                check(#changes == 1, label .. "search box: and what it set counts as already reported")
+                mock.clickClear(box)
+                check(#changes == 2 and changes[2] == "" and not box:HasFocus(), label .. "search box: the clear button reports an empty text and lets go of the keyboard")
+                if present then
+                    check(box.Instructions:IsShown(), label .. "search box: the placeholder returns when cleared")
+                else
+                    check(box.honorLogHint:IsShown(), label .. "search box: the hint returns when cleared")
+                    box:SetFocus()
+                    box.__scripts.OnEscapePressed(box)
+                    check(not box:HasFocus(), label .. "search box: Escape clears focus on the drawn box")
+                    box:SetFocus()
+                    box.__scripts.OnEnterPressed(box)
+                    check(not box:HasFocus(), label .. "search box: Enter clears focus on the drawn box")
+                    box:SetFocus()
+                    box.__scripts.OnHide(box)
+                    check(not box:HasFocus(), label .. "search box: hiding clears focus on the drawn box")
+                end
+                check(pcall(Kit.SearchBox, Kit, parent) and pcall(Kit.SearchBox, Kit, parent, nil, nil, nil), label .. "search box: no placeholder, width or callback is fine")
+                mock.typeText(Kit:SearchBox(parent), "x")
+
+                -- split bar
+                local bar = Kit:SplitBar(parent, 100, 8)
+                local g, r = Kit.COLORS.green, Kit.COLORS.red
+                check(bar:GetWidth() == 100 and bar:GetHeight() == 8 and not bar.honorLogLeft:IsShown() and not bar.honorLogRight:IsShown(), label .. "split bar: empty at first")
+                check(bar.honorLogLeft.__color[1] == g[1] and bar.honorLogRight.__color[1] == r[1] and bar.honorLogRight.__color[2] == r[2], label .. "split bar: green on the left, red on the right")
+                bar:SetCounts(3, 1)
+                check(bar.honorLogLeft:IsShown() and bar.honorLogRight:IsShown() and bar.honorLogLeft:GetWidth() == 74 and bar.honorLogRight:GetWidth() == 24, label .. "split bar: split in proportion inside the border")
+                bar:SetCounts(0, 5)
+                check(not bar.honorLogLeft:IsShown() and bar.honorLogRight:IsShown() and bar.honorLogRight:GetWidth() == 98, label .. "split bar: a side with 0 is hidden")
+                bar:SetCounts(4, 0)
+                check(bar.honorLogLeft:IsShown() and not bar.honorLogRight:IsShown() and bar.honorLogLeft:GetWidth() == 98, label .. "split bar: ... either side")
+                bar:SetCounts(0, 0)
+                check(not bar.honorLogLeft:IsShown() and not bar.honorLogRight:IsShown(), label .. "split bar: both 0 shows the empty track")
+                bar:SetCounts(1, 1000)
+                check(bar.honorLogLeft:GetWidth() >= 1 and bar.honorLogLeft:IsShown() and bar.honorLogRight:IsShown(), label .. "split bar: a small side still shows")
+                bar:SetCounts(-2, "x")
+                check(not bar.honorLogLeft:IsShown() and not bar.honorLogRight:IsShown(), label .. "split bar: a negative or non-number count is 0")
+
+                -- class text
+                local name, cr, cg, cb = Kit:ClassText("MAGE")
+                check(name == "Mage" and cr == 0.25 and cg == 0.78 and cb == 0.92, label .. "class text: the localized name and the class colour")
+                name, cr, cg, cb = Kit:ClassText("DEATHKNIGHT")
+                check(name == "DEATHKNIGHT" and cr == 1 and cg == 1 and cb == 1, label .. "class text: an unknown token is itself in white")
+                local realList, realColors = _G.LocalizedClassList, _G.RAID_CLASS_COLORS
+                _G.LocalizedClassList = nil
+                name, cr = Kit:ClassText("MAGE")
+                check(name == "MAGE" and cr == 1, label .. "class text: no name list falls back to the token")
+                _G.LocalizedClassList = function() error("nope") end
+                check(Kit:ClassText("MAGE") == "MAGE", label .. "class text: a raising name list falls back")
+                _G.LocalizedClassList = function() return mock.newSecret() end
+                check(Kit:ClassText("MAGE") == "MAGE", label .. "class text: a secret name list falls back")
+                _G.LocalizedClassList = realList
+                _G.RAID_CLASS_COLORS = nil
+                name, cr = Kit:ClassText("MAGE")
+                check(name == "MAGE" and cr == 1, label .. "class text: no colours falls back to the token in white")
+                _G.RAID_CLASS_COLORS = { MAGE = { r = mock.newSecret(), g = 1, b = 1 } }
+                check(Kit:ClassText("MAGE") == "MAGE", label .. "class text: a secret colour falls back")
+                _G.RAID_CLASS_COLORS = realColors
+                check(Kit:ClassText(nil) == "" and Kit:ClassText(5) == "" and Kit:ClassText(mock.newSecret()) == "", label .. "class text: no usable token is empty")
+
+                -- rank badge
+                local badge = Kit:RankBadge(parent, 20)
+                check(badge:GetWidth() == 20 and badge:GetHeight() == 20 and badge.number and badge.number.honorLogStyle == "labelSmall", label .. "rank badge: a 20 px badge with a number text")
+                check(Kit:RankBadge(parent):GetWidth() == 20, label .. "rank badge: 20 px by default")
+                badge.number:SetText("7")
+                check(badge.number:GetText() == "7", label .. "rank badge: the number is set by the caller")
+
+                -- tile with a note and a tooltip
+                local tile = Kit:NoteTile(parent)
+                check(tile.honorLogTipButton and tile.note and tile.value and tile.label, label .. "note tile: a tile with a tooltip button")
+                Kit:SetNoteTile(tile, "Honor", "+5", "A long note", "The full note", "gold", "red")
+                check(tile.label:GetText() == "Honor" and tile.value:GetText() == "+5" and tile.note:GetText() == "A long note" and tile.honorLogTipButton.honorLogText == "The full note", label .. "note tile: the texts")
+                check(tile.value.__textColor[1] == Kit.COLORS.gold[1] and tile.note.__textColor[1] == Kit.COLORS.red[1], label .. "note tile: the colours")
+                tile.honorLogTipButton.__scripts.OnEnter(tile.honorLogTipButton)
+                check(mock.tip.shown and lineTexts() == "The full note", label .. "note tile: the tooltip shows the full text")
+                tile.honorLogTipButton.__scripts.OnLeave(tile.honorLogTipButton)
+                check(not mock.tip.shown, label .. "note tile: and hides")
+                Kit:SetNoteTile(tile, "Marks", nil, "Only a note")
+                check(tile.value:GetText() == "" and tile.honorLogTipButton.honorLogText == "Only a note" and tile.value.__textColor[1] == 1, label .. "note tile: the tooltip defaults to the note, colours to white and grey")
+                mock.tip = { lines = {} }
+                Kit:SetNoteTile(tile, "Marks", "1", "")
+                tile.honorLogTipButton.__scripts.OnEnter(tile.honorLogTipButton)
+                check(not mock.tip.shown, label .. "note tile: no text, no tooltip")
+
+                -- place link: a map without a position, no map at all, a label and a fixed width
+                local calls, realOpen = {}, HL.MapPin.OpenMap
+                HL.MapPin.OpenMap = function(_, map) calls.open = map end
+                local realShow = HL.ShowPlaceOnMap
+                HL.ShowPlaceOnMap = function(_, place) calls.place = place end
+                local link = Kit:PlaceLink(parent)
+                link:SetPlace({ name = "Stonetalon", map = 65 })
+                check(link.honorLogMode == "zone" and link.honorLogPin:IsShown() and link.honorLogName.__textColor[1] == Kit.COLORS.gold[1], label .. "place link: a map without a position is a zone link")
+                link.__scripts.OnClick(link)
+                check(calls.open == 65 and calls.place == nil, label .. "place link: a zone link opens the zone's map without a pin")
+                mock.tip = { lines = {} }
+                link.__scripts.OnEnter(link)
+                check(mock.tip.shown and lineTexts():find("Click: open this zone's map", 1, true), label .. "place link: its tooltip says the position is missing")
+                link.__scripts.OnLeave(link)
+                check(not mock.tip.shown, label .. "place link: the tooltip hides")
+                calls = {}
+                link:SetPlace({ name = "Nowhere" })
+                check(link.honorLogMode == "plain" and not link.honorLogPin:IsShown() and link.honorLogName.__textColor[1] == Kit.COLORS.grey[1], label .. "place link: no map is plain grey text")
+                link.__scripts.OnClick(link)
+                check(calls.open == nil and calls.place == nil, label .. "place link: plain text does nothing on a click")
+                link.__scripts.OnEnter(link)
+                check(link.honorLogName.__textColor[1] == Kit.COLORS.grey[1] and lineTexts() == "Nowhere|The game gave no position for this place.", label .. "place link: the tooltip says the game gave no position")
+                link.__scripts.OnLeave(link)
+                link:SetPlace({ name = "Graveyard", map = 2, x = 1, y = 2 }, "Alpha's grave")
+                check(link.honorLogMode == "pin" and link.honorLogPin:IsShown() and link.honorLogName:GetText() == "Alpha's grave", label .. "place link: a label replaces the name")
+                link.__scripts.OnClick(link)
+                check(calls.place and calls.place.name == "Graveyard" and calls.open == nil, label .. "place link: a place with a position still pins")
+                mock.tip = { lines = {} }
+                link.__scripts.OnEnter(link)
+                check(not mock.tip.shown, label .. "place link: an uncut label has no tooltip")
+                link.__scripts.OnLeave(link)
+                link:SetPlace({ name = "A very long place name indeed", map = 2, x = 1, y = 2 }, nil, 80)
+                check(link:GetWidth() == 80 and link.honorLogCut == true, label .. "place link: a fixed width, and the text is cut")
+                link.__scripts.OnEnter(link)
+                check(mock.tip.shown and lineTexts() == "A very long place name indeed", label .. "place link: a cut text has its full text in the tooltip")
+                link.__scripts.OnLeave(link)
+                link:SetPlace({ name = "Short", map = 2, x = 1, y = 2 }, nil, 200)
+                check(link:GetWidth() == 200 and link.honorLogCut == false, label .. "place link: a text that fits is not cut")
+                mock.tip = { lines = {} }
+                link.__scripts.OnEnter(link)
+                check(not mock.tip.shown, label .. "place link: ... and has no tooltip")
+                link.__scripts.OnLeave(link)
+                link:SetPlace({ name = "Short", map = 2, x = 1, y = 2 })
+                check(link:GetWidth() == 18 + 5 * 6, label .. "place link: without a width it grows with the text, as before")
+                link:SetPlace(nil)
+                check(link.honorLogName:GetText() == "" and link.honorLogMode == "pin", label .. "place link: no place is an empty link")
+                check(pcall(link.__scripts.OnClick, link) and pcall(link.SetPlace, link, "text", 5, "x"), label .. "place link: odd arguments raise nothing")
+                HL.MapPin.OpenMap, HL.ShowPlaceOnMap = realOpen, realShow
+
+                -- mark icon with a count and an owner
+                local mark = Kit:MarkIcon(parent, 14)
+                mark:SetBattleground("AB", 7, "Alt Char")
+                mark.__scripts.OnEnter(mark)
+                check(lineTexts():find("In the bags of Alt Char: 7", 1, true) and not lineTexts():find("In your bags", 1, true), label .. "mark icon: another character's count and name")
+                mark:SetBattleground("AB", 0)
+                mark.__scripts.OnEnter(mark)
+                check(lineTexts():find("In your bags: 0", 1, true), label .. "mark icon: a count without an owner, even 0, is read as given")
+                mark:SetBattleground("AB")
+                mark.__scripts.OnEnter(mark)
+                check(lineTexts():find("In your bags: " .. HL:GetCurrentMarks("AB"), 1, true), label .. "mark icon: no count reads this character's bags")
+                mark:SetBattleground("AB", "x", 5)
+                mark.__scripts.OnEnter(mark)
+                check(lineTexts():find("In your bags: " .. HL:GetCurrentMarks("AB"), 1, true), label .. "mark icon: a count that is no number reads the bags")
+            end)()
             removeBlizzardGlobals()
         end
         kitSuite(true)
@@ -3340,7 +3521,7 @@ local function run()
         local probeRefreshes
         local function registerProbe()
             probeRefreshes = 0
-            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 5, create = function(parent)
+            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 7, create = function(parent)
                 local f = CreateFrame("Frame", nil, parent)
                 function f:Refresh() probeRefreshes = probeRefreshes + 1 end
                 return f
@@ -3394,6 +3575,16 @@ local function run()
             check(hollowWindow.honorLogChrome == false and hollowWindow.honorLogContent ~= nil and hollowWindow.honorLogClose ~= nil, "kit: hollow window templates fall back to the plain window")
             hollowWindow:honorLogSetTitle("T")
             check(hollowWindow:honorLogGetTitle() == "T", "kit: the plain window still takes a title")
+            mock.hollowTemplates = { SearchBoxTemplate = true, InputBoxInstructionsTemplate = true, InputBoxTemplate = true }
+            local hollowSearch = Kit:SearchBox(holder, "Find", 100)
+            check(hollowSearch.honorLogTemplate == false and hollowSearch.honorLogHint:GetText() == "Find" and hollowSearch.__autoFocus == false, "kit: hollow search templates are drawn plain")
+            mock.hollowTemplates = { SearchBoxTemplate = true, InputBoxInstructionsTemplate = true }
+            local plainInput = Kit:SearchBox(holder, "Find", 100)
+            check(plainInput.honorLogTemplate == "InputBoxTemplate" and plainInput.honorLogHint:GetText() == "Find", "kit: a search box falls back to the plain input box, with a hint of its own because it has no Instructions")
+            local typed = {}
+            local hooked = Kit:SearchBox(holder, "Find", 100, function(t) typed[#typed + 1] = t end)
+            mock.typeText(hooked, "abc")
+            check(typed[1] == "abc", "kit: the fallback box reports typing")
             mock.hollowTemplates = {}
             check(Kit:Inset(holder).honorLogTemplate == "InsetFrameTemplate", "kit: with its regions the inset template takes")
             -- The window's content has its own ground, and the title bar texts sit on the drag strip.
@@ -3921,6 +4112,8 @@ local function run()
             local tabset = Kit:Tabs(tw)
             check(foreign(tabset:Add("a", "A")) == "", "kit: tabs add only honorLog names")
             check(foreign(Kit:Tile(holder).inset) == "", "kit: a tile keeps its fields off the inset")
+            check(foreign(Kit:SearchBox(holder, "Find", 100), { Instructions = true, searchIcon = true, clearButton = true }) == "", "kit: a search box adds only honorLog names to the template frame")
+            check(foreign(Kit:NoteTile(holder).inset) == "", "kit: a note tile keeps its fields off the inset")
             -- A template whose SetTitle raises still gets a title, drawn by the kit.
             mock.titleRaises = true
             local tr = Kit:Window("HonorLogRaisingTitleWindow", 300, 200)
@@ -5970,7 +6163,7 @@ local function run()
             check(#mock.handledErrors == errBefore, "quests: it builds and draws without an error: " .. tostring(mock.handledErrors[errBefore + 1]))
             local scr = Window.frames.quests
             local P = scr.honorLogParts
-            check(scr and Window.current == "quests" and S.windowTab == "quests" and Window:GetScreen("quests").title == "Quests" and Window:GetScreen("quests").order == 5
+            check(scr and Window.current == "quests" and S.windowTab == "quests" and Window:GetScreen("quests").title == "Quests" and Window:GetScreen("quests").order == 6
                 and Window.screens[5].key == "quests" and Window.tabs.list[5].honorLogKey == "quests" and Window.tabs.list[4].honorLogKey == "battlegrounds", "tabs: Quests comes after Battlegrounds")
             S.windowTab = "overview"
             Window:Hide()
@@ -8188,6 +8381,301 @@ local function run()
             HL.db = db
 
             check(#mock.handledErrors == errorsBefore, "met section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            restoreStores(kept)
+        end)()
+        --------------------------------------------------------------------
+        -- 2.1 groundwork: the readers the new screens use
+        --------------------------------------------------------------------
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+            local WorldLog, Met, Rank = HL.WorldLog, HL.Met, HL.Rank
+            local DAY = 86400
+            local T0 = realTime({ year = 2026, month = 11, day = 18, hour = 10, min = 0, sec = 0 })
+            local savedClock = clock
+            clock = T0
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            local c = HL.db.char
+            mock.playerName = "Alpha"
+            local secret = mock.newSecret()
+
+            -- WorldLog: text filter, zone places, span
+            c.worldLog = {
+                { t = T0 - 10, kind = "kill", name = "Alpha One", zone = "Hillsbrad Foothills", subzone = "Southshore", map = 1424, x = 10, y = 20 },
+                { t = T0 - 20, kind = "death", name = "Bravo", zone = "Hillsbrad Foothills", map = 1424 },
+                { t = T0 - 30, kind = "kill", zone = "Arathi Highlands", subzone = "Refuge Pointe" },
+                { t = T0 - 40, kind = "kill", name = "Charlie", zone = "Hillsbrad Foothills", map = 1424, x = 5, y = 6 },
+                { t = T0 - 50, kind = "death", name = "Delta", zone = "Alterac Mountains", map = 1416 },
+                { t = T0 - 60, kind = "kill", name = "Echo", zone = "Duskwood", map = 1431, x = 1, y = 2 },
+            }
+            local function names(rows)
+                local out = {}
+                for _, r in ipairs(rows) do out[#out + 1] = r.name or "?" end
+                return table.concat(out, ",")
+            end
+            check(names(WorldLog:GetList({ text = "SOUTH" })) == "Alpha One", "world log text: the subzone, in any case")
+            check(names(WorldLog:GetList({ text = "arathi" })) == "?", "world log text: the zone of a kill nobody was named for")
+            check(names(WorldLog:GetList({ text = "alpha" })) == "Alpha One", "world log text: the opponent's name")
+            check(names(WorldLog:GetList({ text = "hills" })) == "Alpha One,Bravo,Charlie", "world log text: the zone, newest first")
+            check(names(WorldLog:GetList({ text = "hills", kind = "death" })) == "Bravo" and names(WorldLog:GetList({ text = "hills", name = "char" })) == "Charlie", "world log text: with the kind and the name filters")
+            check(#WorldLog:GetList({ text = "" }) == 6 and #WorldLog:GetList({ text = 5 }) == 6 and #WorldLog:GetList({ text = secret }) == 6, "world log text: empty, not a string or secret filters nothing")
+            check(#WorldLog:GetList({ text = "al.ha" }) == 0 and #WorldLog:GetList({ text = "nothing like it" }) == 0, "world log text: a plain find, not a pattern")
+            check(#WorldLog:GetList({ text = "hills", limit = 2 }) == 2, "world log text: the limit still holds")
+            check(#WorldLog:GetList({ name = "alp" }) == 1, "world log text: the name filter stays")
+
+            local zones = WorldLog:GetZones()
+            check(zones[1].zone == "Hillsbrad Foothills" and zones[1].total == 3 and zones[1].map == 1424, "world log zones: the map of the zone")
+            check(zones[1].place and zones[1].place.map == 1424 and zones[1].place.x == 10 and zones[1].place.y == 20 and zones[1].place.name == "Hillsbrad Foothills"
+                and zones[1].place.kind == "place" and zones[1].place.detail == "Latest of 3 fights", "world log zones: the place is the newest entry with a position")
+            local byZone = {}
+            for _, z in ipairs(zones) do byZone[z.zone] = z end
+            check(byZone["Alterac Mountains"].map == 1416 and byZone["Alterac Mountains"].place == nil, "world log zones: a map without a position has no place")
+            check(byZone["Arathi Highlands"].map == nil and byZone["Arathi Highlands"].place == nil, "world log zones: no map, no place")
+            check(byZone["Duskwood"].place.detail == "Latest fight" and byZone["Duskwood"].place.x == 1, "world log zones: a single fight")
+            check(HL:ShowPlaceOnMap(byZone["Duskwood"].place) == true, "world log zones: the place is one the map pin accepts")
+            HL:ClearMapPins()
+            c.worldLog[1].x = secret
+            zones = WorldLog:GetZones()
+            check(zones[1].place and zones[1].place.x == 5, "world log zones: a secret position is skipped for the next newest")
+            c.worldLog[1].map = secret
+            check(WorldLog:GetZones()[1].map == 1424, "world log zones: a secret map is skipped too")
+            c.worldLog[1].x, c.worldLog[1].map = 10, 1424
+
+            local span = WorldLog:GetSpan()
+            check(span.count == 6 and span.oldest == T0 - 60, "world log span: the count and the oldest time")
+            table.insert(c.worldLog, "junk")
+            table.insert(c.worldLog, { kind = "kill" })
+            check(WorldLog:GetSpan().count == 6, "world log span: unusable entries are not counted")
+            c.worldLog = {}
+            span = WorldLog:GetSpan()
+            check(span.count == 0 and span.oldest == nil, "world log span: an empty log")
+            local realDb = HL.db
+            HL.db = nil
+            check(WorldLog:GetSpan().count == 0 and #WorldLog:GetZones() == 0 and #WorldLog:GetList({ text = "a" }) == 0, "world log: with no saved data the readers are empty")
+            HL.db = realDb
+
+            -- Met:Search
+            c.met = {
+                ["Alice"] = { class = "MAGE", with = 2, withWins = 1, against = 1, againstWins = 0, kbBest = 3, last = 100 },
+                ["alicia-Realm"] = { with = 0, withWins = 0, against = 4, againstWins = 2, kbBest = 1, last = 300 },
+                ["Bob"] = { with = 1, withWins = 1, against = 0, againstWins = 0, kbBest = 0, last = 200 },
+            }
+            local found = Met:Search("ALI")
+            check(#found == 2 and found[1].name == "alicia-Realm" and found[2].name == "Alice", "met search: any case, newest last first")
+            check(found[1].games == 4 and found[1].wins == 2 and found[1].rate == 0.5 and found[1].kbBest == 1 and found[1].last == 300 and found[1].class == nil, "met search: the row shape GetList returns")
+            check(found[2].games == 3 and found[2].wins == 1 and found[2].class == "MAGE" and math.abs(found[2].rate - 1 / 3) < 1e-9, "met search: both sides count")
+            check(#Met:Search("ali", 1) == 1 and #Met:Search("ali", 0) == 0, "met search: the limit")
+            check(#Met:Search("al.i") == 0 and #Met:Search("") == 0 and #Met:Search(nil) == 0 and #Met:Search(secret) == 0 and #Met:Search(5) == 0, "met search: a plain find; no usable part is nothing")
+            found[1].name = "changed"
+            check(c.met["alicia-Realm"] and Met:Search("ali")[1].name == "alicia-Realm", "met search: rows are copies")
+            c.met["Odd"] = "junk"
+            check(#Met:Search("o") == 1, "met search: an unusable record is skipped")
+            HL.db = nil
+            check(#Met:Search("a") == 0, "met search: with no saved data it is empty")
+            HL.db = realDb
+
+            -- Rank:TitleForRank with a faction
+            _G.PVP_RANK_7_0, _G.PVP_RANK_7_1 = "Horde Title", "Alliance Title"
+            mock.faction = "Horde"
+            check(Rank:TitleForRank(3) == "Horde Title" and Rank:TitleForRank(3, nil) == "Horde Title", "title: the player's faction by default")
+            check(Rank:TitleForRank(3, "Alliance") == "Alliance Title" and Rank:TitleForRank(3, "Horde") == "Horde Title", "title: for the faction asked")
+            check(Rank:TitleForRank(3, "Nonsense") == "Horde Title" and Rank:TitleForRank(3, secret) == "Horde Title", "title: an unknown or secret faction is the player's")
+            mock.faction = "Alliance"
+            check(Rank:TitleForRank(3) == "Alliance Title" and Rank:TitleForRank(3, "Horde") == "Horde Title", "title: ... for the other faction too")
+            check(Rank:TitleForRank(0, "Horde") == Rank:TitleForRank(0) and Rank:TitleForRank(nil, "Horde") == Rank:TitleForRank(nil), "title: rank 0 has no faction")
+            _G.PVP_RANK_7_0, _G.PVP_RANK_7_1 = nil, nil
+            check(Rank:TitleForRank(3, "Horde") == "Rank 3", "title: the plain fallback")
+
+            -- MapPin: one fixed key, one pin
+            local MP = HL.MapPin
+            HL:ClearMapPins()
+            check(MP:Count() == 0, "pin key: no pins to begin with")
+            HL:ShowPlaceOnMap({ name = "One", map = 1424, x = 1, y = 2, key = "fixed" })
+            HL:ShowPlaceOnMap({ name = "Two", map = 1424, x = 30, y = 40, key = "fixed" })
+            check(MP:Count() == 1 and MP:GetTarget() == "fixed" and MP:GetPin("fixed").name == "Two" and MP:GetPin("fixed").x == 30, "pin key: places with one key reuse one pin")
+            HL:ShowPlaceOnMap({ name = "Three", map = 1424, x = 50, y = 60 })
+            HL:ShowPlaceOnMap({ name = "Four", map = 1424, x = 7, y = 8 })
+            check(MP:Count() == 3, "pin key: places with no key pin as before, one by position")
+            HL:ShowPlaceOnMap({ name = "Five", map = 1424, x = 9, y = 9, key = "fixed" })
+            check(MP:Count() == 3, "pin key: and the key still reuses its own pin")
+            HL:ClearMapPins()
+
+            check(#mock.handledErrors == errorsBefore, "readers section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            clock = savedClock
+            restoreStores(kept)
+        end)()
+
+        --------------------------------------------------------------------
+        -- 2.1 groundwork: the view models
+        --------------------------------------------------------------------
+        ;(function()
+            local kept = keepStores()
+            local errorsBefore = #mock.handledErrors
+            local Characters, Rank = HL.Characters, HL.Rank
+            local DAY = 86400
+            local T0 = realTime({ year = 2026, month = 11, day = 18, hour = 10, min = 0, sec = 0 })
+            local savedClock = clock
+            clock = T0
+            HonorLogDB, HonorLogCharDB = nil, nil
+            HL:InitializeDB()
+            local c = HL.db.char
+            mock.playerName = "Alpha"
+            mock.faction = "Horde"
+            local key = HL:GetCharacterKey()
+            local secret = mock.newSecret()
+            local goalItem = next(HL.GearDB)
+            _G.PVP_RANK_6_0, _G.PVP_RANK_7_1 = "Horde Rank 2", "Alliance Rank 3"
+            local savedMax = mock.currencies[1792].maxQuantity
+            mock.currencies[1792].maxQuantity = 75000
+
+            -- GetCharacterRows
+            check(HL:AddGoal(goalItem), "rows: a goal for this character")
+            local store = HonorLogDB.characters
+            for k in pairs(store) do store[k] = nil end
+            store[key] = { name = "Alpha", class = "SHAMAN", faction = "Horde", level = 35, rank = 2, rankPoints = Rank:TotalForRank(3) - 430, honor = 18420,
+                lastSeen = T0 - 10, nextGoal = goalItem, goalPercent = 40 }
+            store["Beta-TestRealm"] = { name = "Beta", class = "MAGE", faction = "Alliance", level = 38, rank = 3, rankPoints = Rank:TotalForRank(3) + 10, honor = 500,
+                lastSeen = T0 - 2 * DAY, nextGoal = goalItem, goalPercent = 100 }
+            store["Gamma-TestRealm"] = { name = "Gamma", class = "ROGUE", faction = "Horde", level = 60, rank = 5, rankPoints = 1, capped = true, capUntil = T0 + 1000,
+                lastSeen = T0 - DAY, nextGoal = goalItem, goalPercent = 60.4 }
+            store["Delta-TestRealm"] = { name = "Delta", class = "PRIEST", faction = "Horde", level = 60, rank = 14, rankPoints = Rank:TotalForRank(14), lastSeen = T0 - 100 }
+            store["Eps-TestRealm"] = { name = "Eps", lastSeen = T0 - 5 * DAY }
+            store["Zed-TestRealm"] = { name = "Zed" }
+            local rows = HL:GetCharacterRows()
+            local by = {}
+            for _, r in ipairs(rows) do by[r.name] = r end
+            check(#rows == 6 and rows[1].name == "Alpha" and rows[1].current, "rows: one per character, the list's order")
+            check(by.Alpha.lastText == "Playing now" and by.Beta.lastText == "2 days ago" and by.Gamma.lastText == "yesterday" and by.Delta.lastText == "today" and by.Eps.lastText == "5 days ago" and by.Zed.lastText == nil,
+                "rows: the last played texts")
+            check(by.Alpha.rankTitle == "Horde Rank 2" and by.Beta.rankTitle == "Alliance Rank 3" and by.Eps.rankTitle == nil and by.Zed.rankTitle == nil, "rows: the rank title of that record's faction")
+            check(by.Alpha.weekText == "430 points to Rank 3" and by.Alpha.weekTone == "progress", "rows: points to the next rank: " .. tostring(by.Alpha.weekText))
+            check(by.Beta.weekText == "Rank 4 needs level 40" and by.Beta.weekTone == "gate", "rows: a level gate")
+            check(by.Gamma.weekText == "Capped this week" and by.Gamma.weekTone == "capped" and by.Gamma.cappedNow, "rows: capped this week")
+            check(by.Delta.weekText == nil and by.Delta.weekTone == nil and by.Eps.weekText == nil and by.Zed.weekText == nil, "rows: nothing to say at the top rank, with no rank or for a stub")
+            check(by.Alpha.honor == 18420 and by.Alpha.honorCap == 75000 and by.Zed.stub == true and by.Alpha.stub == false, "rows: honor, the cap and stub")
+            local expectedGoal = HL:GoalReadyText(HL:GetAllGoalsProgress()[1])
+            check(by.Alpha.goalItem == goalItem and by.Alpha.goalName == HL:GetGearName(goalItem) and by.Alpha.goalNote == (expectedGoal ~= "" and expectedGoal or nil) and by.Alpha.goalPercent == 40,
+                "rows: this character's goal and its full ready text")
+            check(by.Beta.goalNote == "Ready to buy" and by.Gamma.goalNote == "60% complete" and by.Beta.goalName == HL:GetGearName(goalItem), "rows: another character's goal note from its percent")
+            check(by.Delta.goalItem == nil and by.Delta.goalNote == nil and by.Delta.goalName == nil, "rows: no goal, no goal fields")
+            by.Alpha.honor = 1
+            check(store[key].honor == 18420, "rows: the rows are copies")
+            mock.currencies[1792].maxQuantity = 0
+            check(HL:GetCharacterRows()[1].honorCap == nil, "rows: an unreadable cap is nil")
+            mock.currencies[1792].maxQuantity = 75000
+            local realProgress = HL.GetAllGoalsProgress
+            HL.GetAllGoalsProgress = function() error("progress failed") end
+            check(HL:GetCharacterRows()[1].goalNote == nil and HL:GetCharacterRows()[1].goalItem == goalItem, "rows: a goal reader that raises leaves the note out")
+            HL.GetAllGoalsProgress = function() return {} end
+            check(HL:GetCharacterRows()[1].goalNote == nil, "rows: no goal progress, no note")
+            HL.GetAllGoalsProgress = realProgress
+            store["Beta-TestRealm"].rank, store["Beta-TestRealm"].rankPoints, store["Beta-TestRealm"].level = secret, secret, secret
+            local okRows, secretRows = pcall(HL.GetCharacterRows, HL)
+            local secretBeta
+for _, r in ipairs(okRows and secretRows or {}) do if r.name == "Beta" then secretBeta = r end end
+check(secretBeta and secretBeta.weekText == nil and secretBeta.rankTitle == nil, "rows: a secret rank or level is read as unknown")
+            store["Beta-TestRealm"].lastSeen = secret
+            check(pcall(HL.GetCharacterRows, HL), "rows: a secret last seen raises nothing")
+            local realCharacters = HL.Characters
+            HL.Characters = nil
+            check(#HL:GetCharacterRows() == 0, "rows: without the module, no rows")
+            HL.Characters = realCharacters
+            for k in pairs(store) do store[k] = nil end
+            check(#HL:GetCharacterRows() == 0, "rows: an empty store gives no rows")
+
+            -- FindPlayers
+            c.met = {
+                ["Alice Fox"] = { class = "MAGE", with = 2, withWins = 1, against = 1, againstWins = 0, kbBest = 3, last = 100 },
+                ["Alice Fox-Realm"] = { with = 0, withWins = 0, against = 2, againstWins = 1, kbBest = 5, last = 300 },
+                ["Bob"] = { class = "WARRIOR", with = 1, withWins = 1, against = 0, againstWins = 0, kbBest = 0, last = 200 },
+                ["Dan-Realm"] = { with = 0, withWins = 0, against = 1, againstWins = 0, kbBest = 2, last = 50 },
+            }
+            c.opponents = {
+                ["Alice Fox"] = { class = "MAGE", kills = 2, deaths = 1, lastSeen = 250 },
+                ["Carol"] = { class = "ROGUE", kills = 1, deaths = 0, lastSeen = 400 },
+                ["Bobby"] = { class = "HUNTER", kills = 0, deaths = 3, lastSeen = 40 },
+                ["Dan"] = { kills = 4, deaths = 0, lastSeen = 60 },
+            }
+            local function found(text, limit)
+                local out = {}
+                for _, p in ipairs(HL:FindPlayers(text, limit)) do out[#out + 1] = p.name end
+                return table.concat(out, ",")
+            end
+            local people = HL:FindPlayers("ali")
+            check(#people == 1 and people[1].name == "Alice Fox" and people[1].class == "MAGE" and people[1].last == 300, "players: one row for a name with and without a realm suffix")
+            check(people[1].met.with == 2 and people[1].met.withWins == 1 and people[1].met.against == 3 and people[1].met.againstWins == 1 and people[1].met.kbBest == 5 and people[1].met.last == 300,
+                "players: both battleground records merged")
+            check(people[1].world.kills == 2 and people[1].world.deaths == 1 and people[1].world.lastSeen == 250, "players: and what the world tally knows")
+            check(found("-realm") == "Alice Fox,Dan", "players: a match on one spelling brings the other store's record along")
+            check(HL:FindPlayers("-realm")[2].world.kills == 4 and HL:FindPlayers("-realm")[2].met.against == 1, "players: a world opponent and a suffixed battleground name are one player")
+            check(found("BOB") == "Bob,Bobby", "players: any case; a longer name is another player")
+            people = HL:FindPlayers("bob")
+            check(people[1].met and people[1].world == nil and people[2].world and people[2].met == nil and people[2].world.deaths == 3, "players: a store that does not know a player gives nothing for it")
+            check(found("o") == "Carol,Alice Fox,Bob,Bobby", "players: newest first across both stores: " .. found("o"))
+            check(found("o", 2) == "Carol,Alice Fox" and found("o", 0) == "", "players: the limit")
+            check(found("") == "" and found(nil) == "" and found(secret) == "" and found(5) == "" and found("   ") == "" and found("zzz") == "", "players: no usable text is nobody")
+            check(found("ali.") == "", "players: a plain find")
+            check(#HL:FindPlayers(" Carol ") == 1, "players: the text is trimmed")
+            c.opponents.Odd = "junk"
+            c.met.Odd2 = 5
+            check(pcall(HL.FindPlayers, HL, "o"), "players: unusable records raise nothing")
+            c.opponents.Odd, c.met.Odd2 = nil, nil
+            local realDb = HL.db
+            HL.db = nil
+            check(#HL:FindPlayers("a") == 0, "players: with no saved data it is empty")
+            HL.db = realDb
+
+            -- GetHonorDaysBetween
+            local function key8(t) return HL:GetDayKey(t) end
+            local start = realTime({ year = 2026, month = 11, day = 17, hour = 9, min = 0, sec = 0 })
+            local finish = start + 7 * DAY
+            c.honorDays = { [key8(start)] = 100, [key8(start + 2 * DAY)] = 250, [key8(start + 6 * DAY)] = 5 }
+            local days = HL:GetHonorDaysBetween(start, finish)
+            check(days and #days == 7 and days[1].dayKey == "20261117" and days[7].dayKey == "20261123", "honor days: a reset week is seven days, start day first")
+            check(days[1].honor == 100 and days[2].honor == 0 and days[3].honor == 250 and days[7].honor == 5 and days[1].label == date("%a", start + 3 * 3600), "honor days: the honor of each day, 0 for a day with none, and a weekday label")
+            days = HL:GetHonorDaysBetween(start + 8 * 3600, finish + 8 * 3600)
+            check(days and #days == 7 and days[1].dayKey == "20261118", "honor days: a day counts when its noon is inside the span")
+            check(#HL:GetHonorDaysBetween(T0 - 2 * DAY, T0 + 5 * DAY) == 7, "honor days: days still to come are in the span with 0")
+            check(HL:GetHonorDaysBetween(T0 - 59 * DAY, T0 - 52 * DAY) ~= nil, "honor days: inside the 60 days kept")
+            check(HL:GetHonorDaysBetween(T0 - 62 * DAY, T0 - 55 * DAY) == nil, "honor days: a span that begins before what is kept is nil")
+            check(HL:GetHonorDaysBetween(finish, start) == nil and HL:GetHonorDaysBetween(start, start) == nil, "honor days: an empty or backwards span is nil")
+            check(HL:GetHonorDaysBetween(nil, finish) == nil and HL:GetHonorDaysBetween(start, "x") == nil and HL:GetHonorDaysBetween(secret, finish) == nil, "honor days: no usable time is nil")
+            HL.db = nil
+            check(HL:GetHonorDaysBetween(start, finish) == nil, "honor days: with no saved data it is nil")
+            HL.db = realDb
+
+            -- GetWeekRankReason
+            local week = { start = T0 - 3 * DAY, finish = T0 + 4 * DAY, rankStart = 1000, rankEnd = 1000 }
+            c.history = {
+                { timestamp = T0 - DAY, rankPoints = 0, rankState = "capped" },
+                { timestamp = T0 - 5 * DAY, rankPoints = 0, rankState = "gated" },
+            }
+            check(HL:GetWeekRankReason(week) == "cap", "week reason: the cap, from a game inside the week; a game outside it does not count")
+            table.insert(c.history, { timestamp = T0 - 2 * DAY, rankPoints = 0, rankState = "gated" })
+            check(HL:GetWeekRankReason(week) == "gate", "week reason: the gate comes before the cap")
+            week.rankEnd = 1100
+            check(HL:GetWeekRankReason(week) == nil, "week reason: a week that gave points has no reason")
+            week.rankEnd = nil
+            check(HL:GetWeekRankReason(week) == "gate", "week reason: without rank totals the games decide")
+            table.insert(c.history, { timestamp = T0 - 2 * DAY, rankPoints = 40 })
+            check(HL:GetWeekRankReason(week) == nil, "week reason: a game that gave points means the week gave points")
+            c.history = { { timestamp = T0 - DAY, rankPoints = 0 }, { timestamp = T0 - DAY, rankPoints = 0, rankState = "ok" } }
+            check(HL:GetWeekRankReason(week) == nil, "week reason: games that do not say give no reason")
+            c.history = {}
+            check(HL:GetWeekRankReason(week) == nil, "week reason: no games")
+            check(HL:GetWeekRankReason(nil) == nil and HL:GetWeekRankReason({}) == nil and HL:GetWeekRankReason("x") == nil and HL:GetWeekRankReason({ start = secret, finish = 1 }) == nil, "week reason: an unusable record is nil")
+            c.history = { { timestamp = secret, rankPoints = 0, rankState = "capped" }, "junk" }
+            week.rankEnd = 1000
+            check(pcall(HL.GetWeekRankReason, HL, week) and HL:GetWeekRankReason(week) == nil, "week reason: a secret time or a junk entry raises nothing")
+            HL.db = nil
+            check(HL:GetWeekRankReason(week) == nil, "week reason: with no saved data it is nil")
+            HL.db = realDb
+
+            mock.currencies[1792].maxQuantity = savedMax
+            _G.PVP_RANK_6_0, _G.PVP_RANK_7_1 = nil, nil
+            check(#mock.handledErrors == errorsBefore, "view models section reached no error handler: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            clock = savedClock
             restoreStores(kept)
         end)()
         setGlobal("time", realTime)
