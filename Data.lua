@@ -141,6 +141,9 @@ local DEFAULTS = {
         rankWeeks = {},
         rankCapAlertWeek = 0,
         rankCelebrated = 0,
+        -- The role the player chose for recommended gear goals: "healer", "physical" or "caster"; nil = follow
+        -- the client's spec (Modules/Recommend.lua). Absent from the defaults on purpose: nil is the default.
+        -- recommendRole = nil,
         -- Saved goals whose items are not in the Forever database (TBC items), kept out of sight
         goalsLegacy = {},
         -- Gear Goals system
@@ -1719,6 +1722,8 @@ local function ClassUsesWeapon(class, itemID)
     return false
 end
 
+HonorLog.ClassUsesWeapon = ClassUsesWeapon
+
 -- Items the picker lists. filters: slot, class (nil = any class), armor, source, search (lower case),
 -- showUnverified, hideOwned, keepGoals (also list items already on the goal list). Faction is never a filter: it is always the player's own plus neutral items.
 function HonorLog:GetPickerItems(filters)
@@ -1791,6 +1796,12 @@ local function NewContext(self)
         now = time(),
     }
     return ctx
+end
+
+-- A fresh context for BuildGoalProgress, so a caller that builds many progress objects (the recommendations)
+-- reads the honor, marks, gold and rank once.
+function HonorLog:NewGoalContext()
+    return NewContext(self)
 end
 
 -- Best honor per game among the battlegrounds the player has played; the average otherwise.
@@ -2134,6 +2145,46 @@ function HonorLog:GetAllGoalsProgressWaterfall()
         end
     end
     return results
+end
+
+-- Order the goal list by priority: what can be bought now first, then by the date each becomes buyable,
+-- soonest first, then the goals with no date, each group in its present order. Only called on a click;
+-- nothing else reorders the list. Returns true when the order changed. Screens are told the way the
+-- other goal functions tell them.
+function HonorLog:SortGoalsByPriority()
+    local goals = self.db.char.goals.items
+    local progress = {}
+    for _, gp in ipairs(self:GetAllGoalsProgress()) do progress[gp.itemID] = gp end
+    local ready, dated, rest = {}, {}, {}
+    for index, goal in ipairs(goals) do
+        local gp = progress[goal.itemID]
+        if gp and gp.isComplete then
+            ready[#ready + 1] = goal
+        elseif gp and Util.num(gp.readyDate) then
+            dated[#dated + 1] = { goal = goal, date = gp.readyDate, index = index }
+        else
+            rest[#rest + 1] = goal
+        end
+    end
+    table.sort(dated, function(a, b)
+        if a.date ~= b.date then return a.date < b.date end
+        return a.index < b.index
+    end)
+    local sorted = {}
+    for _, goal in ipairs(ready) do sorted[#sorted + 1] = goal end
+    for _, row in ipairs(dated) do sorted[#sorted + 1] = row.goal end
+    for _, goal in ipairs(rest) do sorted[#sorted + 1] = goal end
+    local moved = false
+    for i, goal in ipairs(sorted) do
+        if goals[i] ~= goal then moved = true break end
+    end
+    if not moved then return false end
+    for i, goal in ipairs(sorted) do
+        goals[i] = goal
+        goal.priority = i
+    end
+    if self.OnDataUpdated then self:OnDataUpdated() end
+    return true
 end
 
 -- One roll-up of every goal, active and completed, for the totals bar and the compact view.
