@@ -3998,6 +3998,38 @@ local function run()
             end
         end)()
 
+        -- A synthetic answer of the recommendation engine for the screens' tests: five entries (a buyable one, a dated one
+        -- with a buy-today alternative, that alternative, a blue piece, an empty slot), the info of a class with two set
+        -- lines, and two ids that are not among the entries (for goals).
+        mock.recFixture = function()
+            local ids = {}
+            for id in pairs(HL.GearDB) do ids[#ids + 1] = id end
+            table.sort(ids)
+            local picked, slots = {}, {}
+            for _, id in ipairs(ids) do
+                local row = HL.GearDB[id]
+                if #picked < 5 and row.source == "HONOR" and row.name and not slots[row.slot] and id ~= 272738 and id ~= 20041 then
+                    slots[row.slot] = true
+                    picked[#picked + 1] = id
+                end
+            end
+            local function entry(i, fields)
+                local id = picked[i]
+                local e = { itemID = id, name = HL.GearDB[id].name, slot = HL.GearDB[id].slot, source = "HONOR", ilvl = 66, gain = 5 }
+                for k, v in pairs(fields) do e[k] = v end
+                return e
+            end
+            local entries = {
+                entry(1, { gain = 8, reason = "+8 item levels over Legplates of Might", status = "Ready to purchase", buyable = true }),
+                entry(2, { gain = 6, reason = "+6 item levels over Linen Cap", status = "Rank 8 · Dec 2", buyable = false, alternative = picked[3] }),
+                entry(3, { gain = 3, reason = "+3 item levels over Linen Cap", status = "Ready to purchase", buyable = true, now = true, alternativeTo = picked[2] }),
+                entry(4, { gain = 4, reason = "Empty slot Buy the blue piece first, then upgrade it with a Seal.", status = "Rank 9 · Dec 20", buyable = false, step = "blue", upgradeID = 272787 }),
+                entry(5, { gain = nil, empty = true, reason = "Empty slot", status = "ready on Dec 30", buyable = false }),
+            }
+            return { entries = entries, goalID = 272738, goalID2 = 20041,
+                info = { class = "MAGE", level = 60, classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {} } }
+        end
+
         -- ── Integration: every control, twice ───────────────────────────────────────
         char.history = games
         local function integration(label)
@@ -4007,6 +4039,14 @@ local function run()
             local savedGoals, realUpdated = char.goals, HL.OnDataUpdated
             HL.OnDataUpdated = function() Window:OnDataChanged() end
             char.goals = { items = {}, completed = {}, settings = savedGoals.settings }
+            -- recommendations to click on: the vendor browser's first entry and role chips, and the empty goal list's
+            -- Add controls and link, drawn before the goals are added (Sort by priority needs the goals)
+            local Rec = HL.Recommend
+            local realEngine, recFixture, realRole = Rec.GetRecommendedGoals, mock.recFixture(), char.recommendRole
+            Rec.GetRecommendedGoals = function() return recFixture.entries, recFixture.info end
+            Rec:Invalidate()
+            Window:Show("gear")
+            HL.GearScreen:Open("goals")
             for _, id in ipairs({ 272738, 272787, 20041 }) do HL:AddGoal(id) end
             HL:CompleteGoal(20041)
             Window:Show("rank")
@@ -4096,6 +4136,8 @@ local function run()
             mock.momentsPass(label)
             S3.windowBattleground, S3.windowResult, S3.viewMode, S3.windowWorldKind = savedBg.bg, savedBg.result, savedBg.view, savedBg.kind
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
+            Rec.GetRecommendedGoals, char.recommendRole = realEngine, realRole
+            Rec:Invalidate()
             HL.GearScreen.mode = "goals"
             Window:Hide()
             Window:Show()
@@ -4830,7 +4872,7 @@ local function run()
 
             -- no goals
             Window:RefreshCurrent()
-            check(list.stack.count == 0 and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock and HonorLog plans the way to it."
+            check(list.stack.count == 0 and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock."
                 , "goals: no goals, one sentence")
             check(not list.totals.wrap:IsShown() and list.add:GetText() == "Add a goal", "goals: no totals box without goals, and the Add a goal button")
             check(detail.none:IsShown() and detail.none:GetText() == "Choose a goal on the left, or add one." and not detail.icon:IsShown() and not detail.buttons[1]:IsShown(), "goals: the detail asks for a goal")
@@ -5184,7 +5226,7 @@ local function run()
             for _, v in ipairs(quarter) do ordered[#ordered + 1] = v end
             for _, v in ipairs(supply) do ordered[#ordered + 1] = v end
             local titles, vrows = vlist.stack.pools.title, vlist.stack.pools.vendor
-            check(vlist.stack.count == #vendors + 2 and titles[1].text:GetText() == quarter[1].place and titles[2].text:GetText() == "Battleground supply officers"
+            check(vlist.stack.count == #vendors + 3 and titles[1].text:GetText() == quarter[1].place and titles[2].text:GetText() == "Battleground supply officers"
                 and titles[1]:GetHeight() == 22, "vendors: two groups, the quartermasters under their place and the supply officers")
             for i, v in ipairs(ordered) do
                 local r = vrows[i]
@@ -5193,7 +5235,9 @@ local function run()
             end
             check(vrows[1].name.__wrapWidth == 150 and vrows[1].role.__wrapWidth == 164 and vrows[1].count.__wrapWidth == 34, "vendors: the vendor texts have fixed widths")
             check(vlist.foot:GetText() == "Counts are what your class can use.", "vendors: the foot note")
-            check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name, "vendors: with none chosen the first has the wash and edge, and its stock shows")
+            check(not vrows[1].wash:IsShown() and not vrows[1].edge:IsShown() and S.windowVendor == "", "vendors: with none chosen no vendor is chosen: the recommendations are")
+            click(vrows[1].click)
+            check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name and S.windowVendor == ordered[1].key, "vendors: a vendor chosen has the wash and edge, and its stock shows")
             -- a vendor with no position: none is left in the table, so one is blanked while the list is built
             local palanseer
             for _, v in ipairs(HL.VENDORS) do if v.npc == 12792 then palanseer = v end end
@@ -5441,6 +5485,424 @@ local function run()
             mock.level, mock.currencies[1792].quantity, mock.money, mock.bagContents = save.level, save.honor, save.money, save.bags
             mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
             mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 5, 3, 2
+            Gear.mode, Gear.request = "goals", nil
+            Window:Hide()
+        end)()
+
+        -- ═══ Recommended gear goals in the window: the cached read, the vendor browser's first entry, the empty goal list, Sort by priority, the advice ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Window, Gear, Vend, Rec = HL.Kit, HL.Window, HL.GearScreen, HL.GearVendors, HL.Recommend
+            local S = HonorLogDB.settings
+            local char = HL.db.char
+            local save = { engine = Rec.GetRecommendedGoals, goals = char.goals, vendor = S.windowVendor, goal = S.windowGoal, class = S.windowVendorClass,
+                tab = S.windowTab, sort = HL.SortGoalsByPriority, role = char.recommendRole, cap = HL.GetHonorCapAdvice, buyable = HL.GetBuyableNow,
+                level = mock.level, faction = mock.faction }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function enter(f) f.__scripts.OnEnter(f) end
+            local function leave(f) f.__scripts.OnLeave(f) end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local function names(list)
+                local out = {}
+                for i, e in ipairs(list) do out[i] = e.name end
+                return table.concat(out, "|")
+            end
+            mock.level, mock.faction = 60, "Alliance"
+            char.goals = { items = {}, completed = {}, settings = save.goals.settings }
+            S.windowVendor, S.windowVendorClass = "", "player"
+
+            -- a stubbed engine: the entries it returns (never a goal) and what it answers, with a count of its calls
+            local calls, raises, answer = 0, false, nil
+            local fixture = mock.recFixture()
+            local E = fixture.entries
+            Rec.GetRecommendedGoals = function()
+                calls = calls + 1
+                if raises then error("engine failed") end
+                if answer == "nil" then return nil end
+                local out = {}
+                for _, e in ipairs(answer or E) do
+                    if not HL:IsGoal(e.itemID) then out[#out + 1] = e end
+                end
+                return out, fixture.info
+            end
+            local function engine(entries, info)
+                answer = entries
+                if info then fixture.info = info end
+                Rec:Invalidate()
+            end
+
+            -- ── the cached read ──
+            Rec:Invalidate()
+            calls = 0
+            local first = Rec:GetCached()
+            for _ = 1, 6 do Rec:GetCached() Rec:GetCached(2) end
+            check(calls == 1 and #first == #E, "cache: one engine call for many reads (" .. calls .. ")")
+            check(#Rec:GetCached(2) == 2 and Rec:GetCached(2)[1].itemID == E[1].itemID and #Rec:GetCached(0) == 0, "cache: a limit cuts the list and not the cache")
+            local function after(label, fn)
+                local before = calls
+                fn()
+                Rec:GetCached()
+                Rec:GetCached()
+                check(calls == before + 1, "cache: " .. label .. " throws it away (" .. (calls - before) .. " calls)")
+            end
+            after("the data-updated notification", function() HL:OnDataUpdated() end)
+            after("a goal added", function() HL:AddGoal(fixture.goalID) end)
+            after("a goal removed", function() HL:RemoveGoal(fixture.goalID) end)
+            for _, event in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED",
+                "ACTIVE_PLAYER_SPECIALIZATION_CHANGED", "CURRENCY_DISPLAY_UPDATE", "BAG_UPDATE_DELAYED" }) do
+                after("the event " .. event, function() mock.fireEvent(event, 16, false) end)
+            end
+            after("a role chosen", function() check(Rec:SetRole("caster"), "cache: SetRole accepts caster") end)
+            after("the role cleared", function() Rec:SetRole(nil) end)
+            local before = calls
+            Rec:SetRole("nonsense")
+            Rec:GetCached()
+            Rec:GetCached()
+            check(calls == before, "cache: a refused role changes nothing")
+            -- the engine answering nothing, or raising: no list, and nothing kept
+            answer, calls = "nil", 0
+            Rec:Invalidate()
+            check(Rec:GetCached() == nil and Rec:GetCached() == nil and calls == 2, "cache: an engine answering nil gives nil and is asked again")
+            answer, raises, calls = nil, true, 0
+            check(Rec:GetCached() == nil and calls == 1, "cache: an engine that raises gives nil")
+            raises = false
+            check(#Rec:GetCached() == #E and calls == 2, "cache: and the next read recovers")
+            -- many refreshes of the open window: one call
+            S.windowVendor = ""
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Gear.mode, Gear.request = "goals", nil
+            mock.runShowScripts = true
+            Window:Show("gear")
+            Gear:Open("vendors")
+            Rec:Invalidate()
+            calls = 0
+            for _ = 1, 5 do Window:RefreshCurrent() end
+            check(calls == 1, "cache: five refreshes of the vendor browser, one engine call (" .. calls .. ")")
+            Window:Show("overview")
+            Window:RefreshCurrent()
+            Window:RefreshCurrent()
+            HL:GetAdvice(10)
+            check(calls == 1, "cache: the overview and the advice share it (" .. calls .. ")")
+            Window:Show("gear")
+
+            -- ── the vendor browser's first entry ──
+            Gear:Open("vendors")
+            local parts = Window.frames.gear.honorLogParts
+            local gv = parts.vendors
+            local vlist, stock = gv.list, gv.stock
+            local first1 = vlist.stack.pools.recommended[1]
+            check(vlist.stack.count == #HL:GetVendorList() + 3 and first1 and first1:IsShown() and first1.name:GetText() == "Recommended for you", "recommended: the first entry of the list")
+            check(first1.name.__wrapWidth == 150 and first1.role.__wrapWidth == 164 and first1.count.__wrapWidth == 34 and first1:GetHeight() == 40, "recommended: fixed widths and the vendor row's height")
+            check(first1.count:GetText() == tostring(#E) and first1.role:GetText() == "Best upgrade for each slot", "recommended: its count and its line")
+            local _, _, _, _, rowY = first1:GetPoint()
+            check(rowY == 0 and select(5, first1.name:GetPoint()) <= -9, "recommended: its name sits below the window's portrait corner")
+            check(S.windowVendor == "" and first1.wash:IsShown() and first1.edge:IsShown(), "recommended: a save that never chose a vendor starts on it")
+            check(stock.name:GetText() == "Recommended for you" and not stock.map:IsShown() and not stock.link:IsShown() and stock.back:IsShown(), "recommended: the head names it and has no map or place")
+            check(stock.recTitles[1]:IsShown() and #stock.recTitles == 2 and stock.recTitles[2]:GetText() == "Status" and stock.recTitles[1]:GetText() == "Item" and not stock.titles[1]:IsShown(), "recommended: its own column titles")
+            check(not stock.classChips:IsShown() and not stock.setChips:IsShown() and not stock.totals:IsShown() and not stock.empty:IsShown(), "recommended: no class or set filter")
+            local rows = stock.stack.pools.rec
+            check(stock.stack.count == #E and rows[1]:IsShown() and rows[#E]:IsShown(), "recommended: a row for each recommendation")
+            for i, e in ipairs(E) do
+                local r = rows[i]
+                check(r.icon.honorLogItemID == e.itemID and r.name:GetText():find(e.name, 1, true) and r.slot:GetText() == ""
+                    and r.why:GetText() == Vend.SlotName(e.slot) .. " \194\183 " .. e.reason and r:GetHeight() == 40, "recommended: row " .. i .. " has the icon, the name, and the slot leading the reason")
+                check(r.name.__wrapWidth == 342 and r.why.__wrapWidth == 342 and r.status.__wrapWidth == 150 and r.slot.__wrapWidth == 60, "recommended: row " .. i .. " texts are fixed width")
+                enter(r.whyCell)
+                check(tipText():find(e.reason, 1, true), "recommended: row " .. i .. " the reason's tooltip carries the whole sentence")
+                leave(r.whyCell)
+            end
+            check(rows[1].status:GetText() == "Ready to purchase" and rows[2].status:GetText() == "Rank 8 · Dec 2", "recommended: a buyable row and a dated row say so in the status")
+            check(rows[3].status:GetText() == "Ready to purchase" and rows[1].status:GetText() == "Ready to purchase"
+                and same(textColor(rows[3].status), Kit.COLORS.green) and same(textColor(rows[1].status), Kit.COLORS.green) and not same(textColor(rows[2].status), Kit.COLORS.green),
+                "recommended: every buyable row, the buy-today one too, reads Ready to purchase in green")
+            enter(rows[3].statusCell)
+            check(tipText():find("Ready to purchase", 1, true) and tipText():find(E[2].name, 1, true), "recommended: and its tooltip names the better item it stands in for")
+            leave(rows[3].statusCell)
+            enter(rows[2].whyCell)
+            check(tipText():find(E[2].reason, 1, true) and tipText():find("A smaller upgrade can be bought today: " .. E[3].name, 1, true), "recommended: the row with an alternative names it in its tooltip")
+            leave(rows[2].whyCell)
+            enter(rows[3].whyCell)
+            check(tipText():find("This is a smaller upgrade than " .. E[2].name, 1, true), "recommended: the alternative says what it stands in for")
+            leave(rows[3].whyCell)
+            check(rows[4].why:GetText():find("Buy the blue piece first", 1, true) and rows[4].icon.honorLogItemID == E[4].itemID, "recommended: a blue piece's reason says to buy it first")
+            check(rows[1].star:IsShown() and not rows[1].star:IsOn(), "recommended: a star, off")
+            -- the footnote
+            check(stock.foot:GetText() == "PvP rewards only, compared by item level with what you wear." and not stock.foot2:IsShown() and not stock.recEmpty:IsShown(), "recommended: one grey foot")
+            enter(stock.foot.honorLogCell)
+            check(tipText():find("PvP rewards only", 1, true), "recommended: and it carries a tooltip")
+            leave(stock.foot.honorLogCell)
+
+            -- the star adds a goal, and the row leaves with the redraw
+            local firstID = E[1].itemID
+            click(rows[1].star)
+            check(HL:IsGoal(firstID), "recommended: the star adds the goal")
+            check(stock.stack.count == #E - 1 and rows[1].icon.honorLogItemID == E[2].itemID and not rows[1].star:IsOn() and not rows[#E]:IsShown(), "recommended: the row leaves the list, the next takes its place with its star off")
+            check(first1.count:GetText() == tostring(#E - 1), "recommended: and the count follows")
+            HL:RemoveGoal(firstID)
+            check(stock.stack.count == #E and rows[1].icon.honorLogItemID == firstID, "recommended: removing the goal brings it back")
+
+            -- a saved vendor is still restored, and the first entry is chosen again with a click
+            local vendors = HL:GetVendorList()
+            S.windowVendor = vendors[2].key
+            Window:RefreshCurrent()
+            check(stock.name:GetText() == vendors[2].name and stock.titles[1]:IsShown() and not stock.recTitles[1]:IsShown() and stock.classChips:IsShown() and not first1.wash:IsShown() and stock.map:IsShown(),
+                "recommended: a saved vendor still opens its own stock")
+            check(stock.foot:GetText() == "The star adds a goal. Prices come from the vendor once you have opened it, otherwise from game data." and not stock.roleChips:IsShown() and not stock.recEmpty:IsShown(),
+                "recommended: and the vendor view has its own foot and none of the recommended view's parts")
+            click(first1.click)
+            check(S.windowVendor == "@recommended" and first1.wash:IsShown() and stock.name:GetText() == "Recommended for you" and Vend.RECOMMENDED == "@recommended", "recommended: a click chooses it and saves it")
+            S.windowVendor = "Nobody"
+            Window:RefreshCurrent()
+            check(stock.name:GetText() == vendors[1].name and not first1.wash:IsShown(), "recommended: an unknown vendor still falls back to the first vendor")
+            S.windowVendor = "@recommended"
+            Window:RefreshCurrent()
+
+            -- the role chips: only for a class with several lines
+            check(stock.roleChips:IsShown() and #fixture.info.classRoles == 2, "roles: a class with two lines shows the chips")
+            local withChipsHeight = stock.area:GetHeight()
+            check(select(5, stock.recTitles[1]:GetPoint()) == -104 and select(5, stock.area:GetPoint()) == -120 and withChipsHeight == 334, "roles: with chips the titles are at 104 and the list at 120")
+            local chips = stock.roleChips
+            check(chips.honorLogButtons[1]:GetText() == "From your spec" and chips.honorLogButtons[2]:GetText() == "Healer" and chips.honorLogButtons[3]:GetText() == "Caster"
+                and not (chips.honorLogButtons[4] and chips.honorLogButtons[4]:IsShown()) and chips.honorLogChosen == "spec", "roles: From your spec and each role the class has, the first chosen")
+            check(stock.roleNote:IsShown() and stock.roleNote:GetText() == "Your spec gives no role, so every line is shown.", "roles: with no role from the spec a grey line says every line is shown")
+            local roleCalls = {}
+            local realSetRole = Rec.SetRole
+            Rec.SetRole = function(self, role) roleCalls[#roleCalls + 1] = role or "nil" return realSetRole(self, role) end
+            click(chips.honorLogButtons[3])
+            check(roleCalls[1] == "caster" and char.recommendRole == "caster" and chips.honorLogChosen == "caster", "roles: a role chip reaches SetRole and is saved")
+            click(chips.honorLogButtons[1])
+            check(roleCalls[2] == "nil" and char.recommendRole == nil and chips.honorLogChosen == "spec", "roles: From your spec clears the choice (nil)")
+            Rec.SetRole = realSetRole
+            engine(nil, { classRoles = { "healer", "caster" }, roleSource = "spec", role = "caster", skipped = {} })
+            Window:RefreshCurrent()
+            check(stock.roleChips:IsShown() and not stock.roleNote:IsShown(), "roles: with a role from the spec there is no grey line")
+            engine(nil, { classRoles = { "physical" }, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(not stock.roleChips:IsShown() and not stock.roleNote:IsShown(), "roles: a class with one line has no chips and no line")
+            check(select(5, stock.recTitles[1]:GetPoint()) == -52 and select(5, stock.area:GetPoint()) == -68 and stock.area:GetHeight() == withChipsHeight + 52,
+                "roles: with no chips and no line the titles and the list move up 52 and the list is taller by the same")
+            engine(nil, { classRoles = {}, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(not stock.roleChips:IsShown(), "roles: a class with no lines has no chips")
+
+            -- the three foot states and the empty one
+            engine(nil, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = { "HEAD", "TRINKET" } })
+            Window:RefreshCurrent()
+            check(stock.foot2:IsShown() and stock.foot2:GetText() == "Not compared, the game would not say what you wear there: Head, Trinket." and stock.foot:IsShown() and stock.area:GetHeight() < 330,
+                "foot: skipped slots are named in a second line, and the table gives way")
+            enter(stock.foot2.honorLogCell)
+            check(tipText():find("Head, Trinket", 1, true), "foot: the second line has a tooltip")
+            leave(stock.foot2.honorLogCell)
+            engine({}, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {}, inventoryUnknown = true })
+            Window:RefreshCurrent()
+            check(stock.stack.count == 0 and stock.recEmpty:IsShown() and stock.recEmpty:GetText() == "HonorLog cannot see what your character is wearing right now, so it cannot compare. Try again in a moment."
+                and stock.foot:GetText():find("PvP rewards only", 1, true), "foot: with no view of the equipment, one sentence and the foot")
+            engine({}, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(stock.stack.count == 0 and stock.recEmpty:GetText() == "You already wear better than every PvP reward you can buy." and not stock.foot2:IsShown(), "foot: nothing to recommend, one sentence")
+            engine("nil")
+            noErrors("recommended: an engine answering nil", function() Window:RefreshCurrent() end)
+            check(stock.stack.count == 0 and not stock.recEmpty:IsShown() and vlist.stack.count == #HL:GetVendorList() + 3 and first1.count:GetText() == "0", "recommended: no answer draws the list and the head, and claims nothing")
+            raises = true
+            Rec:Invalidate()
+            noErrors("recommended: an engine that raises", function() Window:RefreshCurrent() end)
+            check(stock.name:GetText() == "Recommended for you" and vlist.stack.count == #HL:GetVendorList() + 3, "recommended: an engine that raises leaves the rest drawn")
+            raises = false
+            engine(nil, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(stock.stack.count == #E, "recommended: and the rows come back")
+
+            -- ── the empty goal list ──
+            Gear:Open("goals")
+            local list = parts.list
+            check(not list.sort:IsShown() and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock.", "empty: the shortened sentence")
+            check(list.recHeader:IsShown() and list.recHeader.Label:GetText() == "Recommended for you" and list.recLink:IsShown() and list.recLink:GetText() == "See all recommendations", "empty: the header and the link")
+            check(list.recLink:GetWidth() < 200 and list.recLink:GetHeight() == 20 and select(4, list.recLink:GetPoint()) == 12 and list.recLink:GetWidth() < list.add:GetWidth(), "empty: the link is a small control at its natural width, left aligned")
+            for i = 1, 3 do
+                local r = list.recRows[i]
+                check(r:IsShown() and r.icon.honorLogItemID == E[i].itemID and r.name:GetText():find(E[i].name, 1, true) and r.reason:GetText() == E[i].reason and r.add:GetText() == "Add"
+                    and r.name.__wrapWidth == 180 and r.reason.__wrapWidth == 180 and r:GetHeight() == 50, "empty: row " .. i .. " has the icon, name, reason and Add")
+            end
+            enter(list.recRows[2].cell)
+            check(tipText():find(E[2].name, 1, true) and tipText():find(E[2].reason, 1, true) and tipText():find(E[3].name, 1, true), "empty: a row's tooltip carries the reason and the alternative")
+            leave(list.recRows[2].cell)
+            check(select(5, list.recHeader:GetPoint()) <= -(list.none:GetStringHeight() + 34 - 28), "empty: the header sits under the sentence")
+            click(list.recRows[2].add)
+            check(HL:IsGoal(E[2].itemID) and list.stack.count == 1 and not list.none:IsShown() and not list.recHeader:IsShown() and not list.recRows[1]:IsShown() and not list.recLink:IsShown(),
+                "empty: Add makes the goal, and the list takes over from the recommendations")
+            HL:RemoveGoal(E[2].itemID)
+            check(list.recRows[1]:IsShown() and list.recRows[2].icon.honorLogItemID == E[2].itemID, "empty: with the goal gone they are back")
+            S.windowVendor = vendors[1].key
+            click(list.recLink)
+            check(Gear.mode == "vendors" and S.windowVendor == "@recommended" and parts.vendorsRoot:IsShown() and stock.name:GetText() == "Recommended for you", "empty: the link opens the vendor browser on Recommended for you")
+            Gear:Open("goals")
+            engine({ E[1] })
+            Window:RefreshCurrent()
+            check(list.recRows[1]:IsShown() and not list.recRows[2]:IsShown() and not list.recRows[3]:IsShown() and list.recLink:IsShown(), "empty: one recommendation, one row")
+            engine({ E[1], E[2], E[3], E[4], E[5] })
+            Window:RefreshCurrent()
+            check(list.recRows[3]:IsShown() and #list.recRows == 3, "empty: never more than the top three")
+            for _, none in ipairs({ {}, "nil" }) do
+                engine(none)
+                noErrors("empty: nothing to recommend", function() Window:RefreshCurrent() end)
+                check(list.none:IsShown() and not list.recHeader:IsShown() and not list.recLink:IsShown() and not list.recRows[1]:IsShown(), "empty: with nothing to recommend the sentence alone")
+            end
+            raises = true
+            Rec:Invalidate()
+            noErrors("empty: an engine that raises", function() Window:RefreshCurrent() end)
+            check(list.none:IsShown() and not list.recRows[1]:IsShown() and list.add:IsShown(), "empty: an engine that raises leaves the sentence and the Add a goal button")
+            raises = false
+            engine(nil)
+
+            -- ── Sort by priority ──
+            Window:RefreshCurrent()
+            HL:AddGoal(fixture.goalID)
+            check(not list.sort:IsShown() and list.stack.count == 1 and list.area:GetHeight() > 400, "sort: one goal, no control")
+            HL:AddGoal(fixture.goalID2)
+            local gps = HL:GetAllGoalsProgress()
+            check(#gps == 2 and list.sort:IsShown() and list.sort:GetText() == "Sort by priority" and list.sort:GetWidth() == 112, "sort: two goals show it")
+            local _, _, _, _, areaY = list.area:GetPoint()
+            check(areaY == -50 and list.area:GetHeight() < 330, "sort: the list starts under it")
+            enter(list.sort)
+            check(tipText():find("what you can buy now first, then what comes soonest", 1, true), "sort: its tooltip says the order: " .. tipText())
+            leave(list.sort)
+            local sortCalls, sorted = 0, nil
+            HL.SortGoalsByPriority = function(self)
+                sortCalls = sortCalls + 1
+                local g = char.goals.items
+                g[1], g[2] = g[2], g[1]
+                for i, x in ipairs(g) do x.priority = i end
+                sorted = true
+                self:OnDataUpdated()
+                return true
+            end
+            local pool = list.stack.pools.goal
+            local before1, before2 = pool[1].icon.honorLogItemID, pool[2].icon.honorLogItemID
+            click(list.sort)
+            check(sortCalls == 1 and sorted and pool[1].icon.honorLogItemID == before2 and pool[2].icon.honorLogItemID == before1, "sort: one click calls the sort once and the list is redrawn in the new order")
+            -- Move up and Move down keep working afterwards
+            S.windowGoal = before1
+            Window:RefreshCurrent()
+            local detail = parts.detail
+            local up, down
+            for _, b in ipairs(detail.buttons) do
+                if b:GetText() == "Move up" then up = b elseif b:GetText() == "Move down" then down = b end
+            end
+            check(up and down and up:IsEnabled() and not down:IsEnabled(), "sort: the chosen goal is last, so Move up is enabled")
+            click(up)
+            check(pool[1].icon.honorLogItemID == before1 and pool[2].icon.honorLogItemID == before2, "sort: Move up still works after the sort")
+            click(down)
+            check(pool[1].icon.honorLogItemID == before2, "sort: and Move down")
+            -- the real sort, on the real goal progress
+            HL.SortGoalsByPriority = save.sort
+            noErrors("sort: the real sort", function() click(list.sort) end)
+            check(list.stack.pools.goal[1]:IsShown() and #HL:GetAllGoalsProgress() == 2, "sort: the real sort leaves both goals")
+            noErrors("sort: raising", function()
+                HL.SortGoalsByPriority = function() error("sort failed") end
+                click(list.sort)
+                HL.SortGoalsByPriority = save.sort
+            end)
+            HL:RemoveGoal(fixture.goalID2)
+            check(not list.sort:IsShown() and list.area:GetHeight() > 400 and select(5, list.area:GetPoint()) == -28, "sort: back to one goal, the control goes and the list moves up")
+            HL:RemoveGoal(fixture.goalID)
+
+            -- ── Overview: What to do next ──
+            local function kindList(adviceList)
+                local out = {}
+                for i, a in ipairs(adviceList) do out[i] = a.kind end
+                return table.concat(out, ",")
+            end
+            local function find(adviceList, kind)
+                for _, a in ipairs(adviceList) do if a.kind == kind then return a end end
+            end
+            local function lines(a) return #a.head + 1 + #a.body end
+            local capAdvice = function() return { text = "Spend your honor.", current = 24000, cap = 25000, buyable = {} } end
+            -- 1. with the honor-cap advice: it names the best upgrade, and there is no second line
+            HL.GetHonorCapAdvice = capAdvice
+            HL.GetBuyableNow = function() return { { itemID = E[5].itemID, name = "Some Other Piece" } } end
+            engine(nil)
+            local advice = HL:GetAdvice(10)
+            local cap = find(advice, "cap")
+            check(cap and not find(advice, "upgrade"), "advice: with the cap advice there is no separate upgrade line: " .. kindList(advice))
+            check(cap.itemID == E[1].itemID and cap.head:find("24,000 of 25,000", 1, true) and cap.body == E[1].name .. " is your best upgrade: +8 item levels.",
+                "advice: the cap advice names the best upgrade and by how much: " .. tostring(cap.body))
+            engine({ E[3] })
+            cap = find(HL:GetAdvice(10), "cap")
+            check(cap.itemID == E[3].itemID and cap.body == E[3].name .. " is your best upgrade: +3 item levels.", "advice: a buy-today row is named the same way")
+            engine({ { itemID = E[1].itemID, name = E[1].name, buyable = true, gain = 1, reason = "x" } })
+            check(find(HL:GetAdvice(10), "cap").body == E[1].name .. " is your best upgrade: +1 item level.", "advice: one item level is singular")
+            engine({ { itemID = E[1].itemID, name = E[1].name, buyable = true, empty = true, reason = "Empty slot" } })
+            check(find(HL:GetAdvice(10), "cap").body == E[1].name .. " is your best upgrade: it fills an empty slot.", "advice: an empty slot says so")
+            -- 2. without the cap advice: the separate line
+            HL.GetHonorCapAdvice = function() return nil end
+            engine(nil)
+            advice = HL:GetAdvice(10)
+            local entry = find(advice, "upgrade")
+            check(not find(advice, "cap") and entry and entry.itemID == E[1].itemID and entry.head:find(E[1].name, 1, true) and entry.body == E[1].reason,
+                "advice: with no cap advice the Best upgrade today line names the top item, its reason and its icon: " .. kindList(advice))
+            engine({ E[2], E[1] })
+            check(not find(HL:GetAdvice(10), "upgrade"), "advice: not when the top item cannot be bought today")
+            engine({})
+            check(not find(HL:GetAdvice(10), "upgrade"), "advice: not with nothing to recommend")
+            -- 3. the cap advice with nothing buyable among the recommendations is what it was
+            HL.GetHonorCapAdvice = capAdvice
+            for _, none in ipairs({ {}, { E[2] }, "nil" }) do
+                engine(none)
+                HL.GetBuyableNow = function() return { { itemID = E[5].itemID, name = "Some Other Piece" } } end
+                cap = find(HL:GetAdvice(10), "cap")
+                check(cap and cap.itemID == E[5].itemID and cap.body == "You can buy Some Other Piece now.", "advice: the cap advice is what it was with nothing buyable to recommend")
+            end
+            local goalEntry = { itemID = fixture.goalID, name = "Goal piece", slot = "HEAD", reason = "Empty slot", buyable = true, empty = true }
+            HL:AddGoal(fixture.goalID)
+            Rec.GetRecommendedGoals = function() return { goalEntry }, fixture.info end
+            Rec:Invalidate()
+            check(find(HL:GetAdvice(10), "cap").itemID ~= fixture.goalID and not find(HL:GetAdvice(10), "upgrade"), "advice: a top item that is already a goal is not named")
+            HL:RemoveGoal(fixture.goalID)
+            -- the longest name in the database, in both lines
+            local longest = ""
+            for _, row in pairs(HL.GearDB) do if #row.name > #longest then longest = row.name end end
+            local longEntry = { itemID = E[1].itemID, name = longest, slot = "HEAD", buyable = true, gain = 12, ilvl = 70,
+                worn = { name = longest, ilvl = 58 }, step = "blue",
+                reason = "+12 item levels over " .. longest .. " Buy the blue piece first, then upgrade it with a Seal." }
+            Rec.GetRecommendedGoals = function() return { longEntry }, fixture.info end
+            Rec:Invalidate()
+            cap = find(HL:GetAdvice(10), "cap")
+            check(cap.itemID == E[1].itemID and lines(cap) <= 135 and cap.body:find(longest, 1, true), "advice: the cap advice with the longest name fits three lines: " .. lines(cap))
+            HL.GetHonorCapAdvice = function() return nil end
+            Rec:Invalidate()
+            entry = find(HL:GetAdvice(10), "upgrade")
+            check(entry and lines(entry) <= 135 and entry.head:find(longest, 1, true) and entry.body == "+12 item levels over what you wear",
+                "advice: the upgrade line with the longest name fits three lines, the reason giving way: " .. tostring(entry and lines(entry)))
+            longEntry.reason = "+12 item levels over Short"
+            Rec:Invalidate()
+            entry = find(HL:GetAdvice(10), "upgrade")
+            check(entry.body == "+12 item levels over Short", "advice: a short reason is kept")
+            HL.GetHonorCapAdvice = capAdvice
+            Rec.GetRecommendedGoals = function() error("engine failed") end
+            Rec:Invalidate()
+            noErrors("advice: an engine that raises", function() HL:GetAdvice(10) end)
+            Rec.GetRecommendedGoals = function() return nil end
+            Rec:Invalidate()
+            noErrors("advice: an engine answering nil", function() HL:GetAdvice(10) end)
+
+            -- put it back
+            Rec.GetRecommendedGoals = save.engine
+            HL.SortGoalsByPriority, HL.GetHonorCapAdvice, HL.GetBuyableNow = save.sort, save.cap, save.buyable
+            Rec:Invalidate()
+            char.goals, char.recommendRole = save.goals, save.role
+            S.windowVendor, S.windowGoal, S.windowVendorClass, S.windowTab = save.vendor, save.goal, save.class, "overview"
+            mock.level, mock.faction = save.level, save.faction
             Gear.mode, Gear.request = "goals", nil
             Window:Hide()
         end)()
