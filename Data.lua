@@ -214,6 +214,7 @@ local DEFAULTS = {
         momentReport = true, -- the game report card after each battleground
         momentRankUp = true, -- the rank-up card
         momentHonorCap = true, -- the honor cap card
+        momentRecap = true, -- the weekly recap card when the rank week turns over
         momentSeconds = 12, -- seconds a card stays up (0 = until it is closed)
         ldbFormat = "games", -- broker text: "games" (win-loss today) or "rank" (R7 Title · 62%)
         visibleCards = { -- Which stat cards to show

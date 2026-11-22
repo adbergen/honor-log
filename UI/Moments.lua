@@ -1,8 +1,9 @@
 -- HonorLog Moments
--- Three pop-up cards that appear on the game screen at the moments that matter, in place of the plain
--- centre-screen text: a report card after each battleground, a rank-up card and an honor cap card. Each can be
--- switched off in the options, none appears in the middle of a fight (it waits for the end of it), and each goes
--- away on its own.
+-- Four pop-up cards that appear on the game screen at the moments that matter, in place of the plain
+-- centre-screen text: a report card after each battleground, a rank-up card, an honor cap card and a weekly
+-- recap when the rank week turns over. Each can be switched off in the options, none appears in the middle of a
+-- fight (it waits for the end of it), and each goes away on its own (the recap stays longer: it is read, and
+-- paged through).
 --
 -- Cards are built the first time they are shown. They stack downward from one anchor at the top centre of the
 -- screen, in the order they were shown. The same kind asked for twice while one is up replaces its content.
@@ -36,6 +37,11 @@ local STACK_GAP = 8
 local FADE_SECONDS = 0.4
 local LEAVE_SECONDS = 4 -- how long a card stays after the mouse leaves it
 local DEFAULT_SECONDS = 12
+local RECAP_SECONDS = 60 -- the recap is read and paged through: it stays at least this long (until closed when the time is 0)
+local RECAP_LEAVE_SECONDS = 15 -- and this long after the mouse leaves it
+local RECAP_LOGIN_WINDOW = 30 -- a week that ends within this many seconds of the addon loading is a login ...
+local RECAP_LOGIN_DELAY = 6 -- ... and its card waits this long so the player sees it
+local RECAP_LEAVE_BG_DELAY = 2 -- seconds after leaving a battleground before a held recap shows
 local PAD, SECTION_GAP, TILE_GAP = 12, 6, 8
 local DAY = 86400
 local HONOR_FULL_PCT = 0.9 -- the bar turns orange from here
@@ -165,6 +171,13 @@ local function seconds()
     return math.max(0, v)
 end
 
+-- How long a card of this kind stays up: momentSeconds, and for the recap at least RECAP_SECONDS. 0 = until closed.
+local function lifetime(kind)
+    local v = seconds()
+    if v > 0 and kind == "recap" then return math.max(RECAP_SECONDS, v * 4) end
+    return v
+end
+
 -- True when the card of this kind is switched on in the options.
 function Moments:Shows(kind)
     local def = KINDS[kind]
@@ -223,7 +236,7 @@ local function onLeave(state)
     -- moving onto a control of the card leaves the card's own frame; the mouse is still on the card
     if mouseOver(state.card) then return end
     state.held = false
-    if seconds() > 0 then arm(state, LEAVE_SECONDS) end
+    if seconds() > 0 then arm(state, state.kind == "recap" and RECAP_LEAVE_SECONDS or LEAVE_SECONDS) end
 end
 
 -- Whatever the mouse can rest on keeps the card's timer held while it is over it.
@@ -258,10 +271,13 @@ end
 
 -- A button over a frame that shows `text` in a tooltip (the frame's own text can be cut). Its level is set
 -- above the frame's, because two overlapping siblings have no promised order.
-local function tipOver(state, frame)
-    local b = CreateFrame("Button", nil, frame)
+-- `frame` may be a text: a text cannot parent a frame (the client raises), so the button is then made on
+-- `parent`, the frame the text sits in, and laid over the text.
+local function tipOver(state, frame, parent)
+    parent = parent or frame
+    local b = CreateFrame("Button", nil, parent)
     b:SetAllPoints(frame)
-    b:SetFrameLevel((num(frame:GetFrameLevel()) or 0) + 10)
+    b:SetFrameLevel((num(parent:GetFrameLevel()) or 0) + 10)
     b:SetScript("OnEnter", function(self) showTooltip(self, self.honorLogText) end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     track(state, b)
@@ -345,7 +361,7 @@ local function display(kind, data)
     removeFromOrder(kind)
     order[#order + 1] = kind
     reflow()
-    arm(state, seconds())
+    arm(state, lifetime(kind))
 end
 
 -- A card shown again while it is up replaces its content and keeps its place.
@@ -358,7 +374,7 @@ local function redisplay(state, data)
     if state.held then
         state.token = state.token + 1
     else
-        arm(state, seconds())
+        arm(state, lifetime(state.kind))
     end
 end
 
@@ -398,7 +414,7 @@ function Moments:Present(kind, data)
     end
 end
 
--- Shows the card of `kind` ("report", "rankUp" or "honorCap") with its data. During a fight it waits for the end
+-- Shows the card of `kind` ("report", "rankUp", "honorCap" or "recap") with its data. During a fight it waits for the end
 -- of it. Returns true when shown, "waiting" when it is held back, false when it could not be made.
 function Moments:Show(kind, data)
     if not KINDS[kind] then return false end
@@ -972,16 +988,400 @@ local function buildHonorCap(state)
 end
 
 --------------------------------------------------------------------------------
--- The three kinds, the events and the slash command
+-- Weekly recap card
+--------------------------------------------------------------------------------
+
+-- Which week the card shows: 0 is this week, 1 the last closed week, and so on (Weeks:GetRecap's n).
+local function pageOf(data)
+    local n = type(data) == "table" and num(data.n) or nil
+    if not n or n < 0 then return 0 end
+    return math.floor(n)
+end
+
+-- Reading a week can turn the week over and fire HonorLog_WeekEnded while the card is being filled; the
+-- listener ignores the event for as long as a read is going on (the card being filled is shown anyway).
+local reading = 0
+
+-- A table the record holds, or nil (a secret value, which cannot be indexed, is not one).
+local function tbl(v)
+    if type(v) == "table" and not Util.isSecret(v) then return v end
+    return nil
+end
+
+local function readRecap(n)
+    local Weeks = HonorLog.Weeks
+    if not (Weeks and Weeks.GetRecap) then return nil end
+    reading = reading + 1
+    local ok, recap = pcall(Weeks.GetRecap, Weeks, n)
+    reading = reading - 1
+    if not ok then
+        report(recap)
+        return nil
+    end
+    return tbl(recap)
+end
+
+local function fontObject(style)
+    for _, name in ipairs(Kit.FONTS[style] or {}) do
+        if _G[name] ~= nil then return _G[name] end
+    end
+end
+
+-- A headline number is never cut: it is set at the big size and, when it does not fit `width`, at the title
+-- size. The colour is set again afterwards because a new font object brings its own.
+local function fitValue(fs, width, color)
+    local big, small = fontObject("big"), fontObject("title")
+    if big then fs:SetFontObject(big) end
+    if small and (num(fs:GetStringWidth()) or 0) > width then fs:SetFontObject(small) end
+    paint(fs, color or "white")
+end
+
+local LINE_H = 18
+local CHART_W, CHART_H, CHART_BASE = 180, 80, 14
+local LINES_X = CHART_W + 16 -- the label column of the lines starts here, 60 wide, then the 194 wide value
+local LABEL_W = 60
+local VALUE_W = 194
+local MARK_SLOTS, UNLOCK_SLOTS = 5, 3
+local ICON_W = 20
+
+local function buildRecap(state)
+    local p, inner = state.parts, state.inner
+    local fills = state.fills
+
+    -- head: "Week 3" (never cut), the dates and the name
+    local head = newSection(state, 40)
+    p.head = head
+    p.week = Kit:Text(head, "title")
+    p.week:SetPoint("TOPLEFT", head, "TOPLEFT", 0, 0)
+    paint(p.week, "gold")
+    p.state = Kit:FixedText(head, "grey", 200)
+    p.state:SetJustifyH("RIGHT")
+    p.state:SetPoint("TOPRIGHT", head, "TOPRIGHT", 0, -3)
+    p.sub = Kit:FixedText(head, "grey", inner)
+    p.sub:SetPoint("TOPLEFT", head, "TOPLEFT", 0, -24)
+    p.subTip = tipOver(state, p.sub, head)
+    fills[#fills + 1] = { head, function(data)
+        local n = pageOf(data)
+        p.n, p.recap = n, nil
+        p.recap = readRecap(n)
+        local week = p.recap and tbl(p.recap.week)
+        if not week then
+            p.week:SetText(L["No week to show"])
+            paint(p.week, "white")
+            p.sub:SetText("")
+            p.state:SetText("")
+            p.subTip.honorLogText = nil
+            return
+        end
+        local number, start, finish = num(week.number), num(week.start), num(week.finish)
+        if number then
+            p.week:SetText(string.format(L["Week %d"], number))
+        else
+            p.week:SetText(string.format(L["Week of %s"], start and HonorLog.Rank.FormatDate(start) or "-"))
+        end
+        paint(p.week, "gold")
+        p.state:SetText(n == 0 and L["This week so far"] or "")
+        local dates
+        if start and finish then
+            local last = math.max(start, finish - DAY) -- the finish is the reset: the last day is the one before
+            dates = string.format(week.estimated and L["About %s to %s"] or L["%s to %s"],
+                HonorLog.Rank.FormatDate(start), HonorLog.Rank.FormatDate(last))
+        end
+        local bits = { dates }
+        bits[#bits + 1] = str(Util.unitName("player"))
+        local text = table.concat(bits, DOT)
+        p.sub:SetText(text)
+        p.subTip.honorLogText = text
+    end }
+
+    -- tiles: games, honor, rank points, marks
+    local row = newSection(state, TILE_H)
+    p.row = row
+    p.tiles = {}
+    local count = 4
+    local width = math.floor((inner - (count - 1) * TILE_GAP) / count)
+    for i = 1, count do
+        local tile = makeTile(state, row)
+        tile:SetPoint("TOPLEFT", row, "TOPLEFT", (i - 1) * (width + TILE_GAP), 0)
+        tile:SetSize(width, TILE_H)
+        p.tiles[i] = tile
+    end
+    p.tileWidth = width
+    local valueRoom = width - 12 - 8
+    fills[#fills + 1] = { row, function()
+        local recap = p.recap
+        local week = recap and tbl(recap.week)
+        if not week then row:Hide() return end
+        local t = p.tiles
+
+        -- games, as wins and losses; draws and games left early are in the tooltip
+        local wins, losses, played = num(recap.wins) or 0, num(recap.losses) or 0, num(recap.played) or 0
+        local playedText = string.format(L["%d played"], played)
+        local extra = {}
+        local draws, left = num(recap.draws) or 0, num(recap.left) or 0
+        if draws > 0 then extra[#extra + 1] = draws == 1 and L["1 draw"] or string.format(L["%d draws"], draws) end
+        if left > 0 then extra[#extra + 1] = string.format(L["%d left"], left) end
+        setTile(t[1], L["Games"], string.format("%d - %d", wins, losses), playedText,
+            #extra > 0 and (playedText .. "\n" .. table.concat(extra, ", ")) or playedText, "white")
+        fitValue(t[1].value, valueRoom, "white")
+
+        -- honor: the whole week's, or for a week rebuilt from saved games only what the games gave
+        local honor = num(recap.honor)
+        local rebuilt = honor == nil
+        if rebuilt then honor = num(week.bgHonor) end
+        local perGame = num(recap.honorPerGame)
+        local perText = (perGame and perGame > 0) and string.format(L["%s a game"], commas(round(perGame))) or ""
+        local honorTip = perText
+        if rebuilt then
+            honorTip = (perText ~= "" and (perText .. "\n") or "") .. L["Honor from battlegrounds only: this week was rebuilt from saved games."]
+        end
+        setTile(t[2], L["Honor"], honor and (honor > 0 and ("+" .. commas(honor)) or "0") or "-", perText, honorTip, "gold")
+        fitValue(t[2].value, valueRoom, "gold")
+
+        -- rank points, and the reason when the week gave none
+        local gained = num(recap.rankGained)
+        local reason = safe(HonorLog.GetWeekRankReason, HonorLog, week)
+        local value, note, noteColor = "-", L["not measured"], "grey"
+        if gained and gained > 0 then
+            value, note = "+" .. commas(gained), ""
+        elseif gained or reason then
+            value, note = "0", ""
+            if reason == "gate" then
+                local gate = HonorLog.Rank and HonorLog.Rank.LEVEL_GATES and HonorLog.Rank.LEVEL_GATES[1]
+                note = gate and string.format(L["Needs level %d"], gate.level) or L["Level too low"]
+                noteColor = "orange"
+            elseif reason == "cap" then
+                note, noteColor = L["Weekly cap reached"], "orange"
+            end
+        end
+        setTile(t[3], L["Rank points"], value, note, note, "white", noteColor)
+        fitValue(t[3].value, valueRoom, "white")
+
+        -- marks, with the battleground in the note when there is one
+        local total = num(recap.marksTotal) or 0
+        local bgs = {}
+        for bg in pairs(tbl(recap.marks) or {}) do bgs[#bgs + 1] = bg end
+        local marksNote = ""
+        if #bgs == 1 then
+            marksNote = bgName(bgs[1])
+        elseif #bgs > 1 then
+            marksNote = string.format(L["%d battlegrounds"], #bgs)
+        end
+        setTile(t[4], L["Marks"], "+" .. commas(total), marksNote, marksNote, "white")
+        fitValue(t[4].value, valueRoom, "white")
+    end }
+
+    -- under the tiles: honor by day, and short lines beside it
+    local under = newSection(state, 84)
+    p.under = under
+    p.chart = Kit:Chart(under)
+    p.chart:SetSize(CHART_W, CHART_H)
+    p.chart:SetPoint("TOPLEFT", under, "TOPLEFT", 0, -2)
+    p.chartTip = tipOver(state, p.chart)
+    p.lines = {}
+    for i = 1, 4 do
+        local line = CreateFrame("Frame", nil, under)
+        line:SetSize(LABEL_W + 4 + VALUE_W, LINE_H)
+        line.honorLogLabel = Kit:FixedText(line, "labelSmall", LABEL_W)
+        line.honorLogLabel:SetPoint("LEFT", line, "LEFT", 0, 0)
+        line.honorLogValue = Kit:FixedText(line, "value", VALUE_W)
+        line.honorLogValue:SetPoint("LEFT", line, "LEFT", LABEL_W + 4, 0)
+        p.lines[i] = line
+    end
+    local best, marks, world, cap = p.lines[1], p.lines[2], p.lines[3], p.lines[4]
+    p.best, p.marksLine, p.world, p.cap = best, marks, world, cap
+    best.honorLogLabel:SetText(L["Best game"])
+    marks.honorLogLabel:SetText(L["Marks"])
+    world.honorLogLabel:SetText(L["World PvP"])
+    p.bestBox = CreateFrame("Frame", nil, best)
+    p.bestBox:SetSize(VALUE_W, LINE_H)
+    p.bestBox:SetPoint("LEFT", best, "LEFT", LABEL_W + 4, 0)
+    p.bestTip = tipOver(state, p.bestBox)
+    marks.honorLogValue:Hide()
+    p.markIcons, p.markCounts = {}, {}
+    for i = 1, MARK_SLOTS do
+        local ic = Kit:MarkIcon(marks, 16)
+        ic:SetFrameLevel((num(marks:GetFrameLevel()) or 0) + 5)
+        ic:Hide()
+        track(state, ic)
+        p.markIcons[i] = ic
+        local fs = Kit:Text(marks, "value")
+        fs:Hide()
+        p.markCounts[i] = fs
+    end
+    p.unlockIcons = {}
+    for i = 1, UNLOCK_SLOTS do
+        local ic = icon(state, cap, 18)
+        ic:Hide()
+        p.unlockIcons[i] = ic
+    end
+    fills[#fills + 1] = { under, function(data)
+        local recap = p.recap
+        local week = recap and tbl(recap.week)
+        if not week then under:Hide() return end
+        local shown = 0
+
+        -- honor by day: bars and a weekday under each; the values are in the tooltip
+        local days = safe(HonorLog.GetHonorDaysBetween, HonorLog, week.start, week.finish)
+        local chartOn = type(days) == "table" and #days > 0
+        p.chart:Clear()
+        p.chart:SetShown(chartOn)
+        p.chartTip:SetShown(chartOn)
+        p.chartTip.honorLogText = nil
+        if chartOn then
+            local slot = math.floor(CHART_W / #days)
+            local barW = math.max(4, slot - 6)
+            local top = 0
+            for _, d in ipairs(days) do top = math.max(top, num(d.honor) or 0) end
+            local gold = Kit.COLORS.gold
+            p.chart:Rect(0, CHART_BASE, CHART_W, 1, 0.43, 0.42, 0.38, 1)
+            local tip = { L["Honor by day"] }
+            for i, d in ipairs(days) do
+                local honor = num(d.honor) or 0
+                local x = (i - 1) * slot + math.floor((slot - barW) / 2)
+                if honor > 0 and top > 0 then
+                    local h = math.max(2, math.floor(honor / top * (CHART_H - CHART_BASE - 4)))
+                    p.chart:Rect(x, CHART_BASE + 1, barW, h, gold[1], gold[2], gold[3], 1)
+                end
+                p.chart:Label(x + barW / 2, 6, str(d.label) or "", "grey")
+                tip[#tip + 1] = (str(d.label) or "") .. "  " .. commas(honor)
+            end
+            p.chartTip.honorLogText = table.concat(tip, "\n")
+        end
+
+        -- the lines, stacked from the top: those with nothing to say are left out
+        local visible = {}
+
+        local bestRec = tbl(recap.best)
+        local bestHonor = bestRec and num(bestRec.honor)
+        if bestRec and bestRec.bgType and bestHonor then
+            local text = string.format(L["%s, %s honor"], bgName(bestRec.bgType), commas(bestHonor))
+            best.honorLogValue:SetText(text)
+            p.bestTip.honorLogText = text
+            visible[#visible + 1] = best
+        end
+
+        local list = {}
+        for bg, count in pairs(tbl(recap.marks) or {}) do
+            if num(count) and count > 0 then list[#list + 1] = { bg = bg, count = count } end
+        end
+        table.sort(list, function(a, b)
+            if a.count ~= b.count then return a.count > b.count end
+            return tostring(a.bg) < tostring(b.bg)
+        end)
+        for i = 1, MARK_SLOTS do p.markIcons[i]:Hide() p.markCounts[i]:Hide() end
+        if #list > 0 then
+            local x = LABEL_W + 4
+            for i = 1, math.min(#list, MARK_SLOTS) do
+                local ic, fs = p.markIcons[i], p.markCounts[i]
+                ic:SetBattleground(list[i].bg)
+                ic:ClearAllPoints()
+                ic:SetPoint("LEFT", marks, "LEFT", x, 0)
+                ic:Show()
+                fs:SetText(commas(list[i].count))
+                fs:ClearAllPoints()
+                fs:SetPoint("LEFT", marks, "LEFT", x + 20, 0)
+                fs:Show()
+                x = x + 20 + (num(fs:GetStringWidth()) or 24) + 10
+            end
+            visible[#visible + 1] = marks
+        end
+
+        local kills, deaths = num(recap.kills), num(recap.deaths)
+        if (kills and kills > 0) or (deaths and deaths > 0) then
+            world.honorLogValue:SetText(string.format(L["Kills %d, deaths %d"], kills or 0, deaths or 0))
+            visible[#visible + 1] = world
+        end
+
+        -- what the week's higher cap opens: for the week that has just ended, this week's cap; for this week,
+        -- next week's; an older week says nothing
+        local nextCap = tbl(recap.nextCap)
+        local capRank = nextCap and num(nextCap.rank)
+        for i = 1, UNLOCK_SLOTS do p.unlockIcons[i]:Hide() end
+        if capRank and (p.n == 0 or p.n == 1) then
+            cap.honorLogLabel:SetText(p.n == 0 and L["Next week"] or L["This week"])
+            cap.honorLogValue:SetText(string.format(p.n == 0 and L["the cap rises to Rank %d"] or L["the cap is Rank %d"], capRank))
+            local used = num(cap.honorLogValue:GetStringWidth()) or 120
+            local room = math.floor((VALUE_W - used - 8) / ICON_W)
+            local ids = tbl(nextCap.unlocks) or {}
+            for i = 1, math.min(#ids, UNLOCK_SLOTS, math.max(room, 0)) do
+                local ic = p.unlockIcons[i]
+                ic:SetItem(ids[i])
+                ic:ClearAllPoints()
+                ic:SetPoint("LEFT", cap, "LEFT", LABEL_W + 4 + used + 8 + (i - 1) * ICON_W, 0)
+                ic:Show()
+            end
+            visible[#visible + 1] = cap
+        end
+
+        for _, line in ipairs(p.lines) do line:Hide() end
+        local x = chartOn and LINES_X or 0
+        for i, line in ipairs(visible) do
+            line:ClearAllPoints()
+            line:SetPoint("TOPLEFT", under, "TOPLEFT", x, -((i - 1) * LINE_H) - 4)
+            line:Show()
+            shown = shown + 1
+        end
+        if not chartOn and shown == 0 then under:Hide() end
+    end }
+
+    -- foot: paging at the left (these do not close the card), the Rank plan at the right
+    local foot = newSection(state, 24)
+    p.foot = foot
+    local function page(delta)
+        local target = pageOf(state.data) + delta
+        local count = num(safe(HonorLog.Weeks and HonorLog.Weeks.GetCount, HonorLog.Weeks)) or 0
+        if target < 0 or target >= count then return end
+        local ok, err = pcall(Moments.Present, Moments, "recap", { n = target })
+        if not ok then report(err) end
+    end
+    p.earlier = Kit:Button(foot, L["Earlier"], "small")
+    p.earlier:SetSize(70, 22)
+    p.earlier:SetPoint("LEFT", foot, "LEFT", 0, 0)
+    p.earlier:SetScript("OnClick", function() if p.earlier:IsEnabled() then page(1) end end)
+    track(state, p.earlier)
+    p.later = Kit:Button(foot, L["Later"], "small")
+    p.later:SetSize(70, 22)
+    p.later:SetPoint("LEFT", foot, "LEFT", 76, 0)
+    p.later:SetScript("OnClick", function() if p.later:IsEnabled() then page(-1) end end)
+    track(state, p.later)
+    p.button = button(state, foot, L["Rank plan"], function()
+        if HonorLog.Window then HonorLog.Window:Show("rank") end
+    end)
+    p.button:SetPoint("RIGHT", foot, "RIGHT", 0, 0)
+    fills[#fills + 1] = { foot, function(data)
+        local n = pageOf(data)
+        local count = num(safe(HonorLog.Weeks and HonorLog.Weeks.GetCount, HonorLog.Weeks)) or 0
+        p.earlier:SetEnabled(n + 1 < count)
+        p.later:SetEnabled(n > 0)
+    end }
+end
+
+--------------------------------------------------------------------------------
+-- The four kinds, the events and the slash command
 --------------------------------------------------------------------------------
 
 KINDS.report = { setting = "momentReport", width = 480, name = "HonorLogReportCard", title = L["HonorLog: game report"], build = buildReport }
 KINDS.rankUp = { setting = "momentRankUp", width = 360, name = "HonorLogRankUpCard", title = L["HonorLog: rank up"], build = buildRankUp }
 KINDS.honorCap = { setting = "momentHonorCap", width = 360, name = "HonorLogHonorCapCard", title = L["HonorLog: honor cap"], build = buildHonorCap }
 
--- /honorlog moment report|rank|cap: the card now, whatever the settings say.
+KINDS.recap = { setting = "momentRecap", width = 480, name = "HonorLogRecapCard", title = L["HonorLog: weekly recap"], build = buildRecap }
+
+-- The recap of week n now (0 this week, 1 the last closed week), whatever the setting says. False with a line in
+-- chat when there is no such week.
+function Moments:ShowRecap(n)
+    n = num(n)
+    n = n and n >= 0 and math.floor(n) or 1
+    if not readRecap(n) then
+        HonorLog:Say(L["No week to show yet."])
+        return false
+    end
+    return self:Show("recap", { n = n })
+end
+
+-- /honorlog moment report|rank|cap|recap [n]: the card now, whatever the settings say.
 function Moments:Demo(arg)
-    local which = (arg or ""):lower():match("^(%S*)")
+    local which, rest = (arg or ""):lower():match("^(%S*)%s*(%S*)")
     if which == "report" then
         local list = safe(HonorLog.GetHistory, HonorLog, "character", 1)
         local record = type(list) == "table" and list[1] or nil
@@ -995,8 +1395,10 @@ function Moments:Demo(arg)
         self:Show("rankUp", { rank = type(info) == "table" and num(info.rank) or nil, info = info })
     elseif which == "cap" then
         self:Show("honorCap", {})
+    elseif which == "recap" and (rest == "" or tonumber(rest)) then
+        self:ShowRecap(rest ~= "" and tonumber(rest) or 1)
     else
-        HonorLog:Say(L["Usage: /honorlog moment report|rank|cap"])
+        HonorLog:Say(L["Usage: /honorlog moment report|rank|cap|recap [week]"])
     end
 end
 
@@ -1011,3 +1413,62 @@ end
 listen("HonorLog_GameRecorded", "report", function(record) return record end)
 listen("HonorLog_RankUp", "rankUp", function(rank, info) return { rank = rank, info = info } end)
 listen("HonorLog_HonorCapNear", "honorCap", function(current, cap) return { current = current, cap = cap } end)
+
+--------------------------------------------------------------------------------
+-- When the recap shows by itself
+--------------------------------------------------------------------------------
+
+-- Once, for the week that has ended, when HonorLog_WeekEnded fires: not for an empty week, not inside a
+-- battleground (held until the player is out), and a little late at login so the player is there to see it. The
+-- week turns over lazily (at login, on a game, an honor gain, or when anything reads the week), so the event
+-- can come at any of those; a record is announced once whatever happens to it.
+local announced = setmetatable({}, { __mode = "k" })
+local heldRecap -- the record waiting for the end of a battleground
+Moments.loadedAt = num(call(GetTime))
+
+local function weekIsEmpty(rec)
+    local function any(v) v = num(v) return v ~= nil and v > 0 end
+    return not (any(rec.games) or any(rec.honor) or any(rec.bgHonor) or any(rec.kills) or any(rec.deaths))
+end
+
+local function deliverRecap(rec)
+    if not Moments:Shows("recap") then return end
+    if HonorLog:IsInBG() then
+        heldRecap = rec
+        return
+    end
+    local n = HonorLog.Weeks and HonorLog.Weeks:IndexOf(rec)
+    if n then Moments:Show("recap", { n = n }) end
+end
+
+HonorLog.RegisterCallback(Moments, "HonorLog_WeekEnded", function(_, rec)
+    local ok, err = pcall(function()
+        if type(rec) ~= "table" or announced[rec] then return end
+        announced[rec] = true
+        if reading > 0 then return end -- a card is being filled: it shows a week already
+        if not Moments:Shows("recap") or weekIsEmpty(rec) then return end
+        local now, loaded = num(call(GetTime)), num(Moments.loadedAt)
+        if now and loaded and now - loaded < RECAP_LOGIN_WINDOW then
+            C_Timer.After(RECAP_LOGIN_DELAY, function()
+                local ok2, err2 = pcall(deliverRecap, rec)
+                if not ok2 then report(err2) end
+            end)
+        else
+            deliverRecap(rec)
+        end
+    end)
+    if not ok then report(err) end
+end)
+
+-- Out of the battleground: show the held recap a moment later (the loading screen is still up at first).
+if type(HonorLog.OnBattlegroundLeave) == "function" then
+    hooksecurefunc(HonorLog, "OnBattlegroundLeave", function()
+        C_Timer.After(RECAP_LEAVE_BG_DELAY, function()
+            local rec = heldRecap
+            if not rec then return end
+            heldRecap = nil
+            local ok, err = pcall(deliverRecap, rec)
+            if not ok then report(err) end
+        end)
+    end)
+end

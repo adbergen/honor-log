@@ -3953,7 +3953,7 @@ local function run()
         HL.Rank.GetInfo = realTitle
         for i = #mock.handledErrors, before2 + 1, -1 do mock.handledErrors[i] = nil end
 
-        -- ═══ Moments: the click-everything pass over the three cards (called from the integration pass) ═══
+        -- ═══ Moments: the click-everything pass over the four cards (called from the integration pass) ═══
         ;(function()
             function mock.momentsPass(label)
                 local M = HL.Moments
@@ -3963,6 +3963,7 @@ local function run()
                     rep = { faction = 509, gained = 200 } })
                 M:Show("rankUp", { rank = 3, info = HL.Rank:GetInfo() })
                 M:Show("honorCap", { current = 23000, cap = 25000 })
+                M:Show("recap", { n = 0 })
                 local n = 0
                 local function inCard(f)
                     local hops = 0
@@ -3991,7 +3992,7 @@ local function run()
                         end
                     end
                 end
-                check(n > 15, label .. "moments: the integration pass touched " .. n .. " controls on the three cards")
+                check(n > 20 and M.states.recap ~= nil, label .. "moments: the integration pass touched " .. n .. " controls on the four cards")
                 check(#mock.handledErrors == errorsBefore, label .. "moments: clicking every control raised nothing: " .. tostring(mock.handledErrors[errorsBefore + 1]))
                 for kind in pairs(M.states) do M:Close(kind) end
                 Window:Hide()
@@ -8499,6 +8500,506 @@ local function run()
             db.char.history, db.char.battlegrounds = save.history, save.bgs
             S.momentReport, S.momentRankUp, S.momentHonorCap, S.momentSeconds = save.settings[1], save.settings[2], save.settings[3], save.settings[4]
             mock.deferTimers, mock.timers, mock.combat = save.deferred, {}, false
+            HL.Window:Hide()
+        end)()
+
+        -- ═══ Moments: the weekly recap card ═══
+        ;(function()
+            local M, Kit, Weeks = HL.Moments, HL.Kit, HL.Weeks
+            local S, db = HL.db.settings, HL.db
+            local DAY = 86400
+            local T0 = time({ year = 2026, month = 11, day = 18, hour = 15 })
+            local function closeAll() for kind in pairs(M.states) do M:Close(kind) end end
+            local function dateText(ts) return HL.Rank.FormatDate(ts) end
+            local save = { recap = S.momentRecap, report = S.momentReport, seconds = S.momentSeconds, deferred = mock.deferTimers, now = mock.now,
+                getRecap = Weeks.GetRecap, getCount = Weeks.GetCount, indexOf = Weeks.IndexOf, days = HL.GetHonorDaysBetween,
+                reason = HL.GetWeekRankReason, inBG = HL.IsInBG, loadedAt = M.loadedAt, history = db.char.history }
+            S.momentRecap, S.momentReport, S.momentSeconds = true, true, 12
+            mock.deferTimers, mock.timers, mock.combat = true, {}, false
+            mock.now = mock.now or 100000
+
+            -- stubs: a list of recaps, newest first (index 0 is this week)
+            local recaps = {}
+            local function recapOf(n, over)
+                local r = {
+                    week = { number = 3 - n, start = T0 - n * 7 * DAY, finish = T0 + 7 * DAY - n * 7 * DAY },
+                    played = 29, wins = 17, losses = 12, draws = 0, left = 0,
+                    honor = 9820, honorPerGame = 338.6, marks = { AB = 24, WSG = 18, AV = 12 }, marksTotal = 54,
+                    rankGained = 0, best = { bgType = "AV", honor = 702 }, kills = 12, deaths = 5,
+                    nextCap = { rank = 7, unlocks = { 11, 12 } },
+                }
+                for k, v in pairs(over or {}) do r[k] = v end
+                return r
+            end
+            local calls = 0
+            Weeks.GetRecap = function(_, n) calls = calls + 1 return recaps[n] end
+            Weeks.GetCount = function() local c = 0 while recaps[c] do c = c + 1 end return c end
+            local dayList = {}
+            for i, h in ipairs({ 1400, 2900, 0, 4500, 2500, 5300, 3900 }) do dayList[i] = { dayKey = i, label = ({ "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon" })[i], honor = h } end
+            HL.GetHonorDaysBetween = function() return dayList end
+            local reason = "gate"
+            HL.GetWeekRankReason = function() return reason end
+            local function show(n)
+                closeAll()
+                recaps[0], recaps[1], recaps[2] = recaps[0] or recapOf(0), recaps[1] or recapOf(1), recaps[2] or recapOf(2)
+                M:Show("recap", { n = n })
+                return M.states.recap.parts, M.states.recap
+            end
+            local function noErrors(label, fn)
+                local errs = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == errs, label .. ": " .. tostring(mock.handledErrors[errs + 1]))
+            end
+            local function tipText(f)
+                f.__scripts.OnEnter(f)
+                local out = {}
+                for _, line in ipairs(mock.tip.lines) do out[#out + 1] = line.text end
+                f.__scripts.OnLeave(f)
+                return table.concat(out, "\n")
+            end
+            local playerName = HL.Util.unitName("player")
+
+            -- ── the setting and the option ──
+            check(save.recap == true, "recap: the setting is on by default")
+            do
+                local box = _G.HonorLogMomentRecapCheck
+                check(box ~= nil and type(box.tooltipText) == "string" and box.tooltipText ~= "" and box.Text:GetText() == "Weekly recap card", "recap: the options have a checkbox with a tooltip")
+                rawset(box, "GetChecked", function() return false end)
+                box.__scripts.OnClick(box)
+                check(S.momentRecap == false, "recap: the checkbox switches momentRecap off")
+                rawset(box, "GetChecked", function() return true end)
+                box.__scripts.OnClick(box)
+                check(S.momentRecap == true and M:Shows("recap"), "recap: and on")
+            end
+            do
+                local text = io.open(ROOT .. "/Data.lua"):read("*a")
+                check(text:find("momentRecap = true", 1, true) ~= nil, "recap: Data.lua defaults momentRecap to true")
+            end
+
+            -- ── the card, its sections and the head ──
+            local p, st = show(1)
+            check(st.card.honorLogTitle == "HonorLog: weekly recap" and st.card:GetWidth() == 480 and st.card:GetName() == "HonorLogRecapCard", "recap: titled, 480 wide, named HonorLogRecapCard")
+            check(#st.sections == 4 and st.sections[1].honorLogHeight == 40 and st.sections[2].honorLogHeight == 68 and st.sections[3].honorLogHeight == 84 and st.sections[4].honorLogHeight == 24,
+                "recap: four sections of 40, 68, 84 and 24")
+            check(p.week:GetText() == "Week 2" and p.week.honorLogStyle == "title", "recap: the head says the week number at 16 points")
+            check(p.sub:GetText() == dateText(T0 - 7 * DAY) .. " to " .. dateText(T0 - DAY) .. " \194\183 " .. playerName, "recap: dates (the last day is the one before the reset) and the name: " .. tostring(p.sub:GetText()))
+            check(p.state:GetText() == "", "recap: a closed week has no 'so far'")
+            p = show(0)
+            check(p.week:GetText() == "Week 3" and p.state:GetText() == "This week so far", "recap: this week says so far")
+            check(p.sub.__wrapWidth == 454, "recap: the dates and name are one fixed 454 px line")
+
+            -- ── tiles ──
+            p = show(0)
+            local t = p.tiles
+            check(#t == 4 and t[1]:GetWidth() == 107 and t[4]:GetWidth() == 107, "recap: four tiles of 107")
+            check(t[1].label:GetText() == "Games" and t[1].value:GetText() == "17 - 12" and t[1].note:GetText() == "29 played" and t[1].honorLogTipButton.honorLogText == "29 played", "recap: games as wins and losses, how many were played")
+            check(t[2].label:GetText() == "Honor" and t[2].value:GetText() == "+9,820" and t[2].note:GetText() == "339 a game", "recap: honor and honor a game")
+            check(t[3].label:GetText() == "Rank points" and t[3].value:GetText() == "0" and t[3].note:GetText() == "Needs level " .. HL.Rank.LEVEL_GATES[1].level
+                and t[3].note.__textColor[1] == Kit.COLORS.orange[1] and t[3].honorLogTipButton.honorLogText == t[3].note:GetText(), "recap: no rank points, the level gate as the reason, in orange")
+            check(t[4].label:GetText() == "Marks" and t[4].value:GetText() == "+54" and t[4].note:GetText() == "3 battlegrounds", "recap: marks gained")
+            reason = "cap"
+            p = show(0)
+            check(p.tiles[3].value:GetText() == "0" and p.tiles[3].note:GetText() == "Weekly cap reached", "recap: no rank points, the weekly cap as the reason")
+            reason = nil
+            recaps[0] = recapOf(0, { rankGained = 0 })
+            p = show(0)
+            check(p.tiles[3].value:GetText() == "0" and p.tiles[3].note:GetText() == "", "recap: no rank points and no reason: a plain 0")
+            recaps[0] = recapOf(0, { rankGained = 150 })
+            p = show(0)
+            check(p.tiles[3].value:GetText() == "+150" and p.tiles[3].note:GetText() == "", "recap: rank points gained")
+            recaps[0] = recapOf(0, { rankGained = false })
+            recaps[0].rankGained = nil
+            p = show(0)
+            check(p.tiles[3].value:GetText() == "-" and p.tiles[3].note:GetText() == "not measured", "recap: no rank record: a dash")
+            recaps[0] = recapOf(0, { draws = 1, left = 2, marks = { AV = 5 }, marksTotal = 5 })
+            p = show(0)
+            check(p.tiles[1].honorLogTipButton.honorLogText == "29 played\n1 draw, 2 left" and p.tiles[4].note:GetText() == "Alterac Valley", "recap: draws and games left early in the tooltip; one battleground is named")
+            recaps[0] = recapOf(0, { draws = 3 })
+            p = show(0)
+            check(p.tiles[1].honorLogTipButton.honorLogText == "29 played\n3 draws", "recap: several draws")
+            recaps[0] = recapOf(0, { marks = {}, marksTotal = 0 })
+            p = show(0)
+            check(p.tiles[4].value:GetText() == "+0" and p.tiles[4].note:GetText() == "", "recap: no marks")
+            -- a week rebuilt from saved games: no honor beyond the games, no kills
+            recaps[0] = recapOf(0, { honor = false, honorPerGame = 150, kills = false, deaths = false })
+            recaps[0].honor, recaps[0].kills, recaps[0].deaths = nil, nil, nil
+            recaps[0].week.bgHonor, recaps[0].week.filled = 1500, true
+            p = show(0)
+            check(p.tiles[2].value:GetText() == "+1,500" and p.tiles[2].note:GetText() == "150 a game" and p.tiles[2].honorLogTipButton.honorLogText:find("battlegrounds only", 1, true),
+                "recap: a rebuilt week shows the battleground honor and says so in the tooltip")
+            check(not p.world:IsShown() and p.best:IsShown(), "recap: and has no world PvP line")
+            -- a week with no number, and an estimated one
+            recaps[0] = recapOf(0)
+            recaps[0].week.number = nil
+            p = show(0)
+            check(p.week:GetText() == "Week of " .. dateText(T0), "recap: a week without a number is 'Week of' its first day: " .. tostring(p.week:GetText()))
+            recaps[0] = recapOf(0)
+            recaps[0].week.estimated = true
+            p = show(0)
+            check(p.sub:GetText():find("^About " .. dateText(T0)) ~= nil, "recap: an estimated week says about: " .. tostring(p.sub:GetText()))
+            -- the headline is never cut: the smaller font when it does not fit
+            recaps[0] = recapOf(0)
+            p = show(0)
+            check(p.tiles[1].value.__font == _G.GameFontHighlightHuge, "recap: a headline that fits keeps the big font")
+            local gm = p.tiles[1].value
+            rawset(gm, "GetStringWidth", function() return 120 end)
+            p = show(0)
+            check(gm.__font == _G.GameFontHighlightLarge and gm:GetText() == "17 - 12", "recap: a headline that is too wide drops to the smaller font and is not cut")
+            rawset(gm, "GetStringWidth", nil)
+            p = show(0)
+            check(gm.__font == _G.GameFontHighlightHuge, "recap: and goes back to the big font")
+
+            -- ── honor by day, the lines ──
+            recaps[0] = recapOf(0)
+            p = show(0)
+            check(p.chart:IsShown() and p.chart.honorLogRectsUsed == 1 + 6 and p.chart.honorLogLabelsUsed["grey/"] == 7, "recap: the chart has a baseline, six bars (a zero day has none) and seven weekdays")
+            check(p.chart:GetWidth() == 180 and p.chart:GetHeight() == 80, "recap: the chart is 180 by 80")
+            check(tipText(p.chartTip) == "Honor by day\nTue  1,400\nWed  2,900\nThu  0\nFri  4,500\nSat  2,500\nSun  5,300\nMon  3,900", "recap: the days are in the chart's tooltip")
+            check(p.best:IsShown() and p.best.honorLogValue:GetText() == "Alterac Valley, 702 honor" and p.bestTip.honorLogText == "Alterac Valley, 702 honor", "recap: the best game")
+            check(p.marksLine:IsShown() and p.markIcons[1].honorLogBG == "AB" and p.markCounts[1]:GetText() == "24" and p.markIcons[2].honorLogBG == "WSG" and p.markCounts[2]:GetText() == "18"
+                and p.markIcons[3].honorLogBG == "AV" and p.markCounts[3]:GetText() == "12" and not p.markIcons[4]:IsShown(), "recap: marks by battleground as icons with counts, most first")
+            check(p.world:IsShown() and p.world.honorLogValue:GetText() == "Kills 12, deaths 5", "recap: world PvP kills and deaths")
+            check(p.cap:IsShown() and p.cap.honorLogLabel:GetText() == "Next week" and p.cap.honorLogValue:GetText() == "the cap rises to Rank 7"
+                and p.unlockIcons[1].honorLogItemID == 11 and p.unlockIcons[2].honorLogItemID == 12 and p.unlockIcons[1]:IsShown() and not p.unlockIcons[3]:IsShown(), "recap: this week's card says what the cap opens next week")
+            check(select(5, p.best:GetPoint()) == -4 and select(5, p.marksLine:GetPoint()) == -22 and select(4, p.best:GetPoint()) == 196, "recap: the lines are stacked from the top, right of the chart")
+            p = show(1)
+            check(p.cap.honorLogLabel:GetText() == "This week" and p.cap.honorLogValue:GetText() == "the cap is Rank 7", "recap: for the week that just ended: 'This week the cap is Rank 7'")
+            p = show(2)
+            check(not p.cap:IsShown(), "recap: an older week says nothing about the cap")
+            recaps[1] = recapOf(1, { nextCap = false })
+            recaps[1].nextCap = nil
+            p = show(1)
+            check(not p.cap:IsShown(), "recap: no line when the cap does not rise")
+            recaps[1] = nil
+            -- fewer lines: they close up
+            recaps[0] = recapOf(0, { best = false, kills = 0, deaths = 0, nextCap = false })
+            recaps[0].best, recaps[0].nextCap = nil, nil
+            p = show(0)
+            check(not p.best:IsShown() and not p.world:IsShown() and not p.cap:IsShown() and p.marksLine:IsShown() and select(5, p.marksLine:GetPoint()) == -4,
+                "recap: a week with no kills or deaths has no world line, and the lines close up")
+            -- no chart: the lines take the left
+            recaps[0] = recapOf(0)
+            HL.GetHonorDaysBetween = function() return nil end
+            p = show(0)
+            check(not p.chart:IsShown() and not p.chartTip:IsShown() and p.best:IsShown() and select(4, p.best:GetPoint()) == 0, "recap: no chart when the days are no longer kept; the lines move to the left")
+            recaps[0] = recapOf(0, { best = false, kills = 0, marks = {}, marksTotal = 0, nextCap = false })
+            recaps[0].best, recaps[0].nextCap, recaps[0].deaths = nil, nil, nil
+            p = show(0)
+            check(not p.under:IsShown(), "recap: with no chart and no lines the whole band is left out")
+            HL.GetHonorDaysBetween = function() return dayList end
+            recaps[0] = recapOf(0)
+
+            -- ── the foot and the paging ──
+            p, st = show(0)
+            check(p.earlier:GetText() == "Earlier" and p.later:GetText() == "Later" and p.button:GetText() == "Rank plan" and p.earlier:GetWidth() == 70 and p.button:GetWidth() == 110,
+                "recap: the foot has Earlier, Later and Rank plan")
+            check(p.earlier:IsEnabled() and not p.later:IsEnabled(), "recap: this week has an earlier week and no later one")
+            p.later.__scripts.OnClick(p.later)
+            check(st.data.n == 0 and st.card:IsShown(), "recap: Later does nothing when disabled")
+            p.earlier.__scripts.OnClick(p.earlier)
+            check(st.card:IsShown() and st.data.n == 1 and p.week:GetText() == "Week 2" and p.earlier:IsEnabled() and p.later:IsEnabled() and #M.order == 1, "recap: Earlier pages back and the card stays open")
+            p.earlier.__scripts.OnClick(p.earlier)
+            check(st.card:IsShown() and st.data.n == 2 and p.week:GetText() == "Week 1" and not p.earlier:IsEnabled() and p.later:IsEnabled(), "recap: the oldest week disables Earlier")
+            p.earlier.__scripts.OnClick(p.earlier)
+            check(st.data.n == 2 and st.card:IsShown(), "recap: Earlier at the end does nothing")
+            p.later.__scripts.OnClick(p.later)
+            check(st.card:IsShown() and st.data.n == 1 and p.week:GetText() == "Week 2", "recap: Later pages forward and the card stays open")
+            local framesBefore = #mock.frames
+            for _ = 1, 6 do p.earlier.__scripts.OnClick(p.earlier) p.later.__scripts.OnClick(p.later) end
+            check(#mock.frames == framesBefore, "recap: paging builds nothing")
+            local before = calls
+            p.earlier.__scripts.OnClick(p.earlier)
+            check(calls - before == 1, "recap: a page reads the week once (" .. (calls - before) .. ")")
+            -- the Rank plan button opens the screen and closes the card
+            show(0)
+            M.states.recap.parts.button.__scripts.OnClick(M.states.recap.parts.button)
+            check(HL.Window.current == "rank" and not M.states.recap.card:IsShown(), "recap: Rank plan opens the Rank plan screen and closes the card")
+            HL.Window:Hide()
+
+            -- ── how long it stays, the mouse ──
+            p, st = show(0)
+            mock.advance(13)
+            check(st.card:IsShown() and not st.fade.__playing, "recap: still up after the other cards' 12 seconds")
+            mock.advance(48)
+            check(st.fade.__playing, "recap: it fades after 60 seconds")
+            show(0)
+            st = M.states.recap
+            mock.advance(30)
+            p.earlier.__scripts.OnEnter(p.earlier)
+            mock.advance(500)
+            check(st.card:IsShown() and not st.fade.__playing, "recap: held while the mouse is on a paging button")
+            p.earlier.__scripts.OnLeave(p.earlier)
+            mock.advance(14)
+            check(not st.fade.__playing, "recap: fifteen seconds after the mouse leaves, not before")
+            mock.advance(2)
+            check(st.fade.__playing, "recap: then it fades")
+            S.momentSeconds = 0
+            show(0)
+            mock.advance(5000)
+            check(M.states.recap.card:IsShown() and not M.states.recap.fade.__playing, "recap: a time of 0 keeps it until it is closed")
+            S.momentSeconds = 12
+            closeAll()
+
+            -- ── it shows by itself ──
+            local ended = {}
+            local index = {}
+            Weeks.IndexOf = function(_, rec) return index[rec] end
+            local function newEnded(over)
+                local rec = { games = 5, honor = 1000, kills = 0, deaths = 0 }
+                for k, v in pairs(over or {}) do rec[k] = v end
+                index[rec] = 1
+                return rec
+            end
+            M.loadedAt = (mock.now or 0) - 1000 -- not a login
+            HL.IsInBG = function() return false end
+            closeAll()
+            local rec = newEnded()
+            HL:Fire("HonorLog_WeekEnded", rec)
+            check(M.states.recap and M.states.recap.card:IsShown() and #M.order == 1 and M.states.recap.data.n == 1 and M.states.recap.parts.week:GetText() == "Week 2", "recap auto: the week-ended event shows the card for the week that ended")
+            closeAll()
+            HL:Fire("HonorLog_WeekEnded", rec)
+            check(#M.order == 0, "recap auto: the same week is never announced twice")
+            for _, empty in ipairs({ { games = 0, honor = 0 }, { games = 0, honor = false, kills = 0, deaths = 0 }, { games = 0, honor = 0, bgHonor = 0 } }) do
+                HL:Fire("HonorLog_WeekEnded", newEnded(empty))
+            end
+            check(#M.order == 0, "recap auto: not for a week with nothing in it")
+            HL:Fire("HonorLog_WeekEnded", newEnded({ games = 0, honor = 0, kills = 0, deaths = 3 }))
+            check(#M.order == 1, "recap auto: deaths alone are something")
+            closeAll()
+            HL:Fire("HonorLog_WeekEnded", newEnded({ games = 0, honor = false, bgHonor = 0, kills = false, deaths = false, filled = true }))
+            check(#M.order == 0, "recap auto: a rebuilt week with no games shows nothing")
+            HL:Fire("HonorLog_WeekEnded", newEnded({ games = 4, honor = false, kills = false, deaths = false, filled = true, bgHonor = 800 }))
+            check(#M.order == 1, "recap auto: a rebuilt week with games is shown")
+            closeAll()
+            S.momentRecap = false
+            HL:Fire("HonorLog_WeekEnded", newEnded())
+            check(#M.order == 0, "recap auto: nothing with the setting off")
+            S.momentRecap = true
+            check(pcall(HL.Fire, HL, "HonorLog_WeekEnded", nil) and pcall(HL.Fire, HL, "HonorLog_WeekEnded", "x") and #M.order == 0, "recap auto: an event with no record is ignored")
+
+            -- never inside a battleground
+            HL.IsInBG = function() return true end
+            local held = newEnded()
+            HL:Fire("HonorLog_WeekEnded", held)
+            check(#M.order == 0, "recap auto: held inside a battleground")
+            mock.advance(30)
+            check(#M.order == 0, "recap auto: and it stays held while the game goes on")
+            HL.IsInBG = function() return false end
+            HL:OnBattlegroundLeave()
+            check(#M.order == 0, "recap auto: a moment after leaving, not at once")
+            mock.advance(2.5)
+            check(#M.order == 1 and M.order[1] == "recap" and M.states.recap.card:IsShown(), "recap auto: shown when the player is out of the battleground")
+            closeAll()
+            HL:OnBattlegroundLeave()
+            mock.advance(5)
+            check(#M.order == 0, "recap auto: only once")
+            HL.IsInBG = function() return true end
+            HL:Fire("HonorLog_WeekEnded", newEnded())
+            HL:OnBattlegroundLeave() -- still in one (the next game): the card is held again
+            mock.advance(3)
+            check(#M.order == 0, "recap auto: leaving one game and joining another keeps it held")
+            HL.IsInBG = function() return false end
+            HL:OnBattlegroundLeave()
+            mock.advance(3)
+            check(#M.order == 1, "recap auto: and shows after the last")
+            closeAll()
+
+            -- in a fight
+            mock.combat = true
+            HL:Fire("HonorLog_WeekEnded", newEnded())
+            check(#M.order == 0, "recap auto: waits in a fight")
+            mock.combat = false
+            mock.fireEvent("PLAYER_REGEN_ENABLED")
+            check(#M.order == 1 and M.states.recap.card:IsShown(), "recap auto: shown when the fight ends")
+            closeAll()
+
+            -- at login
+            M.loadedAt = mock.now
+            local loginRec = newEnded()
+            HL:Fire("HonorLog_WeekEnded", loginRec)
+            check(#M.order == 0, "recap auto: not in the first seconds after the addon loads")
+            mock.advance(5)
+            check(#M.order == 0, "recap auto: still waiting after five seconds")
+            mock.advance(1.5)
+            check(#M.order == 1, "recap auto: shown six seconds after login")
+            closeAll()
+            M.loadedAt = mock.now
+            HL:Fire("HonorLog_WeekEnded", newEnded())
+            S.momentRecap = false
+            mock.advance(10)
+            check(#M.order == 0, "recap auto: switched off while it waited: nothing")
+            S.momentRecap = true
+            M.loadedAt = mock.now
+            HL.IsInBG = function() return true end
+            HL:Fire("HonorLog_WeekEnded", newEnded())
+            mock.advance(10)
+            check(#M.order == 0, "recap auto: a login inside a battleground holds it too")
+            HL.IsInBG = function() return false end
+            HL:OnBattlegroundLeave()
+            mock.advance(3)
+            check(#M.order == 1, "recap auto: and it shows after")
+            closeAll()
+            M.loadedAt = (mock.now or 0) - 1000
+
+            -- beside the report card
+            M:Show("report", { bgType = "AB", result = "win", honor = 400, timestamp = time() })
+            HL:Fire("HonorLog_WeekEnded", newEnded())
+            check(#M.order == 2 and M.order[1] == "report" and M.order[2] == "recap", "recap auto: beside the report card, under it")
+            closeAll()
+
+            -- reading the week in a fill turns it over: no second card, no recursion
+            do
+                local extra = newEnded()
+                local recursion, shows = 0, 0
+                local realShow = M.Show
+                M.Show = function(self, kind, data) shows = shows + 1 return realShow(self, kind, data) end
+                Weeks.GetRecap = function(_, n)
+                    recursion = recursion + 1
+                    if recursion == 1 then HL:Fire("HonorLog_WeekEnded", extra) end
+                    return recaps[n]
+                end
+                closeAll()
+                M:Show("recap", { n = 1 })
+                check(shows == 1 and #M.order == 1 and recursion == 1, "recap re-entry: an event during the fill shows no second card and reads once (" .. shows .. " shows, " .. recursion .. " reads)")
+                check(M.states.recap.data.n == 1, "recap re-entry: the card shows the week that was asked for")
+                HL:Fire("HonorLog_WeekEnded", extra)
+                check(shows == 1, "recap re-entry: and that week is not announced later either")
+                -- the demo reads the week first: the same guard
+                closeAll()
+                recursion, shows = 0, 0
+                Weeks.GetRecap = function(_, n)
+                    recursion = recursion + 1
+                    if recursion == 1 then HL:Fire("HonorLog_WeekEnded", newEnded()) end
+                    return recaps[n]
+                end
+                M:ShowRecap(1)
+                check(shows == 1 and #M.order == 1, "recap re-entry: the same for the by-hand command (" .. shows .. " shows)")
+                M.Show = realShow
+                Weeks.GetRecap = function(_, n) calls = calls + 1 return recaps[n] end
+            end
+            closeAll()
+
+            -- ── by hand ──
+            do
+                local lines = #printed
+                for _, key in ipairs({ "momentReport", "momentRankUp", "momentHonorCap", "momentRecap" }) do S[key] = false end
+                SlashCmdList.HONORLOG("moment recap")
+                check(M.states.recap.card:IsShown() and M.states.recap.data.n == 1 and M.states.recap.parts.week:GetText() == "Week 2", "slash: moment recap shows the last closed week, whatever the setting says")
+                SlashCmdList.HONORLOG("moment recap 2")
+                check(M.states.recap.data.n == 2 and M.states.recap.parts.week:GetText() == "Week 1" and #M.order == 1, "slash: moment recap 2 shows the week before")
+                SlashCmdList.HONORLOG("moment recap 0")
+                check(M.states.recap.data.n == 0 and M.states.recap.parts.week:GetText() == "Week 3", "slash: moment recap 0 is this week")
+                closeAll()
+                lines = #printed
+                SlashCmdList.HONORLOG("moment recap 9")
+                check(#M.order == 0 and printed[#printed]:find("No week to show", 1, true) and #printed == lines + 1, "slash: a week that does not exist says so in chat")
+                lines = #printed
+                SlashCmdList.HONORLOG("moment recap x")
+                check(#M.order == 0 and printed[#printed]:find("Usage: /honorlog moment report|rank|cap|recap", 1, true) and #printed == lines + 1, "slash: a word that is no number prints the usage")
+                SlashCmdList.HONORLOG("moment nonsense")
+                check(printed[#printed]:find("recap [week]", 1, true), "slash: the usage names the recap")
+                lines = #printed
+                SlashCmdList.HONORLOG("help")
+                local helpLine
+                for i = lines + 1, #printed do if printed[i]:find("moment", 1, true) then helpLine = printed[i] end end
+                check(helpLine and helpLine:find("recap", 1, true), "slash: the help names the recap")
+                for _, key in ipairs({ "momentReport", "momentRankUp", "momentHonorCap", "momentRecap" }) do S[key] = true end
+                closeAll()
+            end
+
+            -- ── the Overview button ──
+            do
+                Window = HL.Window
+                Window:Show("overview")
+                local games = Window.frames.overview.honorLogParts.games
+                check(games.recap:GetText() == "This week" and games.recap:GetWidth() == 80 and games.all:GetText() == "All games", "overview: Recent games has a This week button beside All games")
+                S.momentRecap = false
+                games.recap.__scripts.OnClick(games.recap)
+                check(M.states.recap and M.states.recap.card:IsShown() and M.states.recap.data.n == 0 and M.states.recap.parts.week:GetText() == "Week 3", "overview: the button shows this week, whatever the setting says")
+                S.momentRecap = true
+                closeAll()
+                Window:Hide()
+            end
+
+            -- ── failing reads ──
+            do
+                local real = Weeks.GetRecap
+                Weeks.GetRecap = function() error("no week") end
+                local errs = #mock.handledErrors
+                closeAll()
+                M:Show("recap", { n = 0 })
+                check(#mock.handledErrors > errs and M.states.recap.card:IsShown() and M.states.recap.parts.week:GetText() == "No week to show", "recap: a week that cannot be read is reported and the card says there is none")
+                for i = #mock.handledErrors, errs + 1, -1 do mock.handledErrors[i] = nil end
+                Weeks.GetRecap = function() return nil end
+                noErrors("recap: no week", function() closeAll() M:Show("recap", { n = 4 }) end)
+                check(not M.states.recap.parts.row:IsShown() and not M.states.recap.parts.under:IsShown(), "recap: with no week the tiles and the lines are hidden")
+                Weeks.GetRecap = function() return { week = "x" } end
+                noErrors("recap: a week that is not a table", function() closeAll() M:Show("recap", { n = 0 }) end)
+                Weeks.GetRecap = function() return { week = { number = mock.newSecret(), start = mock.newSecret(), finish = mock.newSecret() }, wins = mock.newSecret(), played = mock.newSecret(), marks = mock.newSecret(), best = mock.newSecret(), nextCap = mock.newSecret() } end
+                noErrors("recap: a week of secrets", function() closeAll() M:Show("recap", { n = 0 }) end)
+                Weeks.GetRecap = real
+                HL.GetHonorDaysBetween = function() error("days") end
+                HL.GetWeekRankReason = function() error("reason") end
+                recaps[0] = recapOf(0)
+                p = show(0)
+                check(p.tiles[1].value:GetText() == "17 - 12" and not p.chart:IsShown(), "recap: a model that raises leaves the rest drawn")
+                for i = #mock.handledErrors, 1, -1 do if tostring(mock.handledErrors[i]):find("days", 1, true) or tostring(mock.handledErrors[i]):find("reason", 1, true) then table.remove(mock.handledErrors, i) end end
+                HL.GetHonorDaysBetween = function() return dayList end
+                HL.GetWeekRankReason = function() return reason end
+                M:Show("recap", nil)
+                M:Show("recap", "x")
+                closeAll()
+            end
+
+            -- ── nothing per frame, and only honorLog names on template frames ──
+            do
+                closeAll()
+                M.states.recap = nil
+                local first = #mock.frames + 1
+                recaps[0] = recapOf(0)
+                M:Show("recap", { n = 0 })
+                local onUpdates, templated, bad = 0, 0, {}
+                for i = first, #mock.frames do
+                    local f = mock.frames[i]
+                    if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                    if f.__template then
+                        templated = templated + 1
+                        for k in pairs(f) do
+                            if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") then bad[#bad + 1] = k end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "recap: no OnUpdate on any frame")
+                check(templated > 5 and #bad == 0, "recap: only honorLog names are added to template frames (" .. templated .. "): " .. table.concat(bad, ","))
+                for k = 1, 10 do M:Show("recap", { n = k % 3 }) end
+                check(#mock.frames == (function() local c = 0 for _ in ipairs(mock.frames) do c = c + 1 end return c end)(), "recap: frames counted")
+                local made = #mock.frames
+                for k = 1, 10 do M:Show("recap", { n = k % 3 }) end
+                check(#mock.frames == made, "recap: ten refreshes make no new frames")
+                closeAll()
+            end
+
+            -- ── with the templates missing ──
+            do
+                closeAll()
+                M.states.recap = nil
+                mock.missingTemplates = { ["*"] = true }
+                recaps[0] = recapOf(0)
+                local errs = #mock.handledErrors
+                M:Show("recap", { n = 0 })
+                mock.missingTemplates = {}
+                check(#mock.handledErrors == errs and M.states.recap.card:IsShown() and M.states.recap.parts.tiles[1].value:GetText() == "17 - 12", "recap: built and drawn with no Blizzard templates")
+                closeAll()
+                M.states.recap = nil
+            end
+
+            -- put it back
+            Weeks.GetRecap, Weeks.GetCount, Weeks.IndexOf = save.getRecap, save.getCount, save.indexOf
+            HL.GetHonorDaysBetween, HL.GetWeekRankReason, HL.IsInBG = save.days, save.reason, save.inBG
+            M.loadedAt = save.loadedAt
+            S.momentRecap, S.momentReport, S.momentSeconds = save.recap, save.report, save.seconds
+            mock.deferTimers, mock.timers, mock.combat, mock.now = save.deferred, {}, false, save.now
+            db.char.history = save.history
             HL.Window:Hide()
         end)()
 
