@@ -5606,9 +5606,9 @@ local function run()
             check(stock.stack.count == #E and rows[1]:IsShown() and rows[#E]:IsShown(), "recommended: a row for each recommendation")
             for i, e in ipairs(E) do
                 local r = rows[i]
-                check(r.icon.honorLogItemID == e.itemID and r.name:GetText():find(e.name, 1, true) and r.slot:GetText() == Vend.SlotName(e.slot)
-                    and r.why:GetText() == e.reason and r:GetHeight() == 40, "recommended: row " .. i .. " has the icon, name, slot and reason")
-                check(r.name.__wrapWidth == 276 and r.why.__wrapWidth == 342 and r.status.__wrapWidth == 150 and r.slot.__wrapWidth == 60, "recommended: row " .. i .. " texts are fixed width")
+                check(r.icon.honorLogItemID == e.itemID and r.name:GetText():find(e.name, 1, true) and r.slot:GetText() == ""
+                    and r.why:GetText() == Vend.SlotName(e.slot) .. " \194\183 " .. e.reason and r:GetHeight() == 40, "recommended: row " .. i .. " has the icon, the name, and the slot leading the reason")
+                check(r.name.__wrapWidth == 342 and r.why.__wrapWidth == 342 and r.status.__wrapWidth == 150 and r.slot.__wrapWidth == 60, "recommended: row " .. i .. " texts are fixed width")
                 enter(r.whyCell)
                 check(tipText():find(e.reason, 1, true), "recommended: row " .. i .. " the reason's tooltip carries the whole sentence")
                 leave(r.whyCell)

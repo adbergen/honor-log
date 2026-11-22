@@ -284,8 +284,8 @@ local function bgOrder() return HonorLog.BG_ORDER or {} end
 
 -- The recommended view's columns (the star's is the stock table's): the item, its slot, why it is offered and
 -- when it can be bought. Widths in pixels; a text cut by its box carries its full sentence as a tooltip.
--- Two lines a row: the name with its slot at the right end, then the whole reason across the text block; the
--- status in its own column before the star.
+-- Two lines a row: the name across the text block, then the slot and the whole reason; the status in its own
+-- column before the star.
 local REC_ROW_H = 40
 local REC_COL = {
     item = { x = 4, w = 366 }, text = { x = 32, w = 342 }, slot = { w = 60 }, status = { x = 378, w = 150 },
@@ -457,7 +457,7 @@ local function buildStock(root, handlers)
                 row.whyCell:SetPoint("LEFT", row, "LEFT", REC_COL.text.x, 0)
                 row.whyCell:SetSize(REC_COL.text.w, REC_ROW_H)
                 row.whyCell:EnableMouse(true)
-                row.name = fixedText(row.whyCell, "value", REC_COL.text.w - REC_COL.slot.w - 6)
+                row.name = fixedText(row.whyCell, "value", REC_COL.text.w)
                 row.name:SetPoint("TOPLEFT", row.whyCell, "TOPLEFT", 0, -5)
                 row.slot = fixedText(row.whyCell, "grey", REC_COL.slot.w)
                 row.slot:SetPoint("TOPRIGHT", row.whyCell, "TOPRIGHT", 0, -7)
@@ -497,8 +497,11 @@ local function buildStock(root, handlers)
                 row.stripe:SetShown(entry.striped)
                 row.icon:SetItem(e.itemID)
                 row.name:SetText(Kit:QualityHex(row.icon.honorLogQuality) .. (str(e.name) or "") .. "|r")
-                row.slot:SetText(GearVendors.SlotName(e.slot))
-                row.why:SetText(str(e.reason) or "")
+                -- the slot leads the reason line ("Wrist · +20 item levels over ..."), so the name keeps the whole
+                -- first line and nothing crowds the status column
+                row.slot:SetText("")
+                local slotName, reason = str(GearVendors.SlotName(e.slot)), str(e.reason) or ""
+                row.why:SetText((slotName and slotName ~= "") and (slotName .. " \194\183 " .. reason) or reason)
                 row.whyCell.tip = reasonTip(e, entry.byID)
                 local status, buyable = statusText(e)
                 row.status:SetText(status)

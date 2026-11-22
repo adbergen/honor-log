@@ -320,8 +320,9 @@ local function reasonFor(gain, worn, note, viaSeal)
     else
         text = string.format(gain == 1 and L["+%d item level over what you wear"] or L["+%d item levels over what you wear"], gain)
     end
-    if viaSeal then text = text .. " " .. L["Buy the blue piece first, then upgrade it with a Seal."] end
-    if note then text = text .. " " .. L["Compared with your main hand only."] end
+    -- the first part has no full stop of its own (it also stands alone in a row), so the joins bring one
+    if viaSeal then text = text .. ". " .. L["Buy the blue piece first, then upgrade it with a Seal."] end
+    if note then text = text .. (viaSeal and " " or ". ") .. L["Compared with your main hand only."] end
     return text
 end
 
