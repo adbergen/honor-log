@@ -94,6 +94,8 @@ function MapPin:OpenMap(map, stillWanted)
         call(ShowUIPanel, wm)
         if not call(wm.IsShown, wm) then call(wm.Show, wm) end
     end
+    -- The player asked for the map: it comes in front of the HonorLog window, which shares its layer.
+    if call(wm.IsShown, wm) then call(wm.Raise, wm) end
     MapPin:Hook()
     local function apply()
         if stillWanted and not stillWanted() then return end
