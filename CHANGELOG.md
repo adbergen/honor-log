@@ -4,6 +4,7 @@
 
 ### Added
 - **Recommended gear goals, the engine only**: for each slot, the best PvP reward your class and spec can use, offered when its item level beats what you wear (an empty slot counts most), ranked buyable-now first and then by when you can buy it, plus a one-call sort of your goal list by the same priority. The generated gear data now carries a role (healer, physical or caster) for every set line and item and the armor each class wears by level. Nothing shows it yet and nothing is added or reordered until you click.
+- **A weekly recap card**: when the PvP rank week turns over, a card says what the week was: games won and lost, honor, rank points (and why there were none), marks, honor by day, your best game, world PvP and what the higher rank cap opens. Page back through earlier weeks, open it any time with `/honorlog moment recap` or the This week button on the Overview, and switch it off in the options.
 - **A World PvP screen**, a tab between Battlegrounds and Quests: today's kills, deaths and honor, the log of every kill and death with a search and All / Kills / Deaths, your record against the players you meet most, and where you fight. Every place opens the map.
 - **A Characters screen**, the last tab: one card for each of your characters with its class and level, last played, rank and week, honor against the cap, battleground marks and next gear goal, and a two-click Forget for a deleted character.
 - **A summary of each of your characters**, kept in the account's saved data: class, faction, level, rank and

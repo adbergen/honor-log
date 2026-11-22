@@ -442,3 +442,18 @@ function Weeks:GetRecap(n)
     end
     return recap
 end
+
+-- How many week records are kept (this week included), and the n that GetRecap takes for a record: 0 for this
+-- week, 1 for the one before, nil when the record is not in the list. Plain reads: they never turn the week over.
+function Weeks:GetCount()
+    local c = char()
+    return c and type(c.weeks) == "table" and #c.weeks or 0
+end
+
+function Weeks:IndexOf(record)
+    local c = char()
+    for i, rec in ipairs(c and type(c.weeks) == "table" and c.weeks or {}) do
+        if rec == record then return i - 1 end
+    end
+    return nil
+end
