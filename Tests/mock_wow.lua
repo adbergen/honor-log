@@ -612,11 +612,19 @@ C_SeasonInfo = {
     GetTimeUntilCurrentPVPSeasonEnd = function() return M.seasonSeconds end,
 }
 M.bagItems = { [20558] = 12, [20559] = 3 }
+M.itemLevels, M.invTypes = {}, {}
 M.itemQuality = {} -- item id -> quality, for C_Item.GetItemQualityByID
 C_Item = {
     GetItemIconByID = function(id) return 100000 + id % 1000 end,
     GetItemQualityByID = function(id) return M.itemQuality[id] end,
     GetItemCount = function(id) return M.bagItems[id] or 0 end,
+    -- Item levels of worn items by id (M.itemLevels) and their inventory types (M.invTypes: 17 = two-hander).
+    GetDetailedItemLevelInfo = function(id)
+        local level = M.itemLevels[id]
+        if level == nil then return nil end
+        return level, false, level
+    end,
+    GetItemInventoryTypeByID = function(id) return M.invTypes[id] end,
     GetItemInfo = function(id)
         return "Item " .. tostring(id), "|cff0070dd|Hitem:" .. tostring(id) .. "|h[Item " .. tostring(id) .. "]|h|r",
             3, 60, 55, "Armor", "Plate", 1, "INVTYPE_CHEST", 134400
@@ -712,8 +720,23 @@ function UnitLevel() return M.level end
 function UnitClass(unit)
     local u = unit and unit ~= "player" and M.units[unit]
     if u then return u.class, u.class, 1 end
-    return "Warrior", "WARRIOR", 1
+    local token = M.playerClass or "WARRIOR"
+    return token:sub(1, 1) .. token:sub(2):lower(), token, 1
 end
+-- The client's spec: M.spec = { index, role, stat } (nil = no spec chosen); M.specError makes the calls raise.
+M.spec = nil
+C_SpecializationInfo = {
+    GetSpecialization = function()
+        if M.specError then error("spec unavailable") end
+        return M.spec and M.spec.index or nil
+    end,
+    GetSpecializationInfo = function(index)
+        if M.specError then error("spec unavailable") end
+        if not M.spec or index ~= M.spec.index then return nil end
+        return 1000 + index, "Spec", "", 0, M.spec.role, M.spec.stat
+    end,
+}
+function UnitSex() return 2 end
 -- Class names and colours: LocalizedClassList is a function in this build, RAID_CLASS_COLORS a table of colours.
 M.classNames = { WARRIOR = "Warrior", MAGE = "Mage", ROGUE = "Rogue", PRIEST = "Priest", HUNTER = "Hunter", SHAMAN = "Shaman" }
 function LocalizedClassList() return M.classNames end

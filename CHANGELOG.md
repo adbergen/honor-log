@@ -3,6 +3,7 @@
 ## [2.1.0] - Unreleased
 
 ### Added
+- **Recommended gear goals, the engine only**: for each slot, the best PvP reward your class and spec can use, offered when its item level beats what you wear (an empty slot counts most), ranked buyable-now first and then by when you can buy it, plus a one-call sort of your goal list by the same priority. The generated gear data now carries a role (healer, physical or caster) for every set line and item and the armor each class wears by level. Nothing shows it yet and nothing is added or reordered until you click.
 - **A summary of each of your characters**, kept in the account's saved data: class, faction, level, rank and
   rank points, whether the weekly rank cap is reached and until when, honor, marks, how far the first gear
   goal is, games and wins. Each character writes its own on entering the world, after each game, on a

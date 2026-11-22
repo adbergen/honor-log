@@ -40,6 +40,7 @@ Modules\Characters.lua
 Modules\Weeks.lua
 Modules\WorldLog.lua
 Modules\Met.lua
+Modules\Recommend.lua
 Modules\VendorScanner.lua
 Modules\Probe.lua
 
