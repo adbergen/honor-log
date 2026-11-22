@@ -284,9 +284,13 @@ local function bgOrder() return HonorLog.BG_ORDER or {} end
 
 -- The recommended view's columns (the star's is the stock table's): the item, its slot, why it is offered and
 -- when it can be bought. Widths in pixels; a text cut by its box carries its full sentence as a tooltip.
+-- Two lines a row: the name with its slot at the right end, then the whole reason across the text block; the
+-- status in its own column before the star.
+local REC_ROW_H = 40
 local REC_COL = {
-    item = { x = 4, w = 200 }, slot = { x = 208, w = 54 }, why = { x = 266, w = 158 }, status = { x = 428, w = 100 },
+    item = { x = 4, w = 366 }, text = { x = 32, w = 342 }, slot = { w = 60 }, status = { x = 378, w = 150 },
 }
+local REC_SHIFT = 52 -- what the column titles and the list move up by when no role chips or grey line are shown
 local REC_FOOT_H = 16 -- the second foot line takes this much from the table
 
 local function slotNames(slots)
@@ -316,10 +320,11 @@ end
 
 GearVendors.ReasonTip = reasonTip
 
--- The status column: a buy-today alternative says so in words, else the engine's own sentence.
+-- The status column: every row that can be bought today says "Ready to purchase" (a buy-today alternative
+-- too: what makes it different is in its tooltip), else the engine's own sentence.
 local function statusText(e)
-    if e.now then return L["Can be bought today"] end
-    return str(e.status) or (e.buyable and L["Ready to purchase"]) or ""
+    if e.buyable or e.now then return L["Ready to purchase"], true end
+    return str(e.status) or ""
 end
 
 local function buildStock(root, handlers)
@@ -367,12 +372,13 @@ local function buildStock(root, handlers)
 
     -- the recommended view's own column titles, role chips and sentences
     local recTitles = {
-        { REC_COL.item, L["Item"] }, { REC_COL.slot, L["Slot"] }, { REC_COL.why, L["Why"] }, { REC_COL.status, L["Status"] },
+        { REC_COL.item, L["Item"] }, { REC_COL.status, L["Status"] },
     }
     t.recTitles = {}
     for i, c in ipairs(recTitles) do
         local fs = fixedText(inset, "labelSmall", c[1].w)
         fs:SetPoint("TOPLEFT", inset, "TOPLEFT", 6 + c[1].x, -104)
+        fs.honorLogX = 6 + c[1].x
         fs:SetText(c[2])
         fs:Hide()
         t.recTitles[i] = fs
@@ -445,24 +451,25 @@ local function buildStock(root, handlers)
                 row.stripe:SetColorTexture(1, 1, 1, 0.04)
                 row.icon = Kit:ItemIcon(row, 24)
                 row.icon:SetPoint("LEFT", row, "LEFT", REC_COL.item.x, 0)
-                row.name = fixedText(row, "value", REC_COL.item.w - 28 - 4)
-                row.name:SetPoint("LEFT", row, "LEFT", REC_COL.item.x + 28, 0)
-                row.slot = fixedText(row, "grey", REC_COL.slot.w)
-                row.slot:SetPoint("LEFT", row, "LEFT", REC_COL.slot.x, 0)
 
-                -- the why and the status are cut by their boxes: the whole sentence is the tooltip
+                -- the text block: the name and the slot, then the reason; the whole sentence is the tooltip
                 row.whyCell = CreateFrame("Frame", nil, row)
-                row.whyCell:SetPoint("LEFT", row, "LEFT", REC_COL.why.x, 0)
-                row.whyCell:SetSize(REC_COL.why.w, STOCK_ROW_H)
+                row.whyCell:SetPoint("LEFT", row, "LEFT", REC_COL.text.x, 0)
+                row.whyCell:SetSize(REC_COL.text.w, REC_ROW_H)
                 row.whyCell:EnableMouse(true)
-                row.why = fixedText(row.whyCell, "grey", REC_COL.why.w)
-                row.why:SetPoint("LEFT", row.whyCell, "LEFT", 0, 0)
+                row.name = fixedText(row.whyCell, "value", REC_COL.text.w - REC_COL.slot.w - 6)
+                row.name:SetPoint("TOPLEFT", row.whyCell, "TOPLEFT", 0, -5)
+                row.slot = fixedText(row.whyCell, "grey", REC_COL.slot.w)
+                row.slot:SetPoint("TOPRIGHT", row.whyCell, "TOPRIGHT", 0, -7)
+                row.slot:SetJustifyH("RIGHT")
+                row.why = fixedText(row.whyCell, "grey", REC_COL.text.w)
+                row.why:SetPoint("TOPLEFT", row.whyCell, "TOPLEFT", 0, -23)
                 row.whyCell:SetScript("OnEnter", function(self) showTooltip(self, self.tip) end)
                 row.whyCell:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
                 row.statusCell = CreateFrame("Frame", nil, row)
                 row.statusCell:SetPoint("LEFT", row, "LEFT", REC_COL.status.x, 0)
-                row.statusCell:SetSize(REC_COL.status.w, STOCK_ROW_H)
+                row.statusCell:SetSize(REC_COL.status.w, REC_ROW_H)
                 row.statusCell:EnableMouse(true)
                 row.status = fixedText(row.statusCell, "grey", REC_COL.status.w)
                 row.status:SetPoint("LEFT", row.statusCell, "LEFT", 0, 0)
@@ -471,7 +478,7 @@ local function buildStock(root, handlers)
 
                 row.starCell = CreateFrame("Frame", nil, row)
                 row.starCell:SetPoint("LEFT", row, "LEFT", COL.star.x, 0)
-                row.starCell:SetSize(COL.star.w, STOCK_ROW_H)
+                row.starCell:SetSize(COL.star.w, REC_ROW_H)
                 row.star = Kit:Star(row.starCell, 18)
                 row.star:SetPoint("LEFT", row.starCell, "LEFT", 0, 0)
                 row.star.honorLogOnToggle = function(star, on)
@@ -493,9 +500,9 @@ local function buildStock(root, handlers)
                 row.slot:SetText(GearVendors.SlotName(e.slot))
                 row.why:SetText(str(e.reason) or "")
                 row.whyCell.tip = reasonTip(e, entry.byID)
-                local status = statusText(e)
+                local status, buyable = statusText(e)
                 row.status:SetText(status)
-                if e.now then
+                if buyable then
                     row.status:SetTextColor(Kit.COLORS.green[1], Kit.COLORS.green[2], Kit.COLORS.green[3])
                 else
                     color(row.status, "grey")
@@ -708,6 +715,8 @@ local function setRecommendedMode(t, rec)
         t.empty:Hide()
         t.totals:Hide()
     else
+        t.area:ClearAllPoints()
+        t.area:SetPoint("TOPLEFT", t.inset, "TOPLEFT", 6, -STOCK_TOP)
         t.roleChips:Hide()
         t.roleNote:Hide()
         t.recEmpty:Hide()
@@ -765,10 +774,21 @@ local function refreshRecommended(t, state)
         end
     end
 
+    -- with no chips and no grey line the titles and the list move up, and the list is taller by the same
+    local up = (several and 0 or REC_SHIFT)
+    for _, fs in ipairs(t.recTitles) do
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", t.inset, "TOPLEFT", fs.honorLogX, -(104 - up))
+    end
+    t.area:ClearAllPoints()
+    t.area:SetPoint("TOPLEFT", t.inset, "TOPLEFT", 6, -(STOCK_TOP - up))
+    t.recEmpty:ClearAllPoints()
+    t.recEmpty:SetPoint("TOPLEFT", t.inset, "TOPLEFT", 14, -(STOCK_TOP - up) - 8)
+
     local entries, byID = {}, {}
     for _, e in ipairs(list or {}) do byID[e.itemID] = e end
     for i, e in ipairs(list or {}) do
-        entries[i] = { kind = "rec", height = STOCK_ROW_H, item = e, striped = i % 2 == 0, byID = byID }
+        entries[i] = { kind = "rec", height = REC_ROW_H, item = e, striped = i % 2 == 0, byID = byID }
     end
     local sentence
     if list and info.inventoryUnknown then
@@ -780,7 +800,7 @@ local function refreshRecommended(t, state)
     t.recEmpty:SetShown(sentence ~= nil)
 
     local skipped = type(info.skipped) == "table" and #info.skipped > 0 and info.skipped or nil
-    t.area:SetHeight(skipped and HEIGHT_PLAIN - REC_FOOT_H or HEIGHT_PLAIN)
+    t.area:SetHeight(HEIGHT_PLAIN + up - (skipped and REC_FOOT_H or 0))
     t.area:honorLogSetContentHeight(t.stack:SetData(entries))
 
     t.foot:SetText(L["PvP rewards only, compared by item level with what you wear."])

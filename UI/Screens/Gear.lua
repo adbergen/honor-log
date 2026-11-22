@@ -255,8 +255,9 @@ local function buildGoalsList(inset)
         end)
         a.recRows[i] = row
     end
+    -- a small secondary control at its natural width: "Add a goal" stays the one main action
     a.recLink = Kit:Button(inset, L["See all recommendations"], "small")
-    a.recLink:SetSize(A_W - 24, 20)
+    a.recLink:SetSize(Kit:Chars(L["See all recommendations"]) * 6 + 16, 20)
     a.recLink:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -(REC_TOP + REC_SHOWN * REC_ROW_H + 8))
     a.recLink:Hide()
     a.recLink:SetScript("OnClick", function()

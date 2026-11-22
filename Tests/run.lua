@@ -5489,6 +5489,8 @@ local function run()
             local save = { engine = Rec.GetRecommendedGoals, goals = char.goals, vendor = S.windowVendor, goal = S.windowGoal, class = S.windowVendorClass,
                 tab = S.windowTab, sort = HL.SortGoalsByPriority, role = char.recommendRole, cap = HL.GetHonorCapAdvice, buyable = HL.GetBuyableNow,
                 level = mock.level, faction = mock.faction }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
             local function click(f) f.__scripts.OnClick(f, "LeftButton") end
             local function enter(f) f.__scripts.OnEnter(f) end
             local function leave(f) f.__scripts.OnLeave(f) end
@@ -5598,23 +5600,25 @@ local function run()
             check(rowY == 0 and select(5, first1.name:GetPoint()) <= -9, "recommended: its name sits below the window's portrait corner")
             check(S.windowVendor == "" and first1.wash:IsShown() and first1.edge:IsShown(), "recommended: a save that never chose a vendor starts on it")
             check(stock.name:GetText() == "Recommended for you" and not stock.map:IsShown() and not stock.link:IsShown() and stock.back:IsShown(), "recommended: the head names it and has no map or place")
-            check(stock.recTitles[1]:IsShown() and stock.recTitles[3]:GetText() == "Why" and stock.recTitles[4]:GetText() == "Status" and not stock.titles[1]:IsShown(), "recommended: its own column titles")
+            check(stock.recTitles[1]:IsShown() and #stock.recTitles == 2 and stock.recTitles[2]:GetText() == "Status" and stock.recTitles[1]:GetText() == "Item" and not stock.titles[1]:IsShown(), "recommended: its own column titles")
             check(not stock.classChips:IsShown() and not stock.setChips:IsShown() and not stock.totals:IsShown() and not stock.empty:IsShown(), "recommended: no class or set filter")
             local rows = stock.stack.pools.rec
             check(stock.stack.count == #E and rows[1]:IsShown() and rows[#E]:IsShown(), "recommended: a row for each recommendation")
             for i, e in ipairs(E) do
                 local r = rows[i]
                 check(r.icon.honorLogItemID == e.itemID and r.name:GetText():find(e.name, 1, true) and r.slot:GetText() == Vend.SlotName(e.slot)
-                    and r.why:GetText() == e.reason and r:GetHeight() == 30, "recommended: row " .. i .. " has the icon, name, slot and reason")
-                check(r.name.__wrapWidth and r.why.__wrapWidth == 158 and r.status.__wrapWidth == 100 and r.slot.__wrapWidth == 54, "recommended: row " .. i .. " texts are fixed width")
+                    and r.why:GetText() == e.reason and r:GetHeight() == 40, "recommended: row " .. i .. " has the icon, name, slot and reason")
+                check(r.name.__wrapWidth == 276 and r.why.__wrapWidth == 342 and r.status.__wrapWidth == 150 and r.slot.__wrapWidth == 60, "recommended: row " .. i .. " texts are fixed width")
                 enter(r.whyCell)
                 check(tipText():find(e.reason, 1, true), "recommended: row " .. i .. " the reason's tooltip carries the whole sentence")
                 leave(r.whyCell)
             end
             check(rows[1].status:GetText() == "Ready to purchase" and rows[2].status:GetText() == "Rank 8 · Dec 2", "recommended: a buyable row and a dated row say so in the status")
-            check(rows[3].status:GetText() == "Can be bought today", "recommended: a buy-today row says so in words")
+            check(rows[3].status:GetText() == "Ready to purchase" and rows[1].status:GetText() == "Ready to purchase"
+                and same(textColor(rows[3].status), Kit.COLORS.green) and same(textColor(rows[1].status), Kit.COLORS.green) and not same(textColor(rows[2].status), Kit.COLORS.green),
+                "recommended: every buyable row, the buy-today one too, reads Ready to purchase in green")
             enter(rows[3].statusCell)
-            check(tipText():find("Can be bought today", 1, true) and tipText():find(E[2].name, 1, true), "recommended: and its tooltip names the better item it stands in for")
+            check(tipText():find("Ready to purchase", 1, true) and tipText():find(E[2].name, 1, true), "recommended: and its tooltip names the better item it stands in for")
             leave(rows[3].statusCell)
             enter(rows[2].whyCell)
             check(tipText():find(E[2].reason, 1, true) and tipText():find("A smaller upgrade can be bought today: " .. E[3].name, 1, true), "recommended: the row with an alternative names it in its tooltip")
@@ -5657,6 +5661,8 @@ local function run()
 
             -- the role chips: only for a class with several lines
             check(stock.roleChips:IsShown() and #fixture.info.classRoles == 2, "roles: a class with two lines shows the chips")
+            local withChipsHeight = stock.area:GetHeight()
+            check(select(5, stock.recTitles[1]:GetPoint()) == -104 and select(5, stock.area:GetPoint()) == -120 and withChipsHeight == 334, "roles: with chips the titles are at 104 and the list at 120")
             local chips = stock.roleChips
             check(chips.honorLogButtons[1]:GetText() == "From your spec" and chips.honorLogButtons[2]:GetText() == "Healer" and chips.honorLogButtons[3]:GetText() == "Caster"
                 and not (chips.honorLogButtons[4] and chips.honorLogButtons[4]:IsShown()) and chips.honorLogChosen == "spec", "roles: From your spec and each role the class has, the first chosen")
@@ -5675,6 +5681,8 @@ local function run()
             engine(nil, { classRoles = { "physical" }, roleSource = "unknown", skipped = {} })
             Window:RefreshCurrent()
             check(not stock.roleChips:IsShown() and not stock.roleNote:IsShown(), "roles: a class with one line has no chips and no line")
+            check(select(5, stock.recTitles[1]:GetPoint()) == -52 and select(5, stock.area:GetPoint()) == -68 and stock.area:GetHeight() == withChipsHeight + 52,
+                "roles: with no chips and no line the titles and the list move up 52 and the list is taller by the same")
             engine(nil, { classRoles = {}, roleSource = "unknown", skipped = {} })
             Window:RefreshCurrent()
             check(not stock.roleChips:IsShown(), "roles: a class with no lines has no chips")
@@ -5711,6 +5719,7 @@ local function run()
             local list = parts.list
             check(not list.sort:IsShown() and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock.", "empty: the shortened sentence")
             check(list.recHeader:IsShown() and list.recHeader.Label:GetText() == "Recommended for you" and list.recLink:IsShown() and list.recLink:GetText() == "See all recommendations", "empty: the header and the link")
+            check(list.recLink:GetWidth() < 200 and list.recLink:GetHeight() == 20 and select(4, list.recLink:GetPoint()) == 12 and list.recLink:GetWidth() < list.add:GetWidth(), "empty: the link is a small control at its natural width, left aligned")
             for i = 1, 3 do
                 local r = list.recRows[i]
                 check(r:IsShown() and r.icon.honorLogItemID == E[i].itemID and r.name:GetText():find(E[i].name, 1, true) and r.reason:GetText() == E[i].reason and r.add:GetText() == "Add"
@@ -5805,27 +5814,53 @@ local function run()
                 for i, a in ipairs(adviceList) do out[i] = a.kind end
                 return table.concat(out, ",")
             end
-            HL.GetHonorCapAdvice = function() return { text = "Spend your honor.", current = 24000, cap = 25000, buyable = {} } end
-            HL.GetBuyableNow = function() return {} end
+            local function find(adviceList, kind)
+                for _, a in ipairs(adviceList) do if a.kind == kind then return a end end
+            end
+            local function lines(a) return #a.head + 1 + #a.body end
+            local capAdvice = function() return { text = "Spend your honor.", current = 24000, cap = 25000, buyable = {} } end
+            -- 1. with the honor-cap advice: it names the best upgrade, and there is no second line
+            HL.GetHonorCapAdvice = capAdvice
+            HL.GetBuyableNow = function() return { { itemID = E[5].itemID, name = "Some Other Piece" } } end
             engine(nil)
             local advice = HL:GetAdvice(10)
-            check(kindList(advice):find("cap,upgrade", 1, true), "advice: the upgrade comes right after the honor cap: " .. kindList(advice))
-            local entry
-            for _, a in ipairs(advice) do if a.kind == "upgrade" then entry = a end end
-            check(entry and entry.itemID == E[1].itemID and entry.head:find(E[1].name, 1, true) and entry.body == E[1].reason, "advice: it names the top item, with its reason and its icon")
-            engine({ E[1] })
-            check(kindList(HL:GetAdvice(10)):find("upgrade", 1, true), "advice: also with nothing else of its kind to say")
+            local cap = find(advice, "cap")
+            check(cap and not find(advice, "upgrade"), "advice: with the cap advice there is no separate upgrade line: " .. kindList(advice))
+            check(cap.itemID == E[1].itemID and cap.head:find("24,000 of 25,000", 1, true) and cap.body == E[1].name .. " is your best upgrade: +8 item levels.",
+                "advice: the cap advice names the best upgrade and by how much: " .. tostring(cap.body))
+            engine({ E[3] })
+            cap = find(HL:GetAdvice(10), "cap")
+            check(cap.itemID == E[3].itemID and cap.body == E[3].name .. " is your best upgrade: +3 item levels.", "advice: a buy-today row is named the same way")
+            engine({ { itemID = E[1].itemID, name = E[1].name, buyable = true, gain = 1, reason = "x" } })
+            check(find(HL:GetAdvice(10), "cap").body == E[1].name .. " is your best upgrade: +1 item level.", "advice: one item level is singular")
+            engine({ { itemID = E[1].itemID, name = E[1].name, buyable = true, empty = true, reason = "Empty slot" } })
+            check(find(HL:GetAdvice(10), "cap").body == E[1].name .. " is your best upgrade: it fills an empty slot.", "advice: an empty slot says so")
+            -- 2. without the cap advice: the separate line
+            HL.GetHonorCapAdvice = function() return nil end
+            engine(nil)
+            advice = HL:GetAdvice(10)
+            local entry = find(advice, "upgrade")
+            check(not find(advice, "cap") and entry and entry.itemID == E[1].itemID and entry.head:find(E[1].name, 1, true) and entry.body == E[1].reason,
+                "advice: with no cap advice the Best upgrade today line names the top item, its reason and its icon: " .. kindList(advice))
             engine({ E[2], E[1] })
-            check(not kindList(HL:GetAdvice(10)):find("upgrade", 1, true), "advice: not when the top item cannot be bought today")
+            check(not find(HL:GetAdvice(10), "upgrade"), "advice: not when the top item cannot be bought today")
             engine({})
-            check(not kindList(HL:GetAdvice(10)):find("upgrade", 1, true), "advice: not with nothing to recommend")
-            HL:AddGoal(fixture.goalID)
+            check(not find(HL:GetAdvice(10), "upgrade"), "advice: not with nothing to recommend")
+            -- 3. the cap advice with nothing buyable among the recommendations is what it was
+            HL.GetHonorCapAdvice = capAdvice
+            for _, none in ipairs({ {}, { E[2] }, "nil" }) do
+                engine(none)
+                HL.GetBuyableNow = function() return { { itemID = E[5].itemID, name = "Some Other Piece" } } end
+                cap = find(HL:GetAdvice(10), "cap")
+                check(cap and cap.itemID == E[5].itemID and cap.body == "You can buy Some Other Piece now.", "advice: the cap advice is what it was with nothing buyable to recommend")
+            end
             local goalEntry = { itemID = fixture.goalID, name = "Goal piece", slot = "HEAD", reason = "Empty slot", buyable = true, empty = true }
+            HL:AddGoal(fixture.goalID)
             Rec.GetRecommendedGoals = function() return { goalEntry }, fixture.info end
             Rec:Invalidate()
-            check(not kindList(HL:GetAdvice(10)):find("upgrade", 1, true), "advice: not when the top item is already a goal")
+            check(find(HL:GetAdvice(10), "cap").itemID ~= fixture.goalID and not find(HL:GetAdvice(10), "upgrade"), "advice: a top item that is already a goal is not named")
             HL:RemoveGoal(fixture.goalID)
-            -- the longest name in the database, and the longest reason
+            -- the longest name in the database, in both lines
             local longest = ""
             for _, row in pairs(HL.GearDB) do if #row.name > #longest then longest = row.name end end
             local longEntry = { itemID = E[1].itemID, name = longest, slot = "HEAD", buyable = true, gain = 12, ilvl = 70,
@@ -5833,14 +5868,18 @@ local function run()
                 reason = "+12 item levels over " .. longest .. " Buy the blue piece first, then upgrade it with a Seal." }
             Rec.GetRecommendedGoals = function() return { longEntry }, fixture.info end
             Rec:Invalidate()
-            entry = nil
-            for _, a in ipairs(HL:GetAdvice(10)) do if a.kind == "upgrade" then entry = a end end
-            check(entry and #entry.head + 1 + #entry.body <= 135 and entry.head:find(longest, 1, true) and entry.body == "+12 item levels over what you wear",
-                "advice: the longest item name in the database fits three lines, the reason giving way: " .. tostring(entry and (#entry.head + 1 + #entry.body)))
+            cap = find(HL:GetAdvice(10), "cap")
+            check(cap.itemID == E[1].itemID and lines(cap) <= 135 and cap.body:find(longest, 1, true), "advice: the cap advice with the longest name fits three lines: " .. lines(cap))
+            HL.GetHonorCapAdvice = function() return nil end
+            Rec:Invalidate()
+            entry = find(HL:GetAdvice(10), "upgrade")
+            check(entry and lines(entry) <= 135 and entry.head:find(longest, 1, true) and entry.body == "+12 item levels over what you wear",
+                "advice: the upgrade line with the longest name fits three lines, the reason giving way: " .. tostring(entry and lines(entry)))
             longEntry.reason = "+12 item levels over Short"
             Rec:Invalidate()
-            for _, a in ipairs(HL:GetAdvice(10)) do if a.kind == "upgrade" then entry = a end end
-            check(entry.body == "Empty slot" or entry.body == "+12 item levels over Short", "advice: a short reason is kept")
+            entry = find(HL:GetAdvice(10), "upgrade")
+            check(entry.body == "+12 item levels over Short", "advice: a short reason is kept")
+            HL.GetHonorCapAdvice = capAdvice
             Rec.GetRecommendedGoals = function() error("engine failed") end
             Rec:Invalidate()
             noErrors("advice: an engine that raises", function() HL:GetAdvice(10) end)
