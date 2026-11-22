@@ -55,7 +55,7 @@ local function run()
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Screens/Characters.lua", "UI/Moments.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Screens/Players.lua", "UI/Screens/Characters.lua", "UI/Moments.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3528,7 +3528,7 @@ local function run()
             end })
         end
         registerProbe()
-        check(#Window.screens == 8 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "characters" and Window.screens[8].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 9 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "players" and Window.screens[8].key == "characters" and Window.screens[9].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -4016,11 +4016,12 @@ local function run()
             Window:Show("battlegrounds")
             Window:Show("world")
             Window:Show("quests")
+            Window:Show("players")
             Window:Show("characters")
             Window:Show("overview")
             local S3 = HL.db.settings
             local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode, kind = S3.windowWorldKind }
-            local n, gearClicks, bgClicks, questClicks, worldClicks, charClicks = 0, 0, 0, 0, 0, 0
+            local n, gearClicks, bgClicks, questClicks, worldClicks, charClicks, playerClicks = 0, 0, 0, 0, 0, 0, 0
             -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
             -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
@@ -4061,6 +4062,13 @@ local function run()
                             p, hops = p.__parent, hops + 1
                         end
                     end
+                    if Window.frames.players then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.players then playerClicks = playerClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if Window.frames.characters then
                         local hops, p = 0, f
                         while p and hops < 40 do
@@ -4083,6 +4091,7 @@ local function run()
             check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
             check(questClicks > 8, label .. "integration clicked " .. questClicks .. " controls on the Quests screen")
             check(worldClicks > 8, label .. "integration clicked " .. worldClicks .. " controls on the World PvP screen")
+            check(playerClicks > 0, label .. "integration clicked " .. playerClicks .. " controls on the Players screen")
             check(charClicks > 0, label .. "integration clicked " .. charClicks .. " controls on the Characters screen")
             mock.momentsPass(label)
             S3.windowBattleground, S3.windowResult, S3.viewMode, S3.windowWorldKind = savedBg.bg, savedBg.result, savedBg.view, savedBg.kind
@@ -6064,6 +6073,8 @@ local function run()
                 and H.rows[1].bar.honorLogLeftCount == 5 and H.rows[1].bar.honorLogRightCount == 2 and H.rows[2].name:GetText() == "Bravo" and H.rows[2].record:GetText() == "0 - 3"
                 and H.rows[3].name:GetText() == "Charlie" and not H.rows[4]:IsShown() and H.rows[1]:IsShown() and not H.empty:IsShown(), "head: the most fought, with record and split bar")
             check(H.rows[1].name.__wrapWidth == 128 and H.rows[1].bar:GetWidth() == 252 and H.rows[1].bar:GetHeight() == 8 and H.note:GetText() == "Green: your kills. Red: their kills." and H.note:IsShown(), "head: widths, and the line that says whose side is whose")
+            HL.PlayersScreen = nil
+            Window:RefreshCurrent()
             check(not H.rows[1].hl:IsShown() and not H.rows[1].honorLogClickable, "head: with no Players screen a row has no highlight")
             noErrors("head: a click with no Players screen", function() click(H.rows[1]) end)
             H.rows[1].__scripts.OnEnter(H.rows[1])
@@ -6284,6 +6295,314 @@ local function run()
             Window:Hide()
         end)()
 
+        -- ═══ Players: the seventh screen, who this player is to you ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Window, PS, Met, WorldLog = HL.Kit, HL.Window, HL.PlayersScreen, HL.Met, HL.WorldLog
+            local S, db = HonorLogDB.settings, HL.db
+            local save = { met = db.char.met, opp = db.char.opponents, log = db.char.worldLog, tab = S.windowTab, chosen = S.windowPlayer, place = HL.ShowPlaceOnMap,
+                openMap = HL.MapPin.OpenMap, updated = HL.OnDataUpdated, deferred = mock.deferTimers }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local now = time()
+            local function seed()
+                db.char.met = {
+                    Ally1 = { class = "MAGE", with = 8, withWins = 7, against = 0, againstWins = 0, kbBest = 0, last = now - 100 },
+                    Ally2 = { class = "PRIEST", with = 5, withWins = 3, against = 0, againstWins = 0, kbBest = 0, last = now - 120 },
+                    Drawn = { class = "WARRIOR", with = 8, withWins = 5, against = 0, againstWins = 0, kbBest = 0, last = now - 130 },
+                    Foe1 = { class = "ROGUE", with = 0, withWins = 0, against = 6, againstWins = 1, kbBest = 9, last = now - 200 },
+                    ["Bob-Realm"] = { class = "WARRIOR", with = 2, withWins = 1, against = 8, againstWins = 5, kbBest = 14, last = now - 300 },
+                    Rare = { class = "HUNTER", with = 1, withWins = 0, against = 0, againstWins = 0, kbBest = 0, last = now - 50 },
+                }
+                db.char.opponents = {
+                    Bob = { class = "WARRIOR", kills = 4, deaths = 2, lastSeen = now - 60 },
+                    Charlie = { class = "SHAMAN", kills = 1, deaths = 0, lastSeen = now - 90 },
+                }
+                db.char.worldLog = {
+                    { t = now - 60, kind = "death", name = "Bob", class = "WARRIOR", map = 1424, x = 60, y = 40, zone = "Hillsbrad Foothills" },
+                    { t = now - 70, kind = "kill", name = "Bob", class = "WARRIOR", map = 1417, zone = "Arathi Highlands" },
+                    { t = now - 80, kind = "kill", name = "Bob", class = "WARRIOR" },
+                    { t = now - 90, kind = "kill", name = "Charlie", class = "SHAMAN", zone = "Mystery Zone" },
+                }
+            end
+            seed()
+            S.windowPlayer = ""
+            S.windowTab = "players"
+            local errorsBefore = #mock.handledErrors
+            Window:Show("players")
+            check(#mock.handledErrors == errorsBefore, "players: it builds and draws without an error: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            local scr = Window.frames.players
+            local P = scr.honorLogParts
+            local Lst, D = P.list, P.detail
+            check(PS == HL.PlayersScreen and Window.current == "players" and Window:GetScreen("players").title == "Players" and Window:GetScreen("players").order == 7
+                and Window.screens[6].key == "quests" and Window.screens[7].key == "players" and Window.screens[8].key == "characters"
+                and Window.tabs.list[7].honorLogKey == "players" and Window.tabs.list[8].honorLogKey == "characters", "players: the tab is the seventh, between Quests and Characters")
+            check(S.windowPlayer == "", "players: the chosen player defaults to nobody")
+
+            -- the boxes
+            check(P.search:GetWidth() == 220 and P.search:GetHeight() == 20 and P.search.__points[1][4] == 44 and P.search.__points[1][4] >= Kit.PORTRAIT_CLEAR and P.search.__points[1][5] == -2,
+                "players: the search box is 220 x 20 at 44, 2, clear of the portrait")
+            check(P.count.__wrapWidth == 300 and P.count.__points[1][4] == 568 and P.count.__points[1][5] == -5, "players: the count is 300 wide at 568, 5")
+            check(Lst.inset:GetWidth() == 520 and Lst.inset:GetHeight() == 460 and Lst.inset.__points[1][4] == 0 and Lst.inset.__points[1][5] == -30
+                and Lst.area:GetWidth() == 486 and Lst.area:GetHeight() == 444 and Lst.area.__points[1][4] == 6 and Lst.area.__points[1][5] == -8, "players: the list box and its scroll area")
+            check(D.inset:GetWidth() == 340 and D.inset:GetHeight() == 460 and D.inset.__points[1][4] == 528 and D.inset.__points[1][5] == -30, "players: the detail box")
+            check(P.count:GetText() == "6 players met", "players: how many players have been met: " .. tostring(P.count:GetText()))
+
+            -- the groups from the real store
+            local titles, rows = Lst.stack.pools.title, Lst.stack.pools.player
+            check(Lst.stack.count == 13 and titles[1].text:GetText() == "Who you win with" and titles[2].text:GetText() == "Who you lose to"
+                and titles[3].text:GetText() == "Top killers you have faced" and titles[4].text:GetText() == "Most fought in the world", "players: four groups, each with its heading")
+            check(rows[1].name:GetText() == "Ally1" and rows[2].name:GetText() == "Drawn" and rows[3].name:GetText() == "Ally2" and rows[4].name:GetText() == "Foe1" and rows[5].name:GetText() == "Bob-Realm"
+                and rows[6].name:GetText() == "Bob-Realm" and rows[7].name:GetText() == "Foe1" and rows[8].name:GetText() == "Bob" and rows[9].name:GetText() == "Charlie", "players: the rows in each group's order")
+            local _, mr, mg, mb = Kit:ClassText("MAGE")
+            check(rows[1].class:GetText() == "Mage" and same(textColor(rows[1].class), { mr, mg, mb }) and rows[1].games:GetText() == "8 games" and rows[1].value:GetText() == "88%"
+                and rows[1].bar:IsShown() and rows[1].bar.honorLogFraction == 0.875 and not rows[1].split:IsShown(), "players: an ally row: name, class word in its colour, games, win rate and bar")
+            check(rows[6].value:GetText() == "14 KB" and rows[6].games:GetText() == "8 games" and not rows[6].bar:IsShown(), "players: a killer row: games against and killing blows, no bar")
+            check(rows[8].games:GetText() == "4 - 2" and rows[8].split:IsShown() and rows[8].split.honorLogLeftCount == 4 and rows[8].split.honorLogRightCount == 2 and not rows[8].bar:IsShown(),
+                "players: a world row: the record and a split bar")
+            check(rows[1].name.__wrapWidth == 176 and rows[1].class.__wrapWidth == 56 and rows[1].games.__wrapWidth == 70 and rows[1].bar:GetWidth() == 90 and rows[1].value.__wrapWidth == 50
+                and Lst.stack.pools.title[1].text.__wrapWidth == 470 and titles[1]:GetHeight() == 22 and rows[1]:GetHeight() == 24, "players: the list's columns and heights")
+            check(Lst.area.honorLogContentHeight == 4 * 22 + 9 * 24 and not Lst.empty:IsShown(), "players: the content height")
+            check(P.detail.empty:IsShown() and P.detail.empty:GetText() == "Pick a player on the left to see your whole record with them." and not D.title:IsShown()
+                and D.foot:GetText() == "Nothing about other players leaves your computer." and D.foot:IsShown(), "players: nobody chosen: one sentence, and the foot")
+            rows[1].click.__scripts.OnEnter(rows[1].click)
+            check(tipText():find("Ally1", 1, true) and tipText():find("Mage", 1, true) and tipText():find("On your team: won 7 of 8 games", 1, true), "players: a row's tooltip names the player: " .. tipText())
+            rows[1].click.__scripts.OnLeave(rows[1].click)
+            check(not mock.tip.shown, "players: and goes away")
+            rows[6].click.__scripts.OnEnter(rows[6].click)
+            check(tipText():find("Most killing blows in one game against your team: 14", 1, true), "players: a killer's tooltip says what the number is: " .. tipText())
+            rows[6].click.__scripts.OnLeave(rows[6].click)
+
+            -- choosing a row; the mark; the detail
+            click(rows[5].click)
+            check(S.windowPlayer == "Bob-Realm" and rows[5].wash:IsShown() and rows[5].edge:IsShown() and rows[6].wash:IsShown() and not rows[1].wash:IsShown(), "players: a click chooses the player, saves it and marks the row")
+            check(D.title:GetText() == "Bob-Realm" and D.title:IsShown() and D.title.__wrapWidth == 316 and not D.empty:IsShown() and D.class:GetText() == "Warrior"
+                and D.lastGame:GetText():find("^Last game: "), "players: the detail head: name, class, last game")
+            check(D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 5 of 8 games" and D.withBar.honorLogFraction == 0.5 and D.againstBar.honorLogFraction == 0.625
+                and D.kbLabel:GetText() == "Most killing blows in one game against your team" and D.kbValue:GetText() == "14 killing blows" and not D.bgNone:IsShown(), "players: in battlegrounds, won N of M, and the killing blows labelled")
+            check(D.yourKills:GetText() == "Your kills: 4" and D.theirKills:GetText() == "Their kills: 2" and D.split.honorLogLeftCount == 4 and D.split.honorLogRightCount == 2
+                and D.splitNote:GetText() == "Green: your kills. Red: their kills." and D.lastSeen:GetText():find("^Last seen: ") and not D.worldNone:IsShown(),
+                "players: in the world: the realm-suffixed name found its world record under the name without one")
+            local F = D.fights
+            check(F[1].result:GetText() == "Death" and same(textColor(F[1].result), Kit.COLORS.red) and F[2].result:GetText() == "Kill" and same(textColor(F[2].result), Kit.COLORS.green)
+                and F[3].result:GetText() == "Kill" and not F[4].place:IsShown() and not F[4].result:IsShown() and not D.fightNone:IsShown(), "players: the latest fights, newest first")
+            check(F[1].place:IsShown() and F[1].place.honorLogMode == "pin" and F[2].place.honorLogMode == "zone" and not F[3].place:IsShown() and F[3].none:IsShown() and F[1].place:GetWidth() == 160,
+                "players: where is a place link: a position, a zone, or a dash")
+            local pinned = {}
+            HL.ShowPlaceOnMap = function(_, place) pinned[#pinned + 1] = place return true end
+            click(F[1].place)
+            check(#pinned == 1 and pinned[1].key == "honorLogPlayers" and pinned[1].map == 1424, "players: a place pins with the one fixed key")
+            HL.ShowPlaceOnMap = save.place
+            check(D.fights[1].when.__wrapWidth == 100 and D.fights[1].result.__wrapWidth == 48 and D.fights[1].when.__points[1][5] == -298 and D.fights[2].when.__points[1][5] == -320
+                and D.worldHeader.__points[1][5] == -180 and D.bgHeader.__points[1][5] == -56 and D.fightHeader.__points[1][5] == -274, "players: the detail's boxes")
+
+            -- a draw in the data: "won 5 of 8", never a score
+            click(rows[2].click)
+            check(D.withValue:GetText() == "won 5 of 8 games" and not D.withValue:GetText():find("5 %- 3") and D.againstValue:GetText() == "No games against them" and same(textColor(D.againstValue), Kit.COLORS.grey)
+                and not D.againstBar:IsShown() and not D.kbValue:IsShown() and not D.kbLabel:IsShown(), "players: a draw counts as no win: won 5 of 8 games")
+            check(D.worldNone:IsShown() and D.worldNone:GetText() == "Never fought outside a battleground." and not D.yourKills:IsShown() and not D.split:IsShown() and not D.lastSeen:IsShown()
+                and D.fightNone:IsShown() and D.fightNone:GetText() == "No fights to list yet." and not F[1].result:IsShown(), "players: a part with no data is one grey line, not zeros")
+            click(rows[9].click)
+            check(D.bgNone:IsShown() and D.bgNone:GetText() == "No battleground games with this player yet." and not D.withValue:IsShown() and not D.lastGame:IsShown()
+                and D.yourKills:GetText() == "Your kills: 1" and D.fights[1].result:GetText() == "Kill" and not D.fights[2].result:IsShown(), "players: a player met only in the world has no battleground part")
+            -- one game
+            S.windowPlayer = "Rare"
+            Window:RefreshCurrent()
+            check(D.withValue:GetText() == "won 0 of 1 game" and D.title:GetText() == "Rare", "players: one game reads 'won 0 of 1 game'")
+
+            -- the name without a suffix finds the record of the one with it
+            PS:Open("Bob")
+            check(Window.current == "players" and S.windowPlayer == "Bob" and D.title:GetText() == "Bob" and D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 5 of 8 games"
+                and D.yourKills:GetText() == "Your kills: 4", "players: Open(name) chooses the player, and a name without a realm finds the suffixed record")
+            check(rows[8].wash:IsShown(), "players: and the row of the world group is marked")
+
+            -- the saved choice, restored after a rebuild; an unknown saved name is nobody
+            S.windowPlayer = "Ally2"
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show("players")
+            scr = Window.frames.players
+            P = scr.honorLogParts
+            Lst, D = P.list, P.detail
+            rows = Lst.stack.pools.player
+            check(D.title:GetText() == "Ally2" and rows[3].wash:IsShown() and D.withValue:GetText() == "won 3 of 5 games", "players: the saved choice is restored after a rebuild")
+            S.windowPlayer = "Nobody Atall"
+            Window:RefreshCurrent()
+            check(D.empty:IsShown() and not D.title:IsShown() and not rows[3].wash:IsShown() and S.windowPlayer == "Nobody Atall", "players: a saved name nothing knows is read as nobody")
+            S.windowPlayer = 42
+            noErrors("players: a saved choice of the wrong type", function() Window:RefreshCurrent() end)
+            S.windowPlayer = ""
+
+            -- search
+            local box = P.search
+            mock.typeText(box, "ob")
+            check(scr.honorLogSearchText() == "ob" and Lst.stack.count == 2 and Lst.stack.pools.title[1].text:GetText() == "Matches" and rows[1].name:GetText() == "Bob"
+                and rows[1].games:GetText() == "10 games", "players: a part of a name finds the player in either store, once: " .. tostring(rows[1].name:GetText()))
+            mock.typeText(box, "RAR")
+            check(Lst.stack.count == 2 and rows[1].name:GetText() == "Rare" and rows[1].games:GetText() == "1 game", "players: any case, a battleground-only player")
+            mock.typeText(box, "char")
+            check(Lst.stack.count == 2 and rows[1].name:GetText() == "Charlie" and rows[1].games:GetText() == "1 - 0" and rows[1].split:IsShown(), "players: a world-only player")
+            mock.typeText(box, "zzz")
+            check(Lst.stack.count == 0 and Lst.empty:IsShown() and Lst.empty:GetText() == "No players match.", "players: no match says so")
+            Lst.area:SetVerticalScroll(0)
+            mock.typeText(box, "")
+            check(scr.honorLogSearchText() == "" and Lst.stack.count == 13 and not Lst.empty:IsShown(), "players: clearing the search brings the four groups back")
+
+            -- scroll: kept on a refresh, reset by a search (thirty matches are longer than the box)
+            for i = 1, 30 do db.char.met["Scroll" .. i] = { class = "MAGE", with = 1, withWins = 0, against = 0, againstWins = 0, kbBest = 0, last = now - i } end
+            mock.typeText(box, "scroll")
+            check(Lst.stack.count == 31 and Lst.area.honorLogContentHeight == 22 + 30 * 24, "players: matches are limited to thirty rows and scroll")
+            Lst.area:SetVerticalScroll(100)
+            Window:RefreshCurrent()
+            check(Lst.area:GetVerticalScroll() == 100, "players: a refresh keeps the scroll position")
+            mock.typeText(box, "scrol")
+            check(Lst.area:GetVerticalScroll() == 0, "players: a search goes back to the top")
+            for i = 1, 30 do db.char.met["Scroll" .. i] = nil end
+            mock.typeText(box, "")
+
+            -- stubbed groups: an empty group is left out; all empty is one sentence
+            local realList, realTop = Met.GetList, HL.GetTopOpponents
+            Met.GetList = function(_, kind)
+                if kind == "allies" then return { { name = "Stub", class = "MAGE", games = 4, wins = 2, rate = 0.5, kbBest = 0, last = 1 }, "junk", { name = 5 } } end
+                return {}
+            end
+            HL.GetTopOpponents = function() return {} end
+            Window:RefreshCurrent()
+            check(Lst.stack.count == 2 and Lst.stack.pools.title[1].text:GetText() == "Who you win with" and rows[1].name:GetText() == "Stub" and rows[1].value:GetText() == "50%",
+                "players: stubbed data: a group with nothing is left out")
+            Met.GetList = function() return {} end
+            Window:RefreshCurrent()
+            check(Lst.stack.count == 0 and Lst.empty:IsShown() and Lst.empty:GetText() == "Players appear here after a battleground whose scoreboard HonorLog could read, and a player needs three games to be ranked.",
+                "players: every group empty: one sentence says what will appear and when")
+            Met.GetList, HL.GetTopOpponents = realList, realTop
+            db.char.met, db.char.opponents, db.char.worldLog = {}, {}, {}
+            Window:RefreshCurrent()
+            check(P.count:GetText() == "No players met yet" and Lst.empty:IsShown() and D.empty:IsShown(), "players: no data at all")
+            seed()
+            Window:RefreshCurrent()
+            check(P.count:GetText() == "6 players met" and Lst.stack.count == 13, "players: the data comes back")
+
+            -- the head to head row of the World PvP screen opens this screen
+            S.windowPlayer = ""
+            Window:Show("world")
+            local H = Window.frames.world.honorLogParts.head
+            check(H.rows[1].honorLogClickable and H.rows[1].hl:IsShown() and H.rows[1].name:GetText() == "Bob", "players: the World PvP row is now a link")
+            click(H.rows[1])
+            check(Window.current == "players" and S.windowPlayer == "Bob" and Window.frames.players.honorLogParts.detail.title:GetText() == "Bob", "players: a head-to-head row opens this screen on that player")
+
+            -- staying current: a scoreboard redraws the screen on the next tick, once, only while shown
+            HL.OnDataUpdated = function() end
+            Window:Show("players")
+            local refreshes = 0
+            local frame = Window.frames.players
+            local realRefresh = frame.Refresh
+            frame.Refresh = function(self, ...) refreshes = refreshes + 1 return realRefresh(self, ...) end
+            mock.deferTimers = true
+            local function board(name) return { rows = { { name = name, faction = 1, kb = 0, class = "MAGE" }, { name = "Tester", faction = 1, kb = 1 } },
+                me = { name = "Tester", faction = 1, kb = 1 }, result = "win", bgType = "WSG", timestamp = now } end
+            HL:Fire("HonorLog_GameScoreboard", board("Newbie"))
+            HL:Fire("HonorLog_WorldDeath", { name = "Newbie" })
+            check(refreshes == 0 and P.count:GetText() == "6 players met", "players: nothing is drawn inside the event")
+            mock.flushTimers()
+            check(refreshes == 1 and Window.frames.players.honorLogParts.count:GetText() == "7 players met", "players: one redraw on the next tick sees the new player: " .. refreshes)
+            Window:Show("overview")
+            refreshes = 0
+            HL:Fire("HonorLog_GameScoreboard", board("Newbie2"))
+            mock.flushTimers()
+            check(refreshes == 0, "players: nothing is redrawn while another screen is shown")
+            Window:Hide()
+            HL:Fire("HonorLog_GameScoreboard", board("Newbie3"))
+            mock.flushTimers()
+            check(refreshes == 0, "players: nor while the window is hidden")
+            mock.deferTimers = save.deferred
+            frame.Refresh = realRefresh
+            HL.OnDataUpdated = save.updated
+            Window:Show("players")
+            check(frame.honorLogParts.count:GetText() == "9 players met", "players: showing the screen draws what came in meanwhile")
+
+            -- hygiene
+            do
+                local inScreen = function(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == Window.frames.players then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inScreen(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar"
+                                    and k ~= "Instructions" and k ~= "searchIcon" and k ~= "clearButton" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "players: no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 2 and #foreign == 0, "players: only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            end
+            local framesBefore = #mock.frames
+            for _ = 1, 10 do Window:RefreshCurrent() end
+            check(#mock.frames == framesBefore, "players: ten refreshes make no new frames")
+
+            -- odd values and failing sources
+            local secret = mock.newSecret
+            noErrors("players: secret and odd values in the stores", function()
+                db.char.met = { [secret()] = {}, Odd = { class = secret(), with = secret(), against = "x", kbBest = secret(), last = secret() }, Bad = "junk", Fine = { class = "NOSUCHCLASS", with = 4, withWins = 2 } }
+                db.char.opponents = { Odd = { class = secret(), kills = 1, deaths = 1, lastSeen = 5 } }
+                db.char.worldLog = { { t = secret(), kind = "kill", name = "Odd", zone = secret() }, "junk", {} }
+                S.windowPlayer = "Odd"
+                Window:RefreshCurrent()
+            end)
+            S.windowPlayer = "Fine"
+            Window:RefreshCurrent()
+            check(rows[1].class:GetText() == "NOSUCHCLASS" and same(textColor(rows[1].class), Kit.COLORS.white), "players: a class the client does not know is its token in white")
+            local realGet, realWith, realSearch, realFind = Met.Get, WorldLog.GetWith, Met.GetCount, HL.FindPlayers
+            Met.Get, WorldLog.GetWith, Met.GetCount = function() return nil end, function() return "x" end, function() return nil end
+            noErrors("players: sources that answer nothing", function() Window:RefreshCurrent() end)
+            Met.Get, WorldLog.GetWith, Met.GetCount, Met.GetList, HL.GetTopOpponents = function() error("get gone") end, function() error("with gone") end,
+                function() error("count gone") end, function() error("list gone") end, function() error("top gone") end
+            HL.FindPlayers = function() error("find gone") end
+            local errMid = #mock.handledErrors
+            Window:RefreshCurrent()
+            mock.typeText(P.search, "x")
+            check(#mock.handledErrors > errMid and D.empty:IsShown(), "players: sources that raise are reported and leave nobody chosen")
+            mock.typeText(P.search, "")
+            Met.Get, WorldLog.GetWith, Met.GetCount, Met.GetList, HL.GetTopOpponents, HL.FindPlayers = realGet, realWith, realSearch, realList, realTop, realFind
+            for i = #mock.handledErrors, errMid + 1, -1 do mock.handledErrors[i] = nil end
+            seed()
+            S.windowPlayer = "Ally1"
+            local realClass = Kit.ClassText
+            Kit.ClassText = function() error("class gone") end
+            local errClass = #mock.handledErrors
+            Window:RefreshCurrent()
+            Kit.ClassText = realClass
+            check(#mock.handledErrors > errClass and P.count:GetText() == "6 players met", "players: a failing part is reported and the others are still drawn")
+            for i = #mock.handledErrors, errClass + 1, -1 do mock.handledErrors[i] = nil end
+
+            -- put it back
+            HL.ShowPlaceOnMap, HL.MapPin.OpenMap = save.place, save.openMap
+            db.char.met, db.char.opponents, db.char.worldLog = save.met, save.opp, save.log
+            S.windowTab, S.windowPlayer = save.tab, save.chosen
+            Window:Hide()
+        end)()
+
         -- ═══ Characters: the last screen, one card per character ═══
         -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
         ;(function()
@@ -6334,8 +6653,8 @@ local function run()
             local P = scr.honorLogParts
             local pool = P.list.stack.pools.card
             check(scr and Window.current == "characters" and Window:GetScreen("characters").title == "Characters" and Window:GetScreen("characters").order == 8
-                and Window.screens[7].key == "characters" and Window.tabs.list[7].honorLogKey == "characters" and Window.tabs.list[6].honorLogKey == "quests",
-                "characters: the tab is the seventh, after Quests")
+                and Window.screens[8].key == "characters" and Window.tabs.list[8].honorLogKey == "characters" and Window.tabs.list[7].honorLogKey == "players",
+                "characters: the tab is the eighth, after Players")
             check(snapshots >= 1, "characters: a refresh asks for a fresh snapshot first")
 
             -- boxes

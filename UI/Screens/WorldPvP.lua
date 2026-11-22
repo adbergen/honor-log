@@ -387,7 +387,7 @@ local function buildHead(parent)
         row:SetScript("OnClick", function(self)
             local screen = playersScreen()
             local o = self.honorLogOpponent
-            if screen and o then screen:Open(o.name) end
+            if screen and type(o) == "table" then screen:Open(o.name) end
         end)
         h.rows[i] = row
     end
