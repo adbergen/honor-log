@@ -3354,6 +3354,10 @@ local function run()
         local miniBefore = mini:IsShown()
         expectOpen("the bare slash command", function() SlashCmdList.HONORLOG("") end)
         check(_G.HonorLogWindow == Window.frame and Window.frame:GetName() == "HonorLogWindow", "window: the frame is HonorLogWindow")
+        do
+            local second = Window.tabs.list[2]
+            check(second and second.__points[1][4] == (second.honorLogTemplate and 1 or 3), "window: template tabs sit 1 px apart, as Blizzard's own do")
+        end
         check(Window.frame:GetFrameStrata() == "MEDIUM" and Window.frame:IsToplevel(), "window: it sits in the layer of Blizzard's own panels and a click raises it")
         do
             local before = Window.frame.__raised or 0
@@ -3562,7 +3566,8 @@ local function run()
         local m = HL:GetTodayModel()
         check(tiles[1].value:GetText() == "3 \226\128\147 2", "overview: today's wins and losses " .. tostring(tiles[1].value:GetText()))
         check(tiles[1].note:GetText() == string.format("7 games in %s", HL.Rank.FormatSpan(m.duration)), "overview: games and time " .. tostring(tiles[1].note:GetText()))
-        check(tiles[2].value:GetText() == "+" .. commas(m.honor) and tiles[2].value.__textColor[1] == 1 and tiles[2].value.__textColor[3] == 0, "overview: honor today in gold")
+        check(tiles[2].value:GetText() == (m.honor > 0 and "+" .. commas(m.honor) or "0") and tiles[2].value.__textColor[1] == 1 and tiles[2].value.__textColor[3] == (m.honor > 0 and 0 or 1),
+            "overview: honor today: a gain in gold with a plus, nothing as a white 0: " .. tostring(tiles[2].value:GetText()))
         check(tiles[2].note:GetText() == commas(m.honorPerHour) .. " an hour", "overview: honor per hour " .. tostring(tiles[2].note:GetText()))
         check(tiles[3].value:GetText() == "+105", "overview: rank points today " .. tostring(tiles[3].value:GetText()))
         check(tiles[4].value:GetText() == "+10", "overview: marks today " .. tostring(tiles[4].value:GetText()))
@@ -3589,7 +3594,7 @@ local function run()
         char.history = {}
         ov:Refresh()
         check(tiles[1].value:GetText() == "0 \226\128\147 0" and tiles[1].note:GetText() == "No games yet today", "overview: no games today")
-        check(tiles[4].value:GetText() == "+0" and not row.widgets.AB.icon:IsShown(), "overview: no marks today")
+        check(tiles[4].value:GetText() == "0" and not row.widgets.AB.icon:IsShown(), "overview: no marks today is a plain 0")
 
         -- recent games
         char.history = games
@@ -4328,6 +4333,23 @@ local function run()
             local pt = holdText(fakePace(100, 4))
             local p4 = Rank:PlanToRank(8, Rank:GetInfo(), fakePace(100, 4))
             check(p4.limitedBy == "pace" and pt == "At your pace: " .. Rank.PlanWhen(p4) .. ".", "planner: at your pace: " .. tostring(pt))
+            -- too few measured games: the pace is default points a game, so no games count and no date "at your pace"
+            local guessed = fakePace(100, 4)
+            guessed.estimated = true
+            local tu, gu = holdText(guessed)
+            check(tu == "Play a battleground to measure your pace." and gu == "not measured yet", "planner: an unmeasured pace gives no count and no date: " .. tostring(tu) .. " / " .. tostring(gu))
+            check(Rank:PlanToRank(8, Rank:GetInfo(), guessed).paceMeasured == false and p4.paceMeasured == true, "planner: the plan says whether its pace was measured")
+            do
+                -- the same for the counts in the data: no game measured, no games to the cap and a flag on the goal rows
+                local keptBG, keptHonor = HL.db.char.battlegrounds, mock.currencies[1792].quantity
+                HL.db.char.battlegrounds = { AV = HL.NewBGStats(), AB = HL.NewBGStats(), WSG = HL.NewBGStats(), DI = HL.NewBGStats() }
+                mock.currencies[1792].quantity = 24900
+                local advice = HL:GetHonorCapAdvice()
+                check(HL:HasMeasuredGames() == false and advice ~= nil and advice.gamesToCap == nil, "measured: with no game played the cap advice names no games count")
+                HL.db.char.battlegrounds.AV.played, HL.db.char.battlegrounds.AV.honorLifetime = 2, 1000
+                check(HL:HasMeasuredGames() == true and HL:GetHonorCapAdvice().gamesToCap == 1, "measured: after games the count is back: " .. tostring(HL:GetHonorCapAdvice().gamesToCap))
+                HL.db.char.battlegrounds, mock.currencies[1792].quantity = keptBG, keptHonor
+            end
             Rank.PlanToRank = function() return { target = 8, reached = true, limitedBy = "reached", pointsNeeded = 0, gamesNeeded = 0 } end
             Window:RefreshCurrent()
             check(plan.holdBack:GetText() == "", "planner: a reached plan has no held-back line")
@@ -4828,6 +4850,13 @@ local function run()
             current = g1
             Window:RefreshCurrent()
             check(takesOf()[1].note:GetText() == "about 1 game", "takes: one game is singular")
+            -- with no game measured the count would rest on a guessed rate (seen in game: "about 36 games" on a
+            -- character that had not played one): the line says how to get a count instead
+            local gUn = stubGp()
+            gUn.rows[1].measured = false
+            current = gUn
+            Window:RefreshCurrent()
+            check(takesOf()[1].note:GetText() == "play a game to measure", "takes: no game measured, no games count: " .. tostring(takesOf()[1].note:GetText()))
             local g0 = stubGp()
             g0.rows[1].needed, g0.rows[3].needed = 0, 0
             current = g0
