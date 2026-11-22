@@ -47,7 +47,9 @@ local function joinWords(list)
     return table.concat(list, ", ", 1, #list - 1) .. " " .. L["and"] .. " " .. list[#list]
 end
 
-local function gamesText(n)
+-- "about 36 games", or what to do when the count would rest on a guessed rate (no game measured yet).
+local function gamesText(n, measured)
+    if measured == false then return L["play a game to measure"] end
     n = num(n) or 0
     return n == 1 and L["about 1 game"] or string.format(L["about %d games"], n)
 end
@@ -481,10 +483,10 @@ local function takesEntry(row)
         if needed <= 0 then return nil end
         e.label = L["Honor"]
         e.bar = true
-        if (num(row.remaining) or 0) > 0 and (num(row.games) or 0) > 0 then e.note = gamesText(row.games) end
+        if (num(row.remaining) or 0) > 0 and (num(row.games) or 0) > 0 then e.note = gamesText(row.games, row.measured) end
     elseif kind == "marks" then
         e.label, e.bg, e.bar = str(HonorLog:GetBGDisplayName(row.bg)) or tostring(row.bg), row.bg, true
-        if (num(row.remaining) or 0) > 0 and (num(row.games) or 0) > 0 then e.note = gamesText(row.games) end
+        if (num(row.remaining) or 0) > 0 and (num(row.games) or 0) > 0 then e.note = gamesText(row.games, row.measured) end
     elseif kind == "gold" then
         if needed <= 0 then return nil end
         e.label, e.bar = L["Gold"], true

@@ -295,6 +295,10 @@ local function buildTable(bottom)
         else
             local plan = entry.plan
             text = str(entry.when)
+            -- a date at the player's pace needs a measured pace; a level gate or a season limit is said either way
+            if plan and plan.paceMeasured == false and plan.limitedBy ~= "level" and plan.limitedBy ~= "season" and plan.limitedBy ~= "nopoints" then
+                text = L["not measured yet"]
+            end
             -- the model says "ahead" when a plan has no date, which only happens past what the season allows
             if not text or text == "ahead" then
                 text = plan and plan.limitedBy == "season" and L["Not this season"] or "-"
@@ -438,7 +442,10 @@ local function holdBackText(plan)
     if by == "cap" then return L["Held back by the weekly cap."], "grey" end
     if by == "nopoints" then return L["Your recent games gave no rank points."], "orange" end
     if by == "season" then return L["Not reachable this season."], "orange" end
-    if by == "pace" then return string.format(L["At your pace: %s."], Rank.PlanWhen(plan) or "-"), "grey" end
+    if by == "pace" then
+        if plan.paceMeasured == false then return L["Play a battleground to measure your pace."], "grey" end
+        return string.format(L["At your pace: %s."], Rank.PlanWhen(plan) or "-"), "grey"
+    end
     return nil
 end
 
@@ -487,7 +494,7 @@ function refreshPlan(p, info, pace)
     p.title:SetText(string.format(L["Rank %d %s"], target, safe(Rank.TitleForRank, Rank, target) or ""))
     p.pairs[1].value:SetText(commas(plan.pointsNeeded or 0))
     local games
-    if plan.gamesNeeded == nil then
+    if plan.gamesNeeded == nil or plan.paceMeasured == false then
         games = L["not measured yet"]
     else
         games = Rank.PlanGames(plan) or "-"
