@@ -94,6 +94,10 @@ local A_AREA_TOP = 28
 local TOTALS_H = 104
 local A_HEIGHT_TOTALS = PANEL_H - A_AREA_TOP - 40 - TOTALS_H - 8
 local A_HEIGHT_PLAIN = PANEL_H - A_AREA_TOP - 40
+-- With two goals or more a row under the header holds Sort by priority, and the list starts under it.
+local SORT_H, SORT_W = 22, 112
+-- The empty list: the top three recommendations under the sentence, each 50 high
+local REC_SHOWN, REC_ROW_H, REC_TOP = 3, 50, 96
 
 -- A goal row: icon, then name over status, then the percent over its bar at the right.
 local GOAL_SIDE_W = 44
@@ -194,12 +198,72 @@ local function buildGoalsList(inset)
         },
     })
 
+    a.extra = 0
+
+    -- one click puts the list in priority order: what can be bought now, then what comes soonest
+    a.sort = Kit:Button(inset, L["Sort by priority"], "small")
+    a.sort:SetSize(SORT_W, 18)
+    a.sort:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -12, -A_AREA_TOP)
+    a.sort:Hide()
+    a.sort:HookScript("OnEnter", function(self)
+        showTooltip(self, L["Puts what you can buy now first, then what comes soonest. Nothing moves until you click."])
+    end)
+    a.sort:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    a.sort:SetScript("OnClick", function()
+        -- the sort redraws the window when it moved something
+        safe(HonorLog.SortGoalsByPriority, HonorLog)
+    end)
+
     a.none = Kit:Text(inset, "grey")
     a.none:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -A_AREA_TOP - 6)
     a.none:SetWidth(A_W - 28)
     a.none:SetWordWrap(true)
     a.none:SetJustifyV("TOP")
-    a.none:SetText(L["No goals yet. Pick gear from a vendor's stock and HonorLog plans the way to it."])
+    a.none:SetText(L["No goals yet. Pick gear from a vendor's stock."])
+
+    -- with no goal: what HonorLog recommends, the top three, one click each
+    a.recHeader = Kit:Header(inset, L["Recommended for you"])
+    a.recHeader:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -(REC_TOP - 24))
+    a.recHeader:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -12, -(REC_TOP - 24))
+    a.recHeader:Hide()
+    a.recRows = {}
+    for i = 1, REC_SHOWN do
+        local row = CreateFrame("Frame", nil, inset)
+        row:SetPoint("TOPLEFT", inset, "TOPLEFT", 0, -(REC_TOP + (i - 1) * REC_ROW_H))
+        row:SetSize(A_W, REC_ROW_H)
+        row:Hide()
+        row.icon = Kit:ItemIcon(row, 32)
+        row.icon:SetPoint("LEFT", row, "LEFT", 12, 0)
+        row.cell = CreateFrame("Frame", nil, row)
+        row.cell:SetPoint("LEFT", row, "LEFT", 52, 0)
+        row.cell:SetSize(A_W - 52 - 12 - 52 - 4, 34)
+        row.cell:EnableMouse(true)
+        row.name = fixedText(row.cell, "value", A_W - 52 - 12 - 52 - 4)
+        row.name:SetPoint("TOPLEFT", row.cell, "TOPLEFT", 0, 0)
+        row.reason = fixedText(row.cell, "grey", A_W - 52 - 12 - 52 - 4)
+        row.reason:SetPoint("TOPLEFT", row.cell, "TOPLEFT", 0, -19)
+        row.cell:SetScript("OnEnter", function(self) showTooltip(self, self.tip) end)
+        row.cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row.add = Kit:Button(row, L["Add"], "small")
+        row.add:SetSize(48, 22)
+        row.add:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+        row.add:HookScript("OnEnter", function(self) showTooltip(self, L["Add to your goals"]) end)
+        row.add:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        row.add:SetScript("OnClick", function()
+            local id = row.honorLogItemID
+            if id then HonorLog:AddGoal(id) end
+        end)
+        a.recRows[i] = row
+    end
+    a.recLink = Kit:Button(inset, L["See all recommendations"], "small")
+    a.recLink:SetSize(A_W - 24, 20)
+    a.recLink:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -(REC_TOP + REC_SHOWN * REC_ROW_H + 8))
+    a.recLink:Hide()
+    a.recLink:SetScript("OnClick", function()
+        local s = settings()
+        if s then s.windowVendor = Vendors.RECOMMENDED end
+        GearScreen:Open("vendors")
+    end)
 
     -- the totals box, pinned under the list
     local wrap = CreateFrame("Frame", nil, inset)
@@ -268,12 +332,12 @@ local function refreshTotals(a, state)
     local t = a.totals
     local show = #state.gps >= 2
     t.wrap:SetShown(show)
-    a.area:SetHeight(show and A_HEIGHT_TOTALS or A_HEIGHT_PLAIN)
+    a.area:SetHeight((show and A_HEIGHT_TOTALS or A_HEIGHT_PLAIN) - a.extra)
     if not show then return end
     local T = safe(HonorLog.GetGoalsTotals, HonorLog, state.gps)
     if not T then
         t.wrap:Hide()
-        a.area:SetHeight(A_HEIGHT_PLAIN)
+        a.area:SetHeight(A_HEIGHT_PLAIN - a.extra)
         return
     end
     t.title:SetText(string.format(L["All %d together"], #state.gps))
@@ -315,6 +379,27 @@ local function refreshTotals(a, state)
     t.short:SetText(shortSentence(T))
 end
 
+-- The empty list: the top three recommendations under the sentence, and the link to all of them. Nothing to
+-- recommend (or the engine failing) leaves the sentence alone.
+local function refreshRecommendations(a, empty)
+    local list = empty and Vendors.ReadRecommended(REC_SHOWN) or {}
+    local byID = {}
+    for _, e in ipairs(list) do byID[e.itemID] = e end
+    for i, row in ipairs(a.recRows) do
+        local e = list[i]
+        row:SetShown(e ~= nil)
+        if e then
+            row.honorLogItemID = e.itemID
+            row.icon:SetItem(e.itemID)
+            row.name:SetText(Kit:QualityHex(row.icon.honorLogQuality) .. (str(e.name) or "") .. "|r")
+            row.reason:SetText(str(e.reason) or "")
+            row.cell.tip = (str(e.name) or "") .. "\n" .. Vendors.ReasonTip(e, byID)
+        end
+    end
+    a.recHeader:SetShown(#list > 0)
+    a.recLink:SetShown(#list > 0)
+end
+
 local function refreshGoalsList(a, state)
     local entries = {}
     local chosenID = state.chosen and state.chosen.itemID
@@ -332,6 +417,13 @@ local function refreshGoalsList(a, state)
         end
     end
     a.none:SetShown(#entries == 0)
+    -- Sort by priority is for a list with something to put in order
+    local sortShown = #state.gps >= 2
+    a.sort:SetShown(sortShown)
+    a.extra = sortShown and SORT_H or 0
+    a.area:ClearAllPoints()
+    a.area:SetPoint("TOPLEFT", a.inset, "TOPLEFT", 6, -(A_AREA_TOP + a.extra))
+    refreshRecommendations(a, #entries == 0)
     refreshTotals(a, state)
     a.area:honorLogSetContentHeight(a.stack:SetData(entries))
 end

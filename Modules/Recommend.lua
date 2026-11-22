@@ -1,6 +1,7 @@
 -- HonorLog Recommend
 -- Recommended gear goals: for each slot, the best PvP reward the character's class and spec can use, offered
--- when its item level beats what the character wears. The engine only; no frame, nothing per frame, and nothing
+-- when its item level beats what the character wears. The engine and its cached read (GetCached, at the end; its only frame listens for the events that change an
+-- answer), nothing per frame, and nothing
 -- is ever added to the goal list or reordered here. The player clicks (the screens call AddGoal).
 --
 -- The rules:
@@ -95,6 +96,7 @@ function Recommend:SetRole(role)
     if role ~= nil and not ROLE_OK[role] then return false end
     if store.recommendRole == role then return true end
     store.recommendRole = role
+    Recommend:Invalidate()
     if HonorLog.OnDataUpdated then HonorLog:OnDataUpdated() end
     return true
 end
@@ -526,3 +528,61 @@ function Recommend:GetRecommendedGoals(limit)
     table.sort(info.skipped, function(a, b) return (SLOT_ORDER[a] or 99) < (SLOT_ORDER[b] or 99) end)
     return out, info
 end
+
+--------------------------------------------------------------------------------
+-- The cached read
+--------------------------------------------------------------------------------
+
+-- One GetRecommendedGoals call builds up to about 135 goal-progress objects, so no screen calls it on a
+-- refresh: screens and the advice call GetCached, which computes lazily and keeps the answer until an input
+-- changes. What throws it away (Invalidate): the data-updated notification (a goal added or removed, a game
+-- recorded, the sort), SetRole, and the client's own events for a change of worn equipment, a level-up, a
+-- change of spec, and (nothing redrawn for these two) a currency or bag change, which moves what can be
+-- bought today. A failed or empty answer from the engine is not kept, so the next read asks again.
+local cache
+
+function Recommend:Invalidate() cache = nil end
+
+-- GetCached(limit): list, info as GetRecommendedGoals returns them, the list cut to `limit` when given (a new
+-- table; the entries are shared). Returns nil when the engine raises or answers with no list.
+function Recommend:GetCached(limit)
+    if not cache then
+        local ok, list, info = pcall(self.GetRecommendedGoals, self)
+        if not ok or type(list) ~= "table" or type(info) ~= "table" then return nil end
+        cache = { list = list, info = info }
+    end
+    local list = cache.list
+    limit = num(limit)
+    if limit and limit < #list then
+        local out = {}
+        for i = 1, math.max(0, math.floor(limit)) do out[i] = list[i] end
+        list = out
+    end
+    return list, cache.info
+end
+
+-- The screens redraw on a change the player can see; a window that is closed only remembers it.
+local function redrawWindow()
+    local window = HonorLog.Window
+    if window and window.OnDataChanged then pcall(window.OnDataChanged, window) end
+end
+
+if type(HonorLog.OnDataUpdated) == "function" then
+    -- registered before the window's own hook (this file loads first), so the window redraws on a fresh read
+    hooksecurefunc(HonorLog, "OnDataUpdated", function() Recommend:Invalidate() end)
+end
+
+local REDRAW_EVENTS = {
+    PLAYER_EQUIPMENT_CHANGED = true, PLAYER_LEVEL_UP = true, ACTIVE_TALENT_GROUP_CHANGED = true,
+    PLAYER_SPECIALIZATION_CHANGED = true, ACTIVE_PLAYER_SPECIALIZATION_CHANGED = true,
+}
+local QUIET_EVENTS = { CURRENCY_DISPLAY_UPDATE = true, BAG_UPDATE_DELAYED = true }
+
+local frame = CreateFrame("Frame", "HonorLogRecommendFrame")
+frame:SetScript("OnEvent", function(_, event)
+    Recommend:Invalidate()
+    if REDRAW_EVENTS[event] then redrawWindow() end
+end)
+-- Every event is in the build's API documentation, none flagged HasRestrictions; a refused one is skipped.
+for event in pairs(REDRAW_EVENTS) do pcall(frame.RegisterEvent, frame, event) end
+for event in pairs(QUIET_EVENTS) do pcall(frame.RegisterEvent, frame, event) end

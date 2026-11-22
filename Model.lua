@@ -333,6 +333,26 @@ function HonorLog:GetAdvice(limit)
         out[#out + 1] = entry
     end
 
+    -- the best upgrade, when it can be bought today and is not a goal yet (the cached read: one engine call
+    -- until something it depends on changes)
+    local recommend = HonorLog.Recommend
+    local okTop, top = pcall(function() return recommend and (recommend:GetCached(1)) end)
+    top = okTop and type(top) == "table" and top[1] or nil
+    if top and top.buyable and top.itemID and not self:IsGoal(top.itemID) then
+        local name = str(top.name) or tostring(top.itemID)
+        local head = string.format(L["Best upgrade today: %s."], name)
+        local body = str(top.reason)
+        -- head and body share three lines of about 47 characters: a long reason gives way to the short one
+        if not body or #head + #body > 130 then
+            if top.empty then
+                body = L["Empty slot"]
+            elseif num(top.gain) then
+                body = string.format(top.gain == 1 and L["+%d item level over what you wear"] or L["+%d item levels over what you wear"], top.gain)
+            end
+        end
+        if body then out[#out + 1] = { kind = "upgrade", itemID = top.itemID, head = head, body = body } end
+    end
+
     local zero = Rank and Rank:GetZeroPointBattlegrounds()[1]
     if zero then
         out[#out + 1] = { kind = "zero", bgType = zero.bgType,
