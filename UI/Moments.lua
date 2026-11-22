@@ -271,10 +271,13 @@ end
 
 -- A button over a frame that shows `text` in a tooltip (the frame's own text can be cut). Its level is set
 -- above the frame's, because two overlapping siblings have no promised order.
-local function tipOver(state, frame)
-    local b = CreateFrame("Button", nil, frame)
+-- `frame` may be a text: a text cannot parent a frame (the client raises), so the button is then made on
+-- `parent`, the frame the text sits in, and laid over the text.
+local function tipOver(state, frame, parent)
+    parent = parent or frame
+    local b = CreateFrame("Button", nil, parent)
     b:SetAllPoints(frame)
-    b:SetFrameLevel((num(frame:GetFrameLevel()) or 0) + 10)
+    b:SetFrameLevel((num(parent:GetFrameLevel()) or 0) + 10)
     b:SetScript("OnEnter", function(self) showTooltip(self, self.honorLogText) end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     track(state, b)
@@ -1056,7 +1059,7 @@ local function buildRecap(state)
     p.state:SetPoint("TOPRIGHT", head, "TOPRIGHT", 0, -3)
     p.sub = Kit:FixedText(head, "grey", inner)
     p.sub:SetPoint("TOPLEFT", head, "TOPLEFT", 0, -24)
-    p.subTip = tipOver(state, p.sub)
+    p.subTip = tipOver(state, p.sub, head)
     fills[#fills + 1] = { head, function(data)
         local n = pageOf(data)
         p.n, p.recap = n, nil

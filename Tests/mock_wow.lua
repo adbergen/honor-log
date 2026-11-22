@@ -288,6 +288,11 @@ function M.clickClear(box)
     box:ClearFocus()
 end
 function CreateFrame(objType, name, parent, template)
+    -- Like the client: only a frame can parent a frame. A text or a texture as the parent raises (found under
+    -- the real interface code, where a tooltip button had been made on a text).
+    if parent ~= nil and (type(parent) ~= "table" or parent.__type == "FontString" or parent.__type == "Texture" or parent.__type == "Line") then
+        error("bad argument #3 to 'CreateFrame' (a frame expected as the parent)", 2)
+    end
     if template then
         for t in tostring(template):gmatch("[^,%s]+") do
             if M.missingTemplates[t] or M.missingTemplates["*"] then
