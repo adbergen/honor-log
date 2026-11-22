@@ -310,10 +310,17 @@ function HonorLog:GetAdvice(limit)
         local entry = { kind = "cap",
             head = string.format(L["Honor is at %s of %s, so spend it before it is wasted."], commas(cap.current), commas(cap.cap)) }
         if buyable and #buyable > 0 then
-            local names = {}
-            for _, item in ipairs(buyable) do names[#names + 1] = item.name or tostring(item.itemID) end
+            -- one name, so the sentence fits its three lines; the Gear goals screen lists them all
+            local first = buyable[1].name or tostring(buyable[1].itemID)
+            local others = #buyable - 1
             entry.itemID = buyable[1].itemID
-            entry.body = string.format(L["You can buy %s right now."], table.concat(names, ", "))
+            if others == 0 then
+                entry.body = string.format(L["You can buy %s now."], first)
+            elseif others == 1 then
+                entry.body = string.format(L["You can buy %s now, or 1 other item."], first)
+            else
+                entry.body = string.format(L["You can buy %s now, or %d other items."], first, others)
+            end
         elseif cap.goal then
             entry.itemID = cap.goal.itemID
             entry.body = string.format(L["%s is on your goal list and ready to buy."], tostring(cap.goal.name))

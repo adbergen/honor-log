@@ -2717,6 +2717,24 @@ local function run()
         check(advice[1].head:find("level 40") and advice[1].body == Rank:GateText(Rank:GetInfo().gate), "Advice: the gate names the level")
         local buyable = HL:GetBuyableNow(3)
         check((advice[2].itemID == (buyable[1] and buyable[1].itemID)) and advice[2].head:find("24,000 of 25,000"), "Advice: the cap names what can be bought now")
+        do
+            local saveBuy, saveCap = HL.GetBuyableNow, HL.GetHonorCapAdvice
+            local long = "Premier Senior Sergeant's Insignia"
+            local function capBody(n)
+                local list = {}
+                for i = 1, n do list[i] = { itemID = 100 + i, name = i == 1 and long or ("Other " .. i) } end
+                HL.GetHonorCapAdvice = function() return { current = 24000, cap = 25000, buyable = list } end
+                for _, a in ipairs(HL:GetAdvice(10)) do if a.kind == "cap" then return a.body, a.itemID end end
+            end
+            local body, id = capBody(1)
+            check(body == "You can buy " .. long .. " now." and id == 101, "Advice: one thing to buy is named: " .. tostring(body))
+            check(capBody(2) == "You can buy " .. long .. " now, or 1 other item.", "Advice: two, the first named and one counted: " .. tostring(capBody(2)))
+            body = capBody(3)
+            check(body == "You can buy " .. long .. " now, or 2 other items." and not body:find("Other", 1, true), "Advice: three, the first named and the rest counted: " .. tostring(body))
+            -- head and body together stay within the Overview's three lines of about 47 characters
+            check(#("Honor is at 24,000 of 25,000, so spend it before it is wasted. " .. body) <= 135, "Advice: the cap sentence with the longest item name fits three lines")
+            HL.GetBuyableNow, HL.GetHonorCapAdvice = saveBuy, saveCap
+        end
         check(advice[3].bgType == "WSG" and advice[3].head:find("Warsong Gulch") and advice[3].body:find("0 rank points in 3 of 3"), "Advice: zero names the battleground")
         check(advice[4].bgType == "AV" and advice[4].body:find("500") and advice[4].body:find("200") and advice[4].body:find("Warsong Gulch"), "Advice: the best battleground by honor per game")
         check(advice[5].itemID == HL:GetRankUnlocks(4)[1] and advice[5].head:find("Rank 4 unlocks"), "Advice: the next rank's first unlock")
@@ -4652,10 +4670,14 @@ local function run()
             check(tb.marks.AV.count:GetText() == "5/20" and not tb.gold:IsShown() and not tb.goldLabel:IsShown(), "totals: no gold line when no gold is needed")
             stubTotals({ honorNeeded = 5000, honorCurrent = 4670, goldNeeded = 30000, goldCurrent = 10000, marksNeeded = { AV = 20, AB = 10 }, marksCurrent = { AV = 5, AB = 10 }, allComplete = false })
             check(tb.short:GetText() == "You are 330 honor, 15 marks and 2g short.", "totals: three shortfalls in one sentence: " .. tostring(tb.short:GetText()))
+            check(select(5, tb.gold:GetPoint()) == -57 and select(5, tb.goldLabel:GetPoint()) == -57 and select(5, tb.short:GetPoint()) == -74, "totals: with marks, gold sits under the marks line and the sentence under gold")
+            stubTotals({ honorNeeded = 0, honorCurrent = 0, goldNeeded = 30000, goldCurrent = 10000, marksNeeded = {}, marksCurrent = {}, allComplete = false })
+            check(tb.honor:GetText() == "none needed" and select(5, tb.gold:GetPoint()) == -39 and select(5, tb.short:GetPoint()) == -56, "totals: with no marks needed, gold and the sentence move up one line")
             stubTotals({ honorNeeded = 5000, honorCurrent = 5000, goldNeeded = 0, goldCurrent = 0, marksNeeded = { AV = 20 }, marksCurrent = { AV = 20 }, allComplete = true })
             check(tb.short:GetText() == "You can buy everything on your list.", "totals: nothing short")
             stubTotals({ honorNeeded = 5000, honorCurrent = 5000, goldNeeded = 0, goldCurrent = 0, marksNeeded = {}, marksCurrent = {}, allComplete = false })
             check(tb.short:GetText():find("rank, level or reputation", 1, true), "totals: covered but gated is said so")
+            check(select(5, tb.short:GetPoint()) == -39 and not tb.gold:IsShown(), "totals: with no marks and no gold, the sentence follows honor")
             HL.GetGoalsTotals = save.totals
             Window:RefreshCurrent()
 
@@ -4872,6 +4894,12 @@ local function run()
             check(right.entries[1].icon.honorLogItemID == BLUE and right.entries[1].icon:GetWidth() == 24 and right.entries[1].name:GetText() == Kit:QualityHex(right.entries[1].icon.honorLogQuality) .. "Test 1|r"
                 and right.entries[1].cost:GetText() == "1,200 honor, 10 " .. shortAV .. ", 5 " .. shortAB .. ", 1g", "buyable: icon, name and cost: " .. tostring(right.entries[1].cost:GetText()))
             check(not right.nothing:IsShown(), "buyable: no empty text when there are entries")
+            check(right.entries[1]:GetHeight() == 34 and select(5, right.entries[1].cost:GetPoint()) == -19 and right.entries[1].name.__maxLines == 2, "buyable: a one-line name keeps the short row")
+            local longName = "Premier Senior Sergeant's Insignia of Testing"
+            HL.GetBuyableNow = function() return { { itemID = BLUE, name = longName, honor = 100 }, buyEntry(2) } end
+            Window:RefreshCurrent()
+            check(right.entries[1].name:GetText():find(longName, 1, true) and right.entries[1]:GetHeight() == 48 and select(5, right.entries[1].cost:GetPoint()) == -33, "buyable: a name that needs two lines gets a taller row, the cost under it")
+            check(select(5, right.entries[2]:GetPoint()) == select(5, right.entries[1]:GetPoint()) - 48 and right.entries[2]:GetHeight() == 34, "buyable: the next row starts under the tall one")
             HL.GetBuyableNow = function() return {} end
             Window:RefreshCurrent()
             check(right.nothing:IsShown() and right.nothing:GetText() == "Nothing yet.", "buyable: nothing yet")
@@ -4896,6 +4924,26 @@ local function run()
             local first = right.entries[1]
             check(first:IsShown() and first.icon.honorLogItemID == expect[1][2][1] and first.cost:GetText() ~= "", "unlocks: items as icon, name and cost")
             check(right.foot:GetText() == "Ctrl-click an icon to preview the item." and right.foot.__maxLines == 2, "right: the preview hint at the foot")
+            -- four tall rows and four lines of advice: the rank lists take what is left and never pass the foot
+            HL.GetBuyableNow = function() local out = {} for i = 1, 4 do out[i] = { itemID = BLUE, name = "Premier Senior Sergeant's Insignia of Testing", honor = 100 } end return out end
+            HL.GetHonorCapAdvice = function() return { text = string.rep("spend it now ", 12) } end
+            Window:RefreshCurrent()
+            local lowest, rowsShown, underHeader = 0, 0, {}
+            for _, e in ipairs(right.entries) do
+                if e:IsShown() then
+                    rowsShown = rowsShown + 1
+                    local top = -select(5, e:GetPoint())
+                    lowest = math.max(lowest, top + e:GetHeight())
+                    for i = 2, 3 do
+                        if right.headers[i]:IsShown() and top == -select(5, right.headers[i]:GetPoint()) + 24 then underHeader[i] = true end
+                    end
+                end
+            end
+            check(rowsShown > 4 and lowest <= 490 - 36, "right: rows of either height stop above the foot: " .. rowsShown .. " rows, lowest " .. lowest)
+            for i = 2, 3 do check(not right.headers[i]:IsShown() or underHeader[i], "right: a rank header is shown only with a row under it (" .. i .. ")") end
+            HL.GetHonorCapAdvice = save.advice
+            HL.GetBuyableNow = function() return {} end
+            Window:RefreshCurrent()
             mock.rank.level = 14
             Window:RefreshCurrent()
             check(#headerTexts() == 0, "unlocks: nothing when every rank is reached")
