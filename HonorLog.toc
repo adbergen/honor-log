@@ -63,5 +63,6 @@ UI\Screens\Overview.lua
 UI\Screens\RankPlan.lua
 UI\Screens\Gear.lua
 UI\Screens\Battlegrounds.lua
+UI\Screens\WorldPvP.lua
 UI\Screens\Quests.lua
 UI\Moments.lua
