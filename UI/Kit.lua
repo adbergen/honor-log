@@ -469,7 +469,8 @@ function Kit:Tabs(window, onSelect)
         button.honorLogTemplate, button.honorLogKey = template or false, key
         local previous = self.list[#self.list]
         if previous then
-            button:SetPoint("TOPLEFT", previous, "TOPRIGHT", 3, 0)
+            -- 1 px apart, as Blizzard's own tabs are: at 3 px whatever sits behind the row showed between them
+            button:SetPoint("TOPLEFT", previous, "TOPRIGHT", template and 1 or 3, 0)
         else
             button:SetPoint("TOPLEFT", window, "BOTTOMLEFT", 12, 2)
         end

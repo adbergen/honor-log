@@ -1068,6 +1068,19 @@ function HonorLog:GetAverageHonorPerGame(scope)
     return 250
 end
 
+-- Whether any game has been measured for honor. Before that GetAverageHonorPerGame answers a guess, and a
+-- count of games built on a guess must not be shown as the player's pace (seen in game: "about 36 games"
+-- on a character that had not played one).
+function HonorLog:HasMeasuredGames(scope)
+    scope = scope or "character"
+    local stats = scope == "account" and self.db.global.battlegrounds or self.db.char.battlegrounds
+    for _, bgStats in pairs(stats or {}) do
+        local _, games = self:UncappedHonor(bgStats)
+        if (games or 0) > 0 then return true end
+    end
+    return false
+end
+
 -- Get average marks per game for a specific BG
 function HonorLog:GetAverageMarksPerGame(bgType, scope)
     scope = scope or "character"
@@ -2069,9 +2082,13 @@ function HonorLog:BuildGoalProgress(itemID, ctx, pool)
     -- Per-requirement games, for the old "games" labels
     local avgHonor = self:GetAverageHonorPerGame()
     if result.honor.remaining > 0 and avgHonor > 0 then result.honor.games = math.ceil(result.honor.remaining / avgHonor) else result.honor.games = 0 end
+    -- measured = false marks a count that rests on a guessed rate: a screen says "play a game to measure" then
+    result.honor.measured = self:HasMeasuredGames()
     for bgType, row in pairs(result.marks) do
         local avg = self:GetAverageMarksPerGame(bgType)
         row.games = (row.remaining > 0 and avg > 0) and math.ceil(row.remaining / avg) or 0
+        local played = self.db.char.battlegrounds[bgType]
+        row.measured = played ~= nil and (played.played or 0) > 0
     end
 
     -- The date. A waterfall goal waits for the shortfall of the goals above it too.
@@ -2343,7 +2360,8 @@ function HonorLog:GetHonorCapAdvice(goals)
     local gamesToCap
     if current >= cap then
         gamesToCap = 0
-    elseif expected > 0 then
+    elseif expected > 0 and self:HasMeasuredGames() then
+        -- a count of games only from a measured average; before the first game the advice says "near the cap"
         gamesToCap = math.ceil((cap - current) / expected)
     end
     local soon = gamesToCap ~= nil and gamesToCap <= CAP_ADVICE_GAMES

@@ -616,6 +616,9 @@ function Rank:PlanToRank(n, info, pace)
     -- A pace of 0 points a game has no games-needed: a number would read "~0 games".
     local noPoints = pace.noPoints or pace.pointsPerGame <= 0
     plan.gamesNeeded = (not noPoints) and math.ceil(plan.pointsNeeded / pace.pointsPerGame) or nil
+    -- false while the pace still rests on default points a game (too few measured games): a screen then says
+    -- "not measured yet" instead of a games count or a date that would read as the player's own pace
+    plan.paceMeasured = not pace.estimated
 
     if n > info.seasonMaxRank then
         plan.limitedBy = "season"
