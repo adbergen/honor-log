@@ -183,7 +183,9 @@ local function createCard(row, ctx)
     for i = 1, slots do
         local icon = Kit:MarkIcon(face, MARK)
         icon:SetPoint("TOPLEFT", face, "TOPLEFT", COL_HONOR + (i - 1) * MARK_STEP, -46)
-        local count = Kit:FixedText(face, "value", MARK_STEP - MARK - 3)
+        -- the small font: a three-digit count still fits its slot beside the icon
+        local count = Kit:FixedText(face, "grey", MARK_STEP - MARK - 3)
+        count:SetTextColor(1, 1, 1)
         count:SetPoint("LEFT", icon, "RIGHT", 3, 0)
         row.marks[i] = { icon = icon, count = count }
     end
@@ -392,7 +394,7 @@ local function create(parent)
 
     local ctx = { refresh = function() root:Refresh() end }
     local head = {}
-    head.title = Kit:FixedText(area, "title", 130)
+    head.title = Kit:FixedText(area, "label", 130) -- the gold heading every screen opens with
     head.title:SetPoint("TOPLEFT", area, "TOPLEFT", Kit.PORTRAIT_CLEAR + 8, -4)
     head.title:SetText(L["Your characters"])
     head.summary = Kit:FixedText(area, "grey", 680)
