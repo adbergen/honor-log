@@ -1,6 +1,6 @@
 -- HonorLog Weeks
--- A record per reset week for this character, in char.weeks (newest first, at most 26), so that a later
--- weekly recap can say what the week was: games, honor, marks, rank points and the best game.
+-- A record per reset week for this character, in char.weeks (newest first, at most 26), so that the weekly
+-- recap card can say what the week was: games, honor, marks, rank points and the best game.
 --
 -- A record: { start, finish, estimated (true while finish is a guess), number (the rank week number, when
 -- known), season (when known), games, wins, losses, draws, left, honor (all honor gained), bgHonor (honor of

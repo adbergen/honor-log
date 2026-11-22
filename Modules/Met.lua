@@ -1,7 +1,7 @@
 -- HonorLog Players Met
 -- A small local record of the players the player has played with and against in battlegrounds, in
--- char.met, so that a later screen can show who they win with, who they lose to and the top killers they
--- have faced. No screen draws it yet. Readers: GetCount(), Get(name), GetList(kind, limit, minGames) and
+-- char.met, so that the Players screen can show who they win with, who they lose to and the top killers they
+-- have faced. Readers: GetCount(), Get(name), GetList(kind, limit, minGames) and
 -- Search(part, limit). Nothing here leaves the player's computer.
 --
 -- A record, filed under the name the scoreboard gave (a name with a realm suffix is a different key from

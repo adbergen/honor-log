@@ -1,7 +1,7 @@
 -- HonorLog World Log
 -- A record of each kill and death outside battlegrounds, in char.worldLog (newest first, at most 500), so
--- that a later World PvP screen can show today's numbers, the log with filters, where the player fights,
--- all-time totals and the history with one opponent. No screen draws it yet.
+-- that the World PvP and Players screens can show today's numbers, the log with filters, where the player
+-- fights, all-time totals and the history with one opponent.
 --
 -- Readers: GetToday(), GetList(filters) (kind, name, text, limit), GetZones(limit) (each row with the map and
 -- a place to pin), GetSpan() (how many entries are kept and when the oldest was made), GetTotals(scope),
