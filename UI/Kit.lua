@@ -218,7 +218,10 @@ function Kit:Window(name, width, height)
     if not frame then frame = CreateFrame("Frame", name, UIParent) end
     frame.honorLogChrome = chrome or false
     frame:SetSize(width, height)
-    frame:SetFrameStrata("HIGH")
+    -- The layer Blizzard's own panels use, raised by a click like them. In a higher layer the window covered
+    -- everything the game opens beside it (seen in game: the dressing room came up behind it).
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetToplevel(true)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)
     frame:EnableMouse(true)
@@ -1042,6 +1045,9 @@ function Kit:PreviewItem(itemID)
     local link = itemID and itemLink(itemID)
     if link and DressUpItemLink then
         pcall(DressUpItemLink, link)
+        -- The dressing room is a panel of its own: bring it in front of the window the click came from.
+        local dress = _G.DressUpFrame
+        if type(dress) == "table" and call(dress.IsShown, dress) then call(dress.Raise, dress) end
         return true
     end
     return false

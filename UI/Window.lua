@@ -218,6 +218,8 @@ function Window:Show(screenKey)
     if not self:GetScreen(key) then key = self.screens[1] and self.screens[1].key end
     if key and (self.current ~= key or not self.frames[key]) then self.tabs:Select(key) end
     frame:Show()
+    -- opened on purpose, so in front of the panels that are already up
+    if type(frame.Raise) == "function" then pcall(frame.Raise, frame) end
 end
 
 function Window:Hide()

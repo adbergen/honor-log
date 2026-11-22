@@ -3280,14 +3280,19 @@ local function run()
             HL:ClearMapPins()
             icon.__scripts.OnClick(icon, "LeftButton")
             check(HL.MapPin:Count() == 1, label .. "a click places the vendor's map pin")
+            check(WorldMapFrame:IsShown() and (WorldMapFrame.__raised or 0) > 0, label .. "the map it opens is brought in front of the window")
             HL:ClearMapPins()
             local dressed, linked = {}, {}
-            _G.DressUpItemLink = function(link) dressed[#dressed + 1] = link end
+            _G.DressUpItemLink = function(link) dressed[#dressed + 1] = link DressUpFrame:Show() end
             _G.ChatEdit_InsertLink = function(link) linked[#linked + 1] = link return true end
+            DressUpFrame:Hide()
+            local raisedBefore = DressUpFrame.__raised or 0
             mock.ctrl = true
             icon.__scripts.OnClick(icon, "LeftButton")
             mock.ctrl = false
             check(#dressed == 1 and dressed[1]:find("Hitem:" .. vendorItem, 1, true) and HL.MapPin:Count() == 0, label .. "Ctrl+click previews and places no pin")
+            check(DressUpFrame:IsShown() and (DressUpFrame.__raised or 0) == raisedBefore + 1, label .. "the dressing room it opens is brought in front of the window (it came up behind it in game)")
+            DressUpFrame:Hide()
             mock.shift = true
             icon.__scripts.OnClick(icon, "LeftButton")
             mock.shift = false
@@ -3544,6 +3549,13 @@ local function run()
         local miniBefore = mini:IsShown()
         expectOpen("the bare slash command", function() SlashCmdList.HONORLOG("") end)
         check(_G.HonorLogWindow == Window.frame and Window.frame:GetName() == "HonorLogWindow", "window: the frame is HonorLogWindow")
+        check(Window.frame:GetFrameStrata() == "MEDIUM" and Window.frame:IsToplevel(), "window: it sits in the layer of Blizzard's own panels and a click raises it")
+        do
+            local before = Window.frame.__raised or 0
+            Window:Hide()
+            Window:Show()
+            check((Window.frame.__raised or 0) == before + 1, "window: opening it brings it in front")
+        end
         check(mini:IsShown() == miniBefore, "the bare slash command leaves the small frame alone")
         expectOpen("/honorlog toggle", function() SlashCmdList.HONORLOG("toggle") end)
         SlashCmdList.HONORLOG("toggle")
