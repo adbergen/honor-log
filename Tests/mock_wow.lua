@@ -109,6 +109,12 @@ function methods.GetEffectiveScale() return 1 end
 function methods.GetCenter() return 400, 300 end
 function methods.GetFrameLevel(self) return self.__level or 0 end
 function methods.SetFrameLevel(self, level) self.__level = level; return self end
+-- The layer a frame sits in, whether a click raises it, and how often it was brought to the front.
+function methods.SetFrameStrata(self, strata) self.__strata = strata; return self end
+function methods.GetFrameStrata(self) return self.__strata or "MEDIUM" end
+function methods.SetToplevel(self, on) self.__toplevel = on and true or false; return self end
+function methods.IsToplevel(self) return self.__toplevel == true end
+function methods.Raise(self) self.__raised = (self.__raised or 0) + 1; return self end
 -- A scroll frame remembers where it was scrolled to, like the client's, and reports the range its scroll child allows.
 function methods.GetVerticalScroll(self) return self.__vscroll or 0 end
 function methods.SetVerticalScroll(self, v) self.__vscroll = v; return self end
