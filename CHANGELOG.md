@@ -4,6 +4,7 @@
 
 ### Added
 - **A World PvP screen**, a tab between Battlegrounds and Quests: today's kills, deaths and honor, the log of every kill and death with a search and All / Kills / Deaths, your record against the players you meet most, and where you fight. Every place opens the map.
+- **A Characters screen**, the last tab: one card for each of your characters with its class and level, last played, rank and week, honor against the cap, battleground marks and next gear goal, and a two-click Forget for a deleted character.
 - **A summary of each of your characters**, kept in the account's saved data: class, faction, level, rank and
   rank points, whether the weekly rank cap is reached and until when, honor, marks, how far the first gear
   goal is, games and wins. Each character writes its own on entering the world, after each game, on a

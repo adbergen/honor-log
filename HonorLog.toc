@@ -64,4 +64,5 @@ UI\Screens\Gear.lua
 UI\Screens\Battlegrounds.lua
 UI\Screens\WorldPvP.lua
 UI\Screens\Quests.lua
+UI\Screens\Characters.lua
 UI\Moments.lua
