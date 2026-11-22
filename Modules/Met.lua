@@ -1,7 +1,8 @@
 -- HonorLog Players Met
 -- A small local record of the players the player has played with and against in battlegrounds, in
 -- char.met, so that a later screen can show who they win with, who they lose to and the top killers they
--- have faced. No screen draws it yet. Nothing here leaves the player's computer.
+-- have faced. No screen draws it yet. Readers: GetCount(), Get(name), GetList(kind, limit, minGames) and
+-- Search(part, limit). Nothing here leaves the player's computer.
 --
 -- A record, filed under the name the scoreboard gave (a name with a realm suffix is a different key from
 -- the same name without one): { class, with (games on the player's team), withWins, against (games on the
@@ -216,6 +217,32 @@ function Met:GetList(kind, limit, minGames)
         end
     end
     table.sort(out, order)
+    for i = #out, math.max(0, math.floor(limit)) + 1, -1 do out[i] = nil end
+    return out
+end
+
+-- The records whose name contains `part` (any case, plain find), newest `last` first, in the rows GetList
+-- returns (games and wins count both sides: on the player's team and against). Nothing for an empty part.
+function Met:Search(part, limit)
+    part = nonEmpty(part)
+    local c = char()
+    if not part or not c or type(c.met) ~= "table" then return {} end
+    part = part:lower()
+    limit = num(limit) or DEFAULT_LIMIT
+    local out = {}
+    for name, rec in pairs(c.met) do
+        if type(name) == "string" and type(rec) == "table" and name:lower():find(part, 1, true) then
+            local row = entry(name, rec, "allies")
+            row.games = row.games + (num(rec.against) or 0)
+            row.wins = math.min(row.games, row.wins + (num(rec.againstWins) or 0))
+            row.rate = row.games > 0 and row.wins / row.games or 0
+            out[#out + 1] = row
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.last ~= b.last then return a.last > b.last end
+        return a.name < b.name
+    end)
     for i = #out, math.max(0, math.floor(limit)) + 1, -1 do out[i] = nil end
     return out
 end

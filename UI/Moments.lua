@@ -501,29 +501,12 @@ local function scoreText(record)
 end
 
 local function makeTile(state, parent)
-    local tile = Kit:Tile(parent)
-    local base = num(tile:GetFrameLevel()) or 0
-    tile.note:SetWordWrap(false)
-    tile.honorLogTipButton = CreateFrame("Button", nil, tile)
-    local tip = tile.honorLogTipButton
-    tip:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 6, 3)
-    tip:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -4, 3)
-    tip:SetHeight(16)
-    tip:SetFrameLevel(base + 10)
-    tip:SetScript("OnEnter", function(self) showTooltip(self, self.honorLogText) end)
-    tip:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    track(state, tip)
+    local tile = Kit:NoteTile(parent)
+    track(state, tile.honorLogTipButton)
     return tile
 end
 
-local function setTile(tile, label, value, note, tip, valueColor, noteColor)
-    tile.label:SetText(label)
-    tile.value:SetText(value or "")
-    paint(tile.value, valueColor or "white")
-    tile.note:SetText(note or "")
-    paint(tile.note, noteColor or "grey")
-    tile.honorLogTipButton.honorLogText = tip or note
-end
+local function setTile(...) return Kit:SetNoteTile(...) end
 
 local function buildReport(state)
     local p, inner = state.parts, state.inner

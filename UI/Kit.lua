@@ -1,6 +1,6 @@
 -- HonorLog Kit
 -- The pieces the full window is built from: a window frame, insets, headers, buttons, tabs, bars, the rank
--- ring, tiles, a pooled list, item and mark icons, a line chart and a map link.
+-- ring, tiles, a pooled list, item and mark icons, a line chart, a map link, a search box and a split bar.
 --
 -- Every piece tries Blizzard's own template or atlas first and falls back to plain drawing, because most of
 -- those names could not be checked against the client's source before the first in-game look. A wrong name
@@ -37,6 +37,21 @@ Kit.COLORS = {
 function Kit:Hex(name)
     local c = self.COLORS[name] or self.COLORS.white
     return string.format("|cff%02x%02x%02x", math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5))
+end
+
+-- A class token's localized name and colour: name, r, g, b. A client that has no name or no colour for the
+-- token gets the token itself, in white. Both client reads are guarded: the name list is a function in this
+-- build and either value can be missing or secret.
+function Kit:ClassText(token)
+    token = Util.str(token)
+    if not token or token == "" then return "", 1, 1, 1 end
+    local list = LocalizedClassList and call(LocalizedClassList, false)
+    local name = type(list) == "table" and not Util.isSecret(list) and Util.str(list[token]) or nil
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+    local r, g, b
+    if type(color) == "table" and not Util.isSecret(color) then r, g, b = num(color.r), num(color.g), num(color.b) end
+    if name and name ~= "" and r and g and b then return name, r, g, b end
+    return token, 1, 1, 1
 end
 
 -- Blizzard font objects by style, first one the client has wins.
@@ -355,6 +370,66 @@ function Kit:Button(parent, text, style)
     return button
 end
 
+-- A search box. onChanged(text) is called with the trimmed text when the player changes it (typing, or the
+-- template's clear button), and not for a text the screen sets itself through box:honorLogSetText(text).
+-- Tries the client's search template, then the plain instructions box and the plain input box, then draws one.
+-- OnTextChanged is hooked, never replaced: the template's own handler shows the placeholder and the clear button.
+-- The placeholder goes through the template's Instructions text when it has one; any other box gets a hint of
+-- our own (box.honorLogHint). The drawn box lets go of the keyboard on Escape, Enter and hide, so it never
+-- keeps swallowing key presses.
+function Kit:SearchBox(parent, placeholder, width, onChanged)
+    local box, template = Kit:CreateTemplated("EditBox", nil, parent, "SearchBoxTemplate", "InputBoxInstructionsTemplate", "InputBoxTemplate")
+    box.honorLogTemplate = template or false
+    box:SetAutoFocus(false)
+    box:SetSize(num(width) or 160, 20)
+    box:SetMaxLetters(48)
+    if not template then
+        fill(box, 0.035, 0.03, 0.03, 1)
+        Kit:Edges(box, 0.43, 0.42, 0.38, 1)
+        local font = fontFor("value")
+        if font then box:SetFontObject(font) else box:SetFont("Fonts\\FRIZQT__.TTF", 12, "") end
+        box:SetTextInsets(6, 6, 0, 0)
+        box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        box:SetScript("OnHide", function(self) self:ClearFocus() end)
+    end
+
+    local placeholderText = placeholder or ""
+    box.honorLogHint = false
+    local instructions = box.Instructions
+    if template and type(instructions) == "table" and instructions.SetText then
+        instructions:SetText(placeholderText)
+    else
+        box.honorLogHint = Kit:Text(box, "grey")
+        box.honorLogHint:SetPoint("LEFT", box, "LEFT", template and 16 or 6, 0)
+        box.honorLogHint:SetPoint("RIGHT", box, "RIGHT", -6, 0)
+        box.honorLogHint:SetWordWrap(false)
+        box.honorLogHint:SetText(placeholderText)
+    end
+
+    local function trimmed(self)
+        local text = Util.str(self:GetText()) or ""
+        return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+    local last = ""
+    box:HookScript("OnTextChanged", function(self, userInput)
+        if self.honorLogHint then self.honorLogHint:SetShown((Util.str(self:GetText()) or "") == "") end
+        local text = trimmed(self)
+        if text == last then return end
+        -- The template's clear button empties the box without user input, and that is the player's doing too.
+        if not (userInput or text == "") then return end
+        last = text
+        if onChanged then onChanged(text) end
+    end)
+    function box:honorLogSetText(text)
+        text = type(text) == "string" and text or ""
+        last = (text:gsub("^%s+", ""):gsub("%s+$", ""))
+        self:SetText(text)
+    end
+    function box:honorLogGetText() return trimmed(self) end
+    return box
+end
+
 --------------------------------------------------------------------------------
 -- Tabs
 --------------------------------------------------------------------------------
@@ -454,6 +529,47 @@ function Kit:Bar(parent)
         self:SetStatusBarColor(r, g, b)
     end
     bar:SetBarColor(1, 0.82, 0.1)
+    return bar
+end
+
+-- A two-colour bar on a Kit:Bar-style track: the left part green, the right part red, split in proportion to
+-- two counts. bar:SetCounts(left, right); a side with 0 is hidden and both 0 shows the empty track. The numbers
+-- are the caller's own text beside it: the colours are never the only carrier of the meaning.
+function Kit:SplitBar(parent, width, height)
+    local bar = CreateFrame("Frame", nil, parent)
+    bar:SetSize(num(width) or 100, num(height) or 8)
+    fill(bar, 0.035, 0.03, 0.03, 1)
+    Kit:Edges(bar, 0.4, 0.33, 0.12, 1)
+    bar.honorLogLeft = bar:CreateTexture(nil, "ARTWORK")
+    bar.honorLogRight = bar:CreateTexture(nil, "ARTWORK")
+    local g, r = Kit.COLORS.green, Kit.COLORS.red
+    bar.honorLogLeft:SetColorTexture(g[1], g[2], g[3], 1)
+    bar.honorLogRight:SetColorTexture(r[1], r[2], r[3], 1)
+    bar.honorLogLeft:Hide()
+    bar.honorLogRight:Hide()
+
+    function bar:SetCounts(left, right)
+        left = math.max(0, num(left) or 0)
+        right = math.max(0, num(right) or 0)
+        self.honorLogLeftCount, self.honorLogRightCount = left, right
+        local total = left + right
+        local lt, rt = self.honorLogLeft, self.honorLogRight
+        lt:ClearAllPoints()
+        rt:ClearAllPoints()
+        lt:SetShown(left > 0)
+        rt:SetShown(right > 0)
+        if total <= 0 then return end
+        -- Inside the track's one pixel border; the left share is rounded, the right takes what is left.
+        local inner = math.max(0, (num(self:GetWidth()) or 0) - 2)
+        local leftWidth = left > 0 and right > 0 and math.min(inner - 1, math.max(1, math.floor(inner * left / total + 0.5))) or (left > 0 and inner or 0)
+        lt:SetPoint("TOPLEFT", self, "TOPLEFT", 1, -1)
+        lt:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 1, 1)
+        lt:SetWidth(math.max(1, leftWidth))
+        rt:SetPoint("TOPRIGHT", self, "TOPRIGHT", -1, -1)
+        rt:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", -1, 1)
+        rt:SetWidth(math.max(1, inner - leftWidth))
+    end
+    bar:SetCounts(0, 0)
     return bar
 end
 
@@ -627,6 +743,30 @@ function Kit:Ring(parent, size)
     return ring
 end
 
+-- A small round badge with a rank number: badge.number is the text. The ring atlas on a dark round ground, or
+-- a square with a gold border where the client has no such atlas. The caller places it.
+function Kit:RankBadge(parent, size)
+    size = num(size) or 20
+    local badge = CreateFrame("Frame", nil, parent)
+    badge:SetSize(size, size)
+    local ring = Kit.RING_ATLASES.badge
+    if Kit:HasAtlas(ring) then
+        Kit:RoundGround(badge)
+        local tex = badge:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints(badge)
+        tex:SetAtlas(ring)
+    else
+        local ground = badge:CreateTexture(nil, "BACKGROUND")
+        ground:SetAllPoints(badge)
+        ground:SetColorTexture(0.1, 0.1, 0.1, 1)
+        Kit:Edges(badge, 0.85, 0.66, 0.23, 1)
+    end
+    badge.number = Kit:Text(badge, "labelSmall")
+    badge.number:SetPoint("CENTER", 0, 0)
+    badge.number:SetJustifyH("CENTER")
+    return badge
+end
+
 --------------------------------------------------------------------------------
 -- Tile and rows
 --------------------------------------------------------------------------------
@@ -655,6 +795,44 @@ function Kit:Tile(parent)
     tile.noteRow:SetHeight(16)
     tile.noteRow:Hide()
     return tile
+end
+
+-- A tile whose note is one line (cut by the client, never wrapped) with a tooltip over it that carries the full
+-- text. tile.honorLogTipButton is the frame the mouse rests on: a caller that holds a timer while the mouse is
+-- over it hooks that frame. Fill it with Kit:SetNoteTile.
+function Kit:NoteTile(parent)
+    local tile = Kit:Tile(parent)
+    local base = num(tile:GetFrameLevel()) or 0
+    tile.note:SetWordWrap(false)
+    tile.honorLogTipButton = CreateFrame("Button", nil, tile)
+    local tip = tile.honorLogTipButton
+    tip:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 6, 3)
+    tip:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -4, 3)
+    tip:SetHeight(16)
+    tip:SetFrameLevel(base + 10)
+    tip:SetScript("OnEnter", function(self)
+        local text = self.honorLogText
+        if not text or text == "" then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(text, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    tip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return tile
+end
+
+-- Colours are Kit.COLORS names; the tooltip text defaults to the note.
+function Kit:SetNoteTile(tile, label, value, note, tip, valueColor, noteColor)
+    local function paint(fs, name)
+        local c = Kit.COLORS[name] or Kit.COLORS.white
+        fs:SetTextColor(c[1], c[2], c[3])
+    end
+    tile.label:SetText(label)
+    tile.value:SetText(value or "")
+    paint(tile.value, valueColor or "white")
+    tile.note:SetText(note or "")
+    paint(tile.note, noteColor or "grey")
+    tile.honorLogTipButton.honorLogText = tip or note
 end
 
 -- A pooled list. create(row, index) runs once per row, update(row, entry, index) on every SetData.
@@ -916,12 +1094,15 @@ function Kit:ItemIcon(parent, size)
     return icon
 end
 
--- The same shape for a battleground's mark. mark:SetBattleground(bgType).
+-- The same shape for a battleground's mark. mark:SetBattleground(bgType, count, owner): without a count the
+-- tooltip reads this character's bags; a row for another character passes that character's count (and name,
+-- which the tooltip line then carries) instead.
 function Kit:MarkIcon(parent, size)
     local mark = iconButton(parent, size or 14)
 
-    function mark:SetBattleground(bgType)
+    function mark:SetBattleground(bgType, count, owner)
         self.honorLogBG = bgType
+        self.honorLogCount, self.honorLogOwner = num(count) or false, type(owner) == "string" and owner or false
         self.honorLogTexture:SetTexture(HonorLog.BG_ICONS[bgType] or QUESTION_MARK)
         self.honorLogBorder:SetColorTexture(Kit:QualityColor(2))
     end
@@ -936,7 +1117,13 @@ function Kit:MarkIcon(parent, size)
         if not id then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         pcall(GameTooltip.SetItemByID, GameTooltip, id)
-        GameTooltip:AddLine(string.format(L["In your bags: %d"], num(HonorLog:GetCurrentMarks(self.honorLogBG)) or 0), 1, 0.82, 0)
+        if self.honorLogCount then
+            local line = self.honorLogOwner and string.format(L["In the bags of %s: %d"], self.honorLogOwner, self.honorLogCount)
+                or string.format(L["In your bags: %d"], self.honorLogCount)
+            GameTooltip:AddLine(line, 1, 0.82, 0)
+        else
+            GameTooltip:AddLine(string.format(L["In your bags: %d"], num(HonorLog:GetCurrentMarks(self.honorLogBG)) or 0), 1, 0.82, 0)
+        end
         GameTooltip:Show()
     end)
     mark:SetScript("OnClick", function(self)
@@ -1092,7 +1279,10 @@ end
 -- Map link
 --------------------------------------------------------------------------------
 
--- A small pin and a name. link:SetVendor(vendor) or link:SetPlace(place); a click puts the pin on the map.
+-- A small pin and a name. link:SetVendor(vendor) or link:SetPlace(place, label, width); a click puts the pin on
+-- the map. A place with a map but no position opens that zone's map without a pin, and a place with no map is
+-- plain grey text whose tooltip says the game gave no position. `label` replaces place.name; `width` fixes the
+-- link's width (text that does not fit is cut by the client, and the tooltip then carries the full text).
 function Kit:PlaceLink(parent)
     local link = CreateFrame("Button", nil, parent)
     link:SetHeight(16)
@@ -1103,25 +1293,83 @@ function Kit:PlaceLink(parent)
     link.honorLogName = Kit:Text(link, "label")
     link.honorLogName:SetPoint("LEFT", link.honorLogPin, "RIGHT", 4, 0)
 
-    local function show(self, name)
-        self.honorLogName:SetText(name or "")
-        self:SetWidth(18 + (self.honorLogName:GetStringWidth() or 0))
+    local function colour(self, name)
+        local c = Kit.COLORS[name]
+        self.honorLogName:SetTextColor(c[1], c[2], c[3])
+    end
+    -- mode: "pin" (a pin on the map), "zone" (the zone's map only) or "plain" (no map at all)
+    local function show(self, name, mode, width)
+        name = name or ""
+        self.honorLogMode, self.honorLogFull = mode, name
+        local plain = mode == "plain"
+        self.honorLogPin:SetShown(not plain)
+        self.honorLogName:ClearAllPoints()
+        if plain then
+            self.honorLogName:SetPoint("LEFT", self, "LEFT", 0, 0)
+        else
+            self.honorLogName:SetPoint("LEFT", self.honorLogPin, "RIGHT", 4, 0)
+        end
+        local lead = plain and 0 or 16
+        width = num(width)
+        -- Measured at its natural width first: a fixed-width text may report only what it shows.
+        self.honorLogName:SetWidth(0)
+        self.honorLogName:SetText(name)
+        local natural = num(self.honorLogName:GetStringWidth()) or 0
+        if width and width > lead then
+            self.honorLogName:SetWidth(width - lead)
+            self.honorLogName:SetWordWrap(false)
+            self:SetWidth(width)
+            self.honorLogCut = natural > width - lead
+        else
+            self:SetWidth((plain and 2 or 18) + natural)
+            self.honorLogCut = false
+        end
+        colour(self, plain and "grey" or "gold")
     end
     function link:SetVendor(vendor)
         self.honorLogVendor, self.honorLogPlace = vendor, false
-        show(self, type(vendor) == "table" and vendor.name or nil)
+        show(self, type(vendor) == "table" and vendor.name or nil, "pin")
     end
-    function link:SetPlace(place)
+    function link:SetPlace(place, label, width)
         self.honorLogVendor, self.honorLogPlace = false, place
-        show(self, type(place) == "table" and place.name or nil)
+        local mode = "pin"
+        if type(place) == "table" then
+            if not num(place.map) then
+                mode = "plain"
+            elseif not (num(place.x) and num(place.y)) then
+                mode = "zone"
+            end
+        end
+        local name = type(label) == "string" and label or (type(place) == "table" and place.name) or nil
+        show(self, name, mode, width)
     end
-    link:SetScript("OnEnter", function(self) self.honorLogName:SetTextColor(1, 1, 1) end)
-    link:SetScript("OnLeave", function(self) self.honorLogName:SetTextColor(Kit.COLORS.gold[1], Kit.COLORS.gold[2], Kit.COLORS.gold[3]) end)
+    link:SetScript("OnEnter", function(self)
+        if self.honorLogMode ~= "plain" then colour(self, "white") end
+        local plain, zone = self.honorLogMode == "plain", self.honorLogMode == "zone"
+        if not (plain or zone or self.honorLogCut) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.honorLogCut or plain then GameTooltip:AddLine(self.honorLogFull or "", 1, 1, 1, true) end
+        if plain then
+            GameTooltip:AddLine(L["The game gave no position for this place."], 0.66, 0.64, 0.59, true)
+        elseif zone then
+            GameTooltip:AddLine(L["The game gave no position here. Click: open this zone's map"], 0.66, 0.64, 0.59, true)
+        end
+        GameTooltip:Show()
+    end)
+    link:SetScript("OnLeave", function(self)
+        colour(self, self.honorLogMode == "plain" and "grey" or "gold")
+        GameTooltip:Hide()
+    end)
     link:SetScript("OnClick", function(self)
         if self.honorLogVendor then
             HonorLog:ShowVendorOnMap(self.honorLogVendor)
         elseif self.honorLogPlace then
-            HonorLog:ShowPlaceOnMap(self.honorLogPlace)
+            local mode = self.honorLogMode
+            if mode == "pin" then
+                HonorLog:ShowPlaceOnMap(self.honorLogPlace)
+            elseif mode == "zone" and HonorLog.MapPin then
+                HonorLog.MapPin:OpenMap(num(self.honorLogPlace.map))
+            end
         end
     end)
     return link

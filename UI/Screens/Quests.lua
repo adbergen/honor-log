@@ -647,4 +647,4 @@ HonorLog.RegisterCallback(QuestsScreen, "HonorLog_QuestPaid", function()
     if Window.current == "quests" and Window:IsShown() then Window:RefreshCurrent() end
 end)
 
-Window:RegisterScreen({ key = "quests", title = L["Quests"], order = 5, create = create })
+Window:RegisterScreen({ key = "quests", title = L["Quests"], order = 6, create = create })

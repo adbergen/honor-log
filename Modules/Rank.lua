@@ -86,14 +86,17 @@ local function db()
     return HonorLog.db
 end
 
--- Title for a rank, for the player's faction and sex, as Blizzard builds it.
-function Rank:TitleForRank(n)
+-- Title for a rank, for the player's faction and sex, as Blizzard builds it. `faction` ("Alliance" or "Horde")
+-- is for a row about another character; the sex is always the player's own (the saved records hold none).
+function Rank:TitleForRank(n, faction)
     n = num(n)
     if not n or n <= 0 then
         return str(PVP_RANK_0_NAME) or "Unranked"
     end
     local first = (Enum and Enum.PvPRanks and num(Enum.PvPRanks.Rank_1)) or 5
-    local faction01 = (call(UnitFactionGroup, "player") == "Alliance") and 1 or 0
+    faction = str(faction)
+    if faction ~= "Alliance" and faction ~= "Horde" then faction = call(UnitFactionGroup, "player") end
+    local faction01 = (faction == "Alliance") and 1 or 0
     local key = "PVP_RANK_" .. tostring(first + n - 1) .. "_" .. tostring(faction01)
     local gender = UnitSex and call(UnitSex, "player") or nil
     if gender and isSecret(gender) then gender = nil end

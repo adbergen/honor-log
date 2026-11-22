@@ -5,6 +5,9 @@
 -- sentences through HonorLog.L. The comment above each function states its return shape; the windows
 -- treat those comments as the contract.
 --
+-- The 2.1 screens' readers, in the section at the end: GetCharacterRows, FindPlayers, GetHonorDaysBetween and
+-- GetWeekRankReason.
+--
 -- Loaded after the Modules (it uses HonorLog.Rank) and before the UI files. Rates are percents (0-100),
 -- the way GetDerivedStats reports them, and a win rate counts decided games only: draws and games
 -- left early are not in it.
@@ -730,4 +733,241 @@ function HonorLog:GetWinRateByHour(scope)
         if row.played > 0 then row.winRate = row.wins / row.played * 100 end
     end
     return out
+end
+
+--------------------------------------------------------------------------------
+-- C. The 2.1 screens
+--------------------------------------------------------------------------------
+
+-- Whole calendar days from `from` to `to` (local time; noon of each day, so daylight saving cannot move one).
+local function daysBetween(from, to)
+    local a, b = date("*t", from), date("*t", to)
+    local ta = time({ year = a.year, month = a.month, day = a.day, hour = 12 })
+    local tb = time({ year = b.year, month = b.month, day = b.day, hour = 12 })
+    return math.floor((tb - ta) / DAY + 0.5)
+end
+
+-- The week line of a character row: text and a tone ("capped", "gate" or "progress"); both nil when there is
+-- nothing to say.
+local function weekLine(rec)
+    local Rank = HonorLog.Rank
+    if rec.cappedNow then return L["Capped this week"], "capped" end
+    local level, rank = num(rec.level), num(rec.rank)
+    if Rank and level and rank then
+        local gate = Rank:GetGate(level, rank)
+        if gate and gate.blocking then
+            return string.format(L["Rank %d needs level %d"], gate.rank, gate.level), "gate"
+        end
+    end
+    local points = num(rec.rankPoints)
+    if Rank and rank and points and rank >= 0 and rank < 14 then
+        local missing = Rank:TotalForRank(rank + 1) - points
+        if missing > 0 then
+            return string.format(L["%s points to Rank %d"], commas(missing), rank + 1), "progress"
+        end
+    end
+    return nil, nil
+end
+
+-- One row per saved character, from Characters:GetList() (the record's own fields stay: key, name, class,
+-- level, rank, rankPoints, honor, marks, current, stub, cappedNow, ...) with the texts a row shows:
+-- { lastText ("Playing now", "today", "yesterday", "N days ago"; nil for a stub), rankTitle (for that
+-- record's faction; nil without a rank), weekText and weekTone ("capped", "gate" or "progress"; both nil
+-- when there is nothing to say), honorCap (the client's cap, nil when unreadable), goalItem (item id) and
+-- goalName, goalNote (the current character: GoalReadyText of the first goal; another: "Ready to buy" or
+-- "NN% complete"), goalPercent }. A part that cannot be read leaves its fields nil. Empty without a store.
+function HonorLog:GetCharacterRows()
+    local out = {}
+    local Characters = HonorLog.Characters
+    if not Characters then return out end
+    local ok, list = pcall(Characters.GetList, Characters)
+    if not ok or type(list) ~= "table" then return out end
+    local cap = num(call(self.GetHonorCap, self))
+    local goals
+    local now = time()
+    for _, rec in ipairs(list) do
+        local row = rec
+        row.honorCap = cap
+        if not rec.stub then
+            local seen = num(rec.lastSeen)
+            if rec.current then
+                row.lastText = L["Playing now"]
+            elseif seen then
+                local days = daysBetween(seen, now)
+                row.lastText = days <= 0 and L["today"] or days == 1 and L["yesterday"] or string.format(L["%d days ago"], days)
+            end
+            if num(rec.rank) and HonorLog.Rank then
+                row.rankTitle = str(call(HonorLog.Rank.TitleForRank, HonorLog.Rank, rec.rank, rec.faction))
+            end
+            row.weekText, row.weekTone = weekLine(rec)
+            local item = num(rec.nextGoal)
+            if item then
+                row.goalItem = item
+                row.goalName = str(call(self.GetGearName, self, item))
+                row.goalPercent = num(rec.goalPercent)
+                if rec.current then
+                    if goals == nil then
+                        local gok, all = pcall(self.GetAllGoalsProgress, self)
+                        goals = gok and type(all) == "table" and all or false
+                    end
+                    if goals and goals[1] then
+                        local tok, text = pcall(self.GoalReadyText, self, goals[1])
+                        if tok and type(text) == "string" and text ~= "" then row.goalNote = text end
+                    end
+                elseif row.goalPercent then
+                    row.goalNote = row.goalPercent >= 100 and L["Ready to buy"] or string.format(L["%d%% complete"], math.floor(row.goalPercent))
+                end
+            end
+        end
+        out[#out + 1] = row
+    end
+    return out
+end
+
+-- The same player under a scoreboard name with a realm suffix and without one: the name before the "-", any case.
+local function playerKey(name)
+    return (name:match("^([^-]+)") or name):lower()
+end
+
+-- Players whose name contains `text` (any case), newest first: one row each, merging the battleground
+-- store (Met) and the world opponents (the tally of kills and deaths outside battlegrounds). A name with a
+-- realm suffix and the same name without one are one player. Rows { name (the one without a suffix when
+-- both exist), class, met = { with, withWins, against, againstWins, kbBest, last } or nil, world = { kills,
+-- deaths, lastSeen } or nil, last (the newest of the two) }; at most `limit` (default 20). Empty for no text.
+function HonorLog:FindPlayers(text, limit)
+    text = str(text)
+    text = text and text:gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if text == "" or not db() then return {} end
+    limit = math.max(0, math.floor(num(limit) or 20))
+    local Met = HonorLog.Met
+    local part = text:lower()
+    local players, keys = {}, {}
+    local function player(name)
+        local key = playerKey(name)
+        local p = players[key]
+        if not p then
+            p = { name = name }
+            players[key] = p
+            keys[#keys + 1] = key
+        elseif p.name:find("-", 1, true) and not name:find("-", 1, true) then
+            p.name = name
+        end
+        return p
+    end
+    local function addMet(rec)
+        local full = Met and Met:Get(rec.name)
+        if not full then return end
+        local p = player(rec.name)
+        p.class = p.class or str(full.class)
+        local m = p.met or { with = 0, withWins = 0, against = 0, againstWins = 0, kbBest = 0, last = 0 }
+        for _, k in ipairs({ "with", "withWins", "against", "againstWins" }) do m[k] = m[k] + (num(full[k]) or 0) end
+        m.kbBest = math.max(m.kbBest, num(full.kbBest) or 0)
+        m.last = math.max(m.last, num(full.last) or 0)
+        p.met = m
+    end
+    local function addWorld(name, opp)
+        local p = player(name)
+        p.class = p.class or str(opp.class)
+        local w = p.world or { kills = 0, deaths = 0, lastSeen = 0 }
+        w.kills = w.kills + (num(opp.kills) or 0)
+        w.deaths = w.deaths + (num(opp.deaths) or 0)
+        w.lastSeen = math.max(w.lastSeen, num(opp.lastSeen) or 0)
+        p.world = w
+    end
+
+    local opponents = db().char and db().char.opponents
+    opponents = type(opponents) == "table" and opponents or {}
+    local matched = {}
+    if Met then
+        for _, rec in ipairs(Met:Search(text, Met.KEPT)) do
+            matched[#matched + 1] = rec.name
+            addMet(rec)
+        end
+    end
+    for name, opp in pairs(opponents) do
+        if type(name) == "string" and type(opp) == "table" and name:lower():find(part, 1, true) then
+            matched[#matched + 1] = name
+        end
+    end
+    -- What the other store knows about a matched player, whichever way its name is spelled.
+    local byKey = {}
+    for name, opp in pairs(opponents) do
+        if type(name) == "string" and type(opp) == "table" then
+            local key = playerKey(name)
+            byKey[key] = byKey[key] or {}
+            byKey[key][#byKey[key] + 1] = name
+        end
+    end
+    local seen = {}
+    for _, name in ipairs(matched) do
+        local key = playerKey(name)
+        if not seen[key] then
+            seen[key] = true
+            for _, oppName in ipairs(byKey[key] or {}) do addWorld(oppName, opponents[oppName]) end
+            if Met and not (players[key] and players[key].met) then
+                for _, rec in ipairs(Met:Search(key, Met.KEPT)) do
+                    if playerKey(rec.name) == key then addMet(rec) end
+                end
+            end
+        end
+    end
+
+    local out = {}
+    for _, key in ipairs(keys) do
+        local p = players[key]
+        p.last = math.max(p.met and p.met.last or 0, p.world and p.world.lastSeen or 0)
+        out[#out + 1] = p
+    end
+    table.sort(out, function(a, b)
+        if a.last ~= b.last then return a.last > b.last end
+        return a.name < b.name
+    end)
+    for i = #out, limit + 1, -1 do out[i] = nil end
+    return out
+end
+
+-- Honor per calendar day over a span (start and finish are times; a day counts when its noon lies in
+-- [start, finish), so a reset week gives seven): { { dayKey, label (the short weekday name), honor }, ... },
+-- oldest first. nil when the span begins before the days the store keeps (60), has no days or there is no store.
+function HonorLog:GetHonorDaysBetween(start, finish)
+    start, finish = num(start), num(finish)
+    if not (start and finish and finish > start) then return nil end
+    local store = self:EnsureHonorDays()
+    if not store then return nil end
+    if self:GetDayKey(start) < self:GetDayKey(time() - HONOR_DAYS_KEPT * DAY) then return nil end
+    local first = date("*t", start)
+    local out = {}
+    for add = 0, 40 do
+        local ts = time({ year = first.year, month = first.month, day = first.day + add, hour = 12 })
+        if ts >= finish then break end
+        if ts >= start then
+            local key = self:GetDayKey(ts)
+            out[#out + 1] = { dayKey = key, label = date("%a", ts), honor = num(store[key]) or 0 }
+        end
+    end
+    if #out == 0 then return nil end
+    return out
+end
+
+-- Why a week gave no rank points: "gate" (the level gate held them) or "cap" (the weekly cap was reached),
+-- read from the saved games inside the week the way GetTodayModel reads today's. `record` is a week record
+-- (Weeks:GetRecap(n).week). nil when the week gave points, has no game that says, or the record is unusable.
+function HonorLog:GetWeekRankReason(record)
+    if type(record) ~= "table" or not db() or not db().char then return nil end
+    local start, finish = num(record.start), num(record.finish)
+    if not (start and finish) then return nil end
+    local first, last = num(record.rankStart), num(record.rankEnd)
+    if first and last and last - first > 0 then return nil end
+    local gated, capped, points = false, false, 0
+    for _, g in ipairs(db().char.history or {}) do
+        local ts = type(g) == "table" and num(g.timestamp)
+        if ts and ts >= start and ts < finish then
+            points = points + (num(g.rankPoints) or 0)
+            if g.rankState == "gated" then gated = true elseif g.rankState == "capped" then capped = true end
+        end
+    end
+    if points > 0 then return nil end
+    if gated then return "gate" end
+    if capped then return "cap" end
+    return nil
 end
