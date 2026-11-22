@@ -5,6 +5,7 @@
 ### Added
 - **Recommended gear goals, the engine only**: for each slot, the best PvP reward your class and spec can use, offered when its item level beats what you wear (an empty slot counts most), ranked buyable-now first and then by when you can buy it, plus a one-call sort of your goal list by the same priority. The generated gear data now carries a role (healer, physical or caster) for every set line and item and the armor each class wears by level. Nothing shows it yet and nothing is added or reordered until you click.
 - **A World PvP screen**, a tab between Battlegrounds and Quests: today's kills, deaths and honor, the log of every kill and death with a search and All / Kills / Deaths, your record against the players you meet most, and where you fight. Every place opens the map.
+- **A Players screen**, between Quests and Characters: who you win with, who you lose to, the top killers you have faced and who you fight most in the world, a search for any player, and your whole record with the one you choose. Nothing about other players leaves your computer.
 - **A Characters screen**, the last tab: one card for each of your characters with its class and level, last played, rank and week, honor against the cap, battleground marks and next gear goal, and a two-click Forget for a deleted character.
 - **A summary of each of your characters**, kept in the account's saved data: class, faction, level, rank and
   rank points, whether the weekly rank cap is reached and until when, honor, marks, how far the first gear
