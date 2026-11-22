@@ -39,7 +39,10 @@ TOOLTIP_URL = "https://nether.wowhead.com/forever/tooltip/item/%d"
 XML_URL = "https://www.wowhead.com/forever/item=%d&xml"
 DELAY = 0.3  # seconds between network requests
 
-TABLES = ["ItemSparse", "Item", "ItemExtendedCost", "ItemSet", "ChrClasses", "Faction"]
+TABLES = ["ItemSparse", "Item", "ItemExtendedCost", "ItemSet", "ChrClasses", "Faction", "SkillRaceClassInfo"]
+
+# The four armour proficiencies: SkillRaceClassInfo skill id -> armour type.
+ARMOUR_SKILLS = {293: "PLATE", 413: "MAIL", 414: "LEATHER", 415: "CLOTH"}
 
 SLOTS = [
     "HEAD", "NECK", "SHOULDER", "BACK", "CHEST",
@@ -147,6 +150,78 @@ def race_faction(mask):
     if alliance and not horde:
         return "Alliance"
     return None
+
+
+SET_START_RE = re.compile(r"\|[^|]*\(\d+/\d+\)")
+HEALER_RE = re.compile(r"Increases healing done by up to \d+")
+PRIMARY_RE = re.compile(r"\+\d+ (?:Strength|Agility)\b")
+CASTER_RE = re.compile(r"Increases damage and healing done by magical spells|\+\d+ Intellect\b")
+ATTACK_POWER_RE = re.compile(r"\+\d+ (?:Ranged )?Attack Power")
+
+
+def tooltip_parts(item_id):
+    """(the item's own lines, the set bonus lines) from its cached Wowhead tooltip."""
+    data = json.loads(cached("tooltip", item_id, TOOLTIP_URL, "json"))
+    html = re.sub(r"<br ?/?>|</td>|</tr>|</th>", "|", data["tooltip"])
+    text = re.sub(r"<[^>]+>", "", html)
+    cut = SET_START_RE.search(text)
+    if cut:
+        own, rest = text[:cut.start()], text[cut.start():]
+        bonus = rest[rest.find("(2) Set"):] if "(2) Set" in rest else ""
+        return own, bonus
+    return text, ""
+
+
+def role_of_lines(own, bonus=""):
+    """healer, physical or caster from one piece's own lines (and a set's bonus lines), or None.
+
+    Order: healing-weighted, then Strength or Agility (or an Attack Power set bonus), then spell
+    damage or Intellect."""
+    if HEALER_RE.search(own):
+        return "healer"
+    if PRIMARY_RE.search(own) or ATTACK_POWER_RE.search(own) or ATTACK_POWER_RE.search(bonus):
+        return "physical"
+    if CASTER_RE.search(own):
+        return "caster"
+    return None
+
+
+def set_roles(entries):
+    """One role per set id, judged over every piece of the set: healer if any piece is
+    healing-weighted, else physical if any piece has Strength or Agility or the set bonus gives
+    Attack Power, else caster. Judged piece by piece, a hybrid line disagrees with itself."""
+    members = defaultdict(list)
+    for item_id, e in entries.items():
+        if e.get("set"):
+            members[e["set"]].append(item_id)
+    roles = {}
+    for set_id, ids in members.items():
+        owns, bonus = [], ""
+        for item_id in sorted(ids):
+            own, b = tooltip_parts(item_id)
+            owns.append(own)
+            bonus = bonus or b
+        if any(HEALER_RE.search(o) for o in owns):
+            roles[set_id] = "healer"
+        elif any(PRIMARY_RE.search(o) for o in owns) or ATTACK_POWER_RE.search(bonus):
+            roles[set_id] = "physical"
+        else:
+            roles[set_id] = "caster"
+    return roles
+
+
+def armour_levels(rows, classes):
+    """class token -> { armour type -> lowest level that class may wear it }, from SkillRaceClassInfo."""
+    out = {name: {} for name in classes.values()}
+    for r in rows:
+        armour = ARMOUR_SKILLS.get(int(r["SkillID"]))
+        if not armour:
+            continue
+        mask, level = int(r["ClassMask"]), max(1, int(r["MinLevel"]))
+        for bit, name in classes.items():
+            if mask <= 0 or mask & bit:
+                out[name][armour] = min(level, out[name].get(armour, level))
+    return out
 
 
 def lua_str(value):
@@ -489,6 +564,19 @@ def main():
             e["set"] = set_id
     used_sets = sorted({e["set"] for e in entries.values() if e.get("set")})
 
+    # ---- roles: per set first, then every piece; items outside a set by their own lines --------------
+    roles_by_set = set_roles(entries)
+    for item_id, e in entries.items():
+        if e["slot"] in ("TABARD", "MOUNT", "TOKEN", "CONSUMABLE", "OTHER"):
+            continue
+        if e.get("set"):
+            e["role"] = roles_by_set[e["set"]]
+        else:
+            role = role_of_lines(tooltip_parts(item_id)[0])
+            if role:
+                e["role"] = role
+    armour_by_class = armour_levels(tables["SkillRaceClassInfo"], classes)
+
     # ---- write Lua -------------------------------------------------------------------------
     used_factions = {2798, 2799, 509, 510}
     used_factions |= {e["rep"]["faction"] for e in entries.values() if e.get("rep") and e["rep"]["faction"]}
@@ -525,6 +613,8 @@ def main():
             parts.append("legacy = true")
         if e.get("set"):
             parts.append("set = %d" % e["set"])
+        if e.get("role"):
+            parts.append("role = " + lua_str(e["role"]))
         return "    [%d] = { %s },\n" % (item_id, ", ".join(parts))
 
     ordered = sorted(entries.items(), key=lambda kv: (SLOT_INDEX[kv[1]["slot"]], kv[1]["source"], kv[0]))
@@ -539,6 +629,14 @@ def main():
     out.append("HonorLog.REP_FACTIONS = {\n" + "".join("    [%d] = %s,\n" % (f, lua_str(faction_names[f]))
                                                      for f in sorted(used_factions)) + "}\n\n")
     out.append("HonorLog.GearSets = {\n" + "".join("    [%d] = %s,\n" % (i, lua_str(sets[i])) for i in used_sets) + "}\n\n")
+    out.append("-- The role of each set line (healer, physical or caster), judged over the whole set.\n")
+    out.append("HonorLog.SetRoles = {\n" + "".join("    [%d] = %s,\n" % (i, lua_str(roles_by_set[i])) for i in used_sets) + "}\n\n")
+    out.append("-- The armour each class wears and the level it may start: SkillRaceClassInfo skills 293, 413, 414, 415.\n")
+    out.append("HonorLog.ArmorLevels = {\n" + "".join(
+        "    %s = { %s },\n" % (classes[m], ", ".join("%s = %d" % (a, armour_by_class[classes[m]][a])
+                                                      for a in ("CLOTH", "LEATHER", "MAIL", "PLATE")
+                                                      if a in armour_by_class[classes[m]]))
+        for m in sorted(classes)) + "}\n\n")
     out.append("HonorLog.GearDB = {\n" + "".join(fmt(i, e) for i, e in ordered) + "}\n")
     OUT.write_text("".join(out))
 

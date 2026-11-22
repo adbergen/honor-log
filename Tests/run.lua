@@ -51,7 +51,7 @@ local function run()
         "Data/Vendors.lua", "Data/Quests.lua",
         "Data.lua", "Core.lua",
         "Modules/BattlegroundBase.lua", "Modules/AV.lua", "Modules/AB.lua", "Modules/WSG.lua",
-        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/WorldLog.lua", "Modules/Met.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
+        "Modules/DI.lua", "Modules/Rank.lua", "Modules/Quests.lua", "Modules/Characters.lua", "Modules/Weeks.lua", "Modules/WorldLog.lua", "Modules/Met.lua", "Modules/Recommend.lua", "Modules/VendorScanner.lua", "Modules/Probe.lua",
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
@@ -9129,6 +9129,584 @@ check(secretBeta and secretBeta.weekText == nil and secretBeta.rankTitle == nil,
         mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 10, 8, 5 -- a cap the schedule does not hold
         check(Rank:CapRankForWeek(3) == 8 and Rank:CapRankForWeek(1) == 8, "cap by week: an unknown schedule keeps last week's cap for the past")
         for k, v in pairs(savedWindow) do mock.rankWindow[k] = v end
+    end)()
+
+    -- Recommended gear goals (Modules/Recommend.lua): the generated data, the role, the armor, the comparison with
+    -- what is worn, the blue piece before its Seal, the priority and the goal-list sort. Items are synthetic.
+    ;(function()
+        local HL = HonorLog
+        local Rec = HL.Recommend
+        check(Rec and HL.GearDB and HL.SetRoles and HL.ArmorLevels, "recommend: the module and the generated tables exist")
+
+        -- state saved and restored around the whole section
+        local realSpecApi = C_SpecializationInfo
+        local saved = {
+            class = mock.playerClass, level = mock.level, faction = mock.faction, equipped = mock.equipped,
+            levels = mock.itemLevels, types = mock.invTypes, bag = mock.bagItems, spec = mock.spec,
+            goals = HL.db.char.goals.items, role = HL.db.char.recommendRole, bagContents = mock.bagContents,
+            pace = HL.Rank.GetPace, onData = HL.OnDataUpdated,
+        }
+        local function fresh()
+            mock.equipped, mock.itemLevels, mock.invTypes, mock.bagItems, mock.bagContents = {}, {}, {}, {}, {}
+            mock.spec, mock.specError = nil, nil
+            -- one item worn out of the way (the ranged slot, far above any reward): a character wearing nothing at all is "unknown"
+            mock.equipped[18], mock.itemLevels[8000000] = 8000000, 1000
+            HL.db.char.recommendRole = nil
+            HL.db.char.goals.items = {}
+        end
+        local function class(token, level, faction)
+            mock.playerClass, mock.level, mock.faction = token, level or 60, faction or "Horde"
+        end
+        local function byItem(list, id)
+            for _, e in ipairs(list) do if e.itemID == id then return e end end
+        end
+        local function bySlot(list, slot)
+            local out = {}
+            for _, e in ipairs(list) do if e.slot == slot then out[#out + 1] = e end end
+            return out
+        end
+        local function has(list, value)
+            for _, v in ipairs(list) do if v == value then return true end end
+            return false
+        end
+        local function same(a, b)
+            if #a ~= #b then return false end
+            for i = 1, #a do if a[i] ~= b[i] then return false end end
+            return true
+        end
+
+        ------------------------------------------------------------------ the generated data
+        local ROLE_OK = { healer = true, physical = true, caster = true }
+        local nSets = 0
+        for setID in pairs(HL.GearSets) do
+            nSets = nSets + 1
+            check(ROLE_OK[HL.SetRoles[setID]], "recommend data: set " .. setID .. " has exactly one role")
+        end
+        check(nSets == 73, "recommend data: 73 set ids, got " .. nSets)
+        local roled, none = 0, 0
+        for id, row in pairs(HL.GearDB) do
+            if row.set then
+                check(row.role == HL.SetRoles[row.set], "recommend data: piece " .. id .. " takes its set's role")
+            end
+            if row.role then
+                check(ROLE_OK[row.role], "recommend data: role of " .. id .. " is one of the three")
+                roled = roled + 1
+            elseif row.slot ~= "TABARD" and row.slot ~= "MOUNT" and row.slot ~= "TOKEN"
+                and row.slot ~= "CONSUMABLE" and row.slot ~= "OTHER" then
+                none = none + 1
+            end
+        end
+        check(roled > 700 and none > 0 and none < 60, "recommend data: most gear has a role (" .. roled .. "), a few pieces fit all (" .. none .. ")")
+        -- the lines of the four classes with several: the role of each, both tiers, both factions
+        local function linesOf(token)
+            local lines = {}
+            for _, row in pairs(HL.GearDB) do
+                if row.class == token and row.set then lines[row.faction .. ":" .. HL.GearSets[row.set] .. ":" .. row.role] = true end
+            end
+            return lines
+        end
+        local function roleCount(token)
+            local n = { healer = 0, physical = 0, caster = 0 }
+            for key in pairs(linesOf(token)) do n[key:match("([a-z]+)$")] = n[key:match("([a-z]+)$")] + 1 end
+            return n
+        end
+        local druid, shaman, paladin, priest = roleCount("DRUID"), roleCount("SHAMAN"), roleCount("PALADIN"), roleCount("PRIEST")
+        check(druid.healer == 4 and druid.physical == 4 and druid.caster == 4, "recommend data: druid has a healer, a physical and a caster line per faction and tier")
+        check(shaman.healer == 4 and shaman.physical == 4 and shaman.caster == 4, "recommend data: shaman has all three lines")
+        check(paladin.healer == 4 and paladin.physical == 4 and paladin.caster == 0, "recommend data: paladin has a healer and a physical line")
+        check(priest.healer == 4 and priest.caster == 4 and priest.physical == 0, "recommend data: priest has a healer and a caster line")
+        for _, token in ipairs({ "WARRIOR", "ROGUE", "HUNTER" }) do
+            for key in pairs(linesOf(token)) do check(key:find(":physical", 1, true), "recommend data: " .. token .. " line is physical: " .. key) end
+        end
+        for _, token in ipairs({ "MAGE", "WARLOCK" }) do
+            for key in pairs(linesOf(token)) do check(key:find(":caster", 1, true), "recommend data: " .. token .. " line is caster: " .. key) end
+        end
+        check(same(Rec:GetClassRoles("DRUID"), { "healer", "physical", "caster" }), "recommend: the druid's roles")
+        check(same(Rec:GetClassRoles("PALADIN"), { "healer", "physical" }) and same(Rec:GetClassRoles("PRIEST"), { "healer", "caster" }), "recommend: paladin and priest roles")
+        check(same(Rec:GetClassRoles("WARRIOR"), { "physical" }) and same(Rec:GetClassRoles("MAGE"), { "caster" }), "recommend: one-line classes")
+        check(same(Rec:GetClassRoles(nil), {}) and same(Rec:GetClassRoles("NOBODY"), {}), "recommend: an unknown class has no roles")
+        -- armor by class and level, as SkillRaceClassInfo gives it
+        local A = HL.ArmorLevels
+        check(A.WARRIOR.PLATE == 40 and A.WARRIOR.MAIL == 1 and A.WARRIOR.LEATHER == 1 and A.WARRIOR.CLOTH == 1, "armor table: warrior plate from 40, mail from the start")
+        check(A.PALADIN.PLATE == 40 and A.PALADIN.MAIL == 1, "armor table: paladin like warrior")
+        check(A.HUNTER.MAIL == 40 and A.HUNTER.LEATHER == 1 and A.HUNTER.PLATE == nil, "armor table: hunter mail from 40")
+        check(A.SHAMAN.MAIL == 40 and A.SHAMAN.LEATHER == 1 and A.SHAMAN.PLATE == nil, "armor table: shaman mail from 40")
+        check(A.ROGUE.LEATHER == 1 and A.ROGUE.MAIL == nil and A.DRUID.LEATHER == 1 and A.DRUID.MAIL == nil, "armor table: rogue and druid leather")
+        check(A.MAGE.CLOTH == 1 and A.MAGE.LEATHER == nil and A.PRIEST.CLOTH == 1 and A.PRIEST.LEATHER == nil and A.WARLOCK.CLOTH == 1 and A.WARLOCK.LEATHER == nil, "armor table: cloth classes")
+        check(Rec:GetArmorType("WARRIOR", 35) == "MAIL" and Rec:GetArmorType("WARRIOR", 40) == "PLATE" and Rec:GetArmorType("WARRIOR", 60) == "PLATE", "armor: a level 35 warrior wears mail, plate from 40")
+        check(Rec:GetArmorType("SHAMAN", 35) == "LEATHER" and Rec:GetArmorType("SHAMAN", 40) == "MAIL", "armor: a level 35 shaman wears leather, mail from 40")
+        check(Rec:GetArmorType("HUNTER", 39) == "LEATHER" and Rec:GetArmorType("MAGE", 60) == "CLOTH" and Rec:GetArmorType("DRUID", 60) == "LEATHER", "armor: hunter 39, mage, druid")
+        check(Rec:GetArmorType("WARRIOR", nil) == nil and Rec:GetArmorType("NOBODY", 60) == nil, "armor: unknown level or class gives nothing")
+
+        ------------------------------------------------------------------ synthetic items
+        local N = 9000000
+        local added = {}
+        local function add(slot, ilvl, extra)
+            N = N + 1
+            local row = { name = "Test " .. slot .. " " .. N, slot = slot, quality = 3, ilvl = ilvl, reqLevel = 1, source = "HONOR", honor = 100 }
+            for k, v in pairs(extra or {}) do row[k] = v end
+            HL.GearDB[N] = row
+            added[#added + 1] = N
+            return N
+        end
+        local function clear()
+            for _, id in ipairs(added) do HL.GearDB[id] = nil end
+            added = {}
+        end
+        local function wear(place, ilvl, invType)
+            N = N + 1
+            mock.equipped[place] = N
+            mock.itemLevels[N] = ilvl
+            if invType then mock.invTypes[N] = invType end
+            return N
+        end
+
+        ------------------------------------------------------------------ the role
+        fresh(); class("DRUID")
+        local list, info = Rec:GetRecommendedGoals()
+        check(info.role == nil and info.roleSource == "unknown", "role: no spec and no choice is unknown")
+        check(same(info.classRoles, { "healer", "physical", "caster" }) and info.class == "DRUID", "role: info names the class and its roles")
+        local heads = bySlot(list, "HEAD")
+        local seen = {}
+        for _, e in ipairs(heads) do seen[e.role] = true end
+        check(seen.healer and seen.physical and seen.caster and #heads == 3, "role: unknown offers every line of the class (" .. #heads .. " head pieces)")
+        mock.spec = { index = 1, role = "HEALER", stat = 4 }
+        list, info = Rec:GetRecommendedGoals()
+        check(info.role == "healer" and info.roleSource == "spec", "role: a healing spec is healer")
+        heads = bySlot(list, "HEAD")
+        check(#heads == 1 and heads[1].role == "healer", "role: a healer druid is offered the healer line")
+        mock.spec = { index = 1, role = "DAMAGER", stat = 2 }
+        list, info = Rec:GetRecommendedGoals()
+        check(info.role == "physical" and bySlot(list, "HEAD")[1].role == "physical", "role: damage with Agility is physical")
+        mock.spec = { index = 1, role = "TANK", stat = 1 }
+        check(select(2, Rec:GetRecommendedGoals()).role == "physical", "role: a tank with Strength is physical")
+        mock.spec = { index = 1, role = "DAMAGER", stat = 4 }
+        list, info = Rec:GetRecommendedGoals()
+        check(info.role == "caster" and bySlot(list, "HEAD")[1].role == "caster", "role: damage with Intellect is caster")
+        mock.spec = { index = 1, role = "DAMAGER", stat = 3 }
+        check(select(2, Rec:GetRecommendedGoals()).role == nil, "role: a primary stat that is neither is unknown")
+        mock.spec = { index = 1, role = "HEALER", stat = 4 }
+        check(Rec:SetRole("physical") == true and Rec:GetChosenRole() == "physical", "role: the player's choice is saved")
+        list, info = Rec:GetRecommendedGoals()
+        check(info.role == "physical" and info.roleSource == "choice" and bySlot(list, "HEAD")[1].role == "physical", "role: a chosen role wins over the spec")
+        check(HL.db.char.recommendRole == "physical", "role: the choice lives in the character's saved data")
+        check(Rec:SetRole("tank") == false and Rec:GetChosenRole() == "physical", "role: a role that is not one of the three is refused")
+        check(Rec:SetRole(nil) == true and Rec:GetChosenRole() == nil, "role: nil clears the choice")
+        check(select(2, Rec:GetRecommendedGoals()).roleSource == "spec", "role: after clearing, the spec answers again")
+        -- one-line classes: the set pieces ignore the role; a role the class has no line for is not used
+        fresh(); class("WARRIOR")
+        Rec:SetRole("healer")
+        list, info = Rec:GetRecommendedGoals()
+        check(info.role == nil and info.roleSource == "unknown", "role: a chosen role the class has no line for is not used")
+        check(#bySlot(list, "HEAD") == 1, "role: a one-line class is offered its set piece")
+        fresh(); class("WARRIOR")
+        Rec:SetRole("physical")
+        check(#bySlot(Rec:GetRecommendedGoals(), "HEAD") == 1, "role: a warrior with the physical role is offered the warrior line")
+        fresh(); class("PRIEST")
+        mock.spec = { index = 1, role = "HEALER", stat = 4 }
+        check(bySlot(Rec:GetRecommendedGoals(), "HEAD")[1].role == "healer", "role: a priest healer gets the Investiture line")
+        mock.spec = { index = 1, role = "DAMAGER", stat = 4 }
+        check(bySlot(Rec:GetRecommendedGoals(), "HEAD")[1].role == "caster", "role: a priest damage spec gets the Raiment line")
+        mock.spec = nil
+        local priestHeads = bySlot(Rec:GetRecommendedGoals(), "HEAD")
+        check(#priestHeads == 2, "role: a priest with no spec is offered both lines")
+        -- items outside a set use the role as well: a physical item is not offered to a caster
+        fresh(); class("DRUID")
+        local pRing = add("FINGER", 90, { role = "physical" })
+        local cRing = add("FINGER", 89, { role = "caster" })
+        local nRing = add("FINGER", 80)
+        mock.spec = { index = 1, role = "DAMAGER", stat = 4 }
+        list = Rec:GetRecommendedGoals()
+        local rings = bySlot(list, "FINGER")
+        check(#rings == 1 and rings[1].itemID == cRing, "role: a caster druid is offered the caster ring, not the physical one")
+        mock.spec = nil
+        list = Rec:GetRecommendedGoals()
+        check(byItem(list, pRing) and byItem(list, cRing) and byItem(list, nRing), "role: with the role unknown each line's ring is offered, and the neutral one beside them")
+        fresh(); class("MAGE")
+        list = Rec:GetRecommendedGoals()
+        check(not byItem(list, pRing) and byItem(list, cRing), "role: a mage is never offered a physical ring, even with no spec")
+        clear()
+
+        ------------------------------------------------------------------ the armor a class is offered
+        for _, case in ipairs({ { "WARRIOR", 35, "MAIL" }, { "WARRIOR", 60, "PLATE" }, { "SHAMAN", 35, "LEATHER" }, { "SHAMAN", 60, "MAIL" },
+            { "HUNTER", 35, "LEATHER" }, { "MAGE", 60, "CLOTH" } }) do
+            fresh(); class(case[1], case[2])
+            -- everything of the class's own is owned, so the neutral armor is what is left
+            for id, row in pairs(HL.GearDB) do
+                if row.class == case[1] then mock.bagItems[id] = 1 end
+            end
+            list = Rec:GetRecommendedGoals()
+            local armorSeen, wrong = 0, 0
+            for _, e in ipairs(list) do
+                local row = HL.GearDB[e.itemID]
+                if row.armor and not row.class then
+                    armorSeen = armorSeen + 1
+                    if row.armor ~= case[3] then wrong = wrong + 1 end
+                end
+            end
+            check(wrong == 0, "armor: " .. case[1] .. " level " .. case[2] .. " is offered only " .. case[3] .. " (" .. wrong .. " wrong)")
+            check(armorSeen > 0 or case[1] == "MAGE", "armor: " .. case[1] .. " level " .. case[2] .. " is offered some neutral armor (" .. armorSeen .. ")")
+        end
+        fresh(); class("WARRIOR", 60)
+        mock.level = nil
+        list, info = Rec:GetRecommendedGoals()
+        check(info.levelUnknown == true, "armor: an unknown level is said so")
+        for _, e in ipairs(list) do
+            local row = HL.GearDB[e.itemID]
+            check(not (row.armor and not row.class), "armor: an unknown level offers no neutral armor")
+        end
+
+        ------------------------------------------------------------------ worn gear against the reward
+        fresh(); class("WARRIOR")
+        local ring = add("FINGER", 90)
+        local neck = add("NECK", 90)
+        local legs = add("LEGS", 90, { class = "MAGE" })
+        -- worse: a gain, with the worn item's name in the reason
+        local w1 = wear(2, 80)
+        HL.GearDB[w1] = { name = "Tarnished Pendant", slot = "OTHER", ilvl = 80, quality = 3, source = "REP", reqLevel = 1 }
+        local wornName = HL:GetGearName(w1)
+        added[#added + 1] = w1
+        list = Rec:GetRecommendedGoals()
+        local e = byItem(list, neck)
+        check(e and e.gain == 10 and not e.empty and e.worn.itemID == w1 and e.worn.ilvl == 80, "worn: a worse neck is a gain of 10")
+        check(e.reason == "+10 item levels over " .. wornName, "worn: the reason names the worn item: " .. tostring(e and e.reason))
+        -- equal and better: nothing
+        mock.itemLevels[w1] = 90
+        check(not byItem(Rec:GetRecommendedGoals(), neck), "worn: an equal item level is not offered")
+        mock.itemLevels[w1] = 95
+        check(not byItem(Rec:GetRecommendedGoals(), neck), "worn: a better worn item is not offered")
+        mock.itemLevels[w1] = 89
+        e = byItem(Rec:GetRecommendedGoals(), neck)
+        check(e and e.gain == 1 and e.reason == "+1 item level over " .. wornName, "worn: one item level is singular: " .. tostring(e and e.reason))
+        -- the worn item's level falls back to the database when the client gives none
+        mock.itemLevels[w1] = nil
+        e = byItem(Rec:GetRecommendedGoals(), neck)
+        check(e and e.gain == 10, "worn: the database level stands in when the client gives none")
+        -- empty slot
+        mock.equipped[2] = nil
+        e = byItem(Rec:GetRecommendedGoals(), neck)
+        check(e and e.empty == true and e.gain == nil and e.worn == nil and e.reason == "Empty slot", "worn: an empty slot is offered with no gain")
+        -- another class's item and another side's item are never offered
+        check(not byItem(Rec:GetRecommendedGoals(), legs), "never offered: another class's item")
+        local ally = add("WAIST", 90, { faction = "Alliance" })
+        local horde = add("WAIST", 85, { faction = "Horde" })
+        list = Rec:GetRecommendedGoals()
+        check(not byItem(list, ally) and byItem(list, horde), "never offered: the other side's item (Horde player)")
+        class("WARRIOR", 60, "Alliance")
+        list = Rec:GetRecommendedGoals()
+        check(byItem(list, ally) and not byItem(list, horde), "never offered: the other side's item (Alliance player)")
+        class("WARRIOR")
+        -- owned, on the goal list, worn
+        mock.bagItems[ring] = 1
+        check(not byItem(Rec:GetRecommendedGoals(), ring), "never offered: an item you own")
+        mock.bagItems[ring] = nil
+        check(byItem(Rec:GetRecommendedGoals(), ring), "an unowned ring is offered")
+        HL:AddGoal(ring)
+        check(not byItem(Rec:GetRecommendedGoals(), ring), "never offered: an item already on the goal list")
+        HL.db.char.goals.items = {}
+        mock.equipped[11] = ring -- the client counts a worn item as owned
+        mock.itemLevels[ring], mock.bagItems[ring] = 90, 1
+        check(not byItem(Rec:GetRecommendedGoals(), ring), "never offered: an item you wear")
+        mock.equipped[11], mock.bagItems[ring] = nil, nil
+
+        -- rings: the weaker of the two; an empty one counts most
+        wear(11, 95)
+        local weak = wear(12, 70)
+        e = byItem(Rec:GetRecommendedGoals(), ring)
+        check(e and e.gain == 20 and e.worn.itemID == weak, "worn: a ring compares with the weaker of the two")
+        mock.equipped[12] = nil
+        e = byItem(Rec:GetRecommendedGoals(), ring)
+        check(e and e.empty == true, "worn: one empty finger is an empty slot")
+        mock.equipped[12] = weak
+        mock.itemLevels[weak] = 95
+        check(not byItem(Rec:GetRecommendedGoals(), ring), "worn: two better rings leave nothing to offer")
+        mock.equipped[11], mock.equipped[12] = nil, nil
+        -- trinkets
+        local trinket = add("TRINKET", 90)
+        wear(13, 60)
+        local t2 = wear(14, 85)
+        e = byItem(Rec:GetRecommendedGoals(), trinket)
+        check(e and e.gain == 30, "worn: a trinket compares with the weaker trinket")
+        mock.itemLevels[mock.equipped[13]] = 91
+        e = byItem(Rec:GetRecommendedGoals(), trinket)
+        check(e and e.gain == 5 and e.worn.itemID == t2, "worn: the other trinket is then the weaker")
+        mock.equipped[13], mock.equipped[14] = nil, nil
+        -- weapons
+        local oneHand = add("MAIN_HAND", 90)
+        local twoHand = add("TWO_HAND", 90)
+        local offHand = add("OFF_HAND", 90)
+        local main = wear(16, 95, 13)
+        local off = wear(17, 70, 13)
+        list = Rec:GetRecommendedGoals()
+        e = byItem(list, oneHand)
+        check(e and e.gain == 20 and e.worn.itemID == off, "worn: a one-hander compares with the weaker of two worn weapons")
+        mock.invTypes[off] = 14 -- a shield is not a weapon
+        e = byItem(Rec:GetRecommendedGoals(), oneHand)
+        check(not e, "worn: a worn shield does not count as the weaker weapon (main hand 95 beats 90)")
+        mock.itemLevels[main] = 80
+        e = byItem(Rec:GetRecommendedGoals(), oneHand)
+        check(e and e.gain == 10 and e.worn.itemID == main, "worn: with a shield the one-hander compares with the main hand")
+        e = byItem(Rec:GetRecommendedGoals(), twoHand)
+        check(e and e.gain == 10 and e.mainHandOnly == true and e.reason:find("main hand only", 1, true), "worn: a two-hander against main hand plus off hand compares the main hand and says so: " .. tostring(e and e.reason))
+        e = byItem(Rec:GetRecommendedGoals(), offHand)
+        check(e and e.gain == 20 and e.worn.itemID == off, "worn: an off hand compares with the off hand")
+        -- a worn two-hander
+        mock.equipped[17] = nil
+        mock.invTypes[main] = 17
+        e = byItem(Rec:GetRecommendedGoals(), oneHand)
+        check(e and e.mainHandOnly == true and e.gain == 10, "worn: a one-hander against a worn two-hander compares the main hand and says so")
+        check(not byItem(Rec:GetRecommendedGoals(), offHand), "worn: an off hand is not offered while a two-hander is worn")
+        e = byItem(Rec:GetRecommendedGoals(), twoHand)
+        check(e and e.gain == 10 and not e.mainHandOnly, "worn: a two-hander against a two-hander is plain")
+        mock.equipped[16] = nil
+        clear()
+
+        ------------------------------------------------------------------ a slot the client will not report
+        fresh(); class("WARRIOR")
+        local head = add("HEAD", 90)
+        local back = add("BACK", 90)
+        local realGet = GetInventoryItemID
+        GetInventoryItemID = function(unit, slot) -- luacheck: ignore 121
+            if slot == 1 then error("blocked") end
+            if slot == 15 then return mock.newSecret() end
+            return realGet(unit, slot)
+        end
+        list, info = Rec:GetRecommendedGoals()
+        GetInventoryItemID = realGet -- luacheck: ignore 121
+        check(not byItem(list, head) and not byItem(list, back), "unreadable: a slot that raises or is secret is skipped, not guessed")
+        check(has(info.skipped, "HEAD") and has(info.skipped, "BACK") and #info.skipped == 2, "unreadable: the skipped slots are named: " .. table.concat(info.skipped, ","))
+        -- a worn item with a level the client and the database both lack
+        local mystery = 8999999
+        mock.equipped[1] = mystery
+        list, info = Rec:GetRecommendedGoals()
+        check(not byItem(list, head) and has(info.skipped, "HEAD"), "unreadable: a worn item with no known level is skipped")
+        mock.equipped[1] = nil
+        local realLevel = C_Item.GetDetailedItemLevelInfo
+        local lvl = wear(1, 50)
+        for _, bad in ipairs({ function() error("no") end, function() return mock.newSecret() end, function() return nil end }) do
+            C_Item.GetDetailedItemLevelInfo = bad
+            list, info = Rec:GetRecommendedGoals()
+            check(has(info.skipped, "HEAD") and not byItem(list, head), "unreadable: an item level that raises, is secret or nil skips the slot")
+        end
+        C_Item.GetDetailedItemLevelInfo = realLevel
+        mock.equipped[1], mock.itemLevels[lvl] = nil, nil
+        clear()
+        -- every class-and-spec read nil, raising or secret
+        fresh(); class("PALADIN")
+        for _, bad in ipairs({ function() return nil end, function() error("no") end, function() return mock.newSecret() end }) do
+            local realClass, realLevelFn = UnitClass, UnitLevel
+            UnitClass = function() return bad() end -- luacheck: ignore 121
+            list, info = Rec:GetRecommendedGoals()
+            UnitClass = realClass -- luacheck: ignore 121
+            check(type(list) == "table" and #list == 0 and type(info) == "table", "unreadable: an unknown class offers nothing and does not raise")
+            UnitLevel = function() return bad() end -- luacheck: ignore 121
+            list, info = Rec:GetRecommendedGoals()
+            UnitLevel = realLevelFn -- luacheck: ignore 121
+            check(type(list) == "table" and info.levelUnknown == true, "unreadable: an unknown level does not raise")
+        end
+        for _, bad in ipairs({ function() return nil end, function() error("no") end, function() return mock.newSecret() end }) do
+            local realSpec = C_SpecializationInfo
+            C_SpecializationInfo = { GetSpecialization = bad, GetSpecializationInfo = bad } -- luacheck: ignore 121
+            list, info = Rec:GetRecommendedGoals()
+            C_SpecializationInfo = realSpec -- luacheck: ignore 121
+            check(info.role == nil and info.roleSource == "unknown" and #list > 0, "unreadable: a spec read that fails leaves the role unknown")
+            C_SpecializationInfo = { GetSpecialization = function() return 1 end, GetSpecializationInfo = function() return 1, "x", "", 0, bad(), bad() end } -- luacheck: ignore 121
+            info = select(2, Rec:GetRecommendedGoals())
+            C_SpecializationInfo = realSpec -- luacheck: ignore 121
+            check(info.role == nil, "unreadable: a spec role or stat that fails leaves the role unknown")
+        end
+        C_SpecializationInfo = nil -- luacheck: ignore 121
+        check(select(2, Rec:GetRecommendedGoals()).role == nil, "unreadable: no spec API leaves the role unknown")
+        C_SpecializationInfo = realSpecApi -- luacheck: ignore 121
+        check(type(Rec:GetRecommendedGoals(3)) == "table", "unreadable: still answers")
+
+        ------------------------------------------------------------------ the blue piece first, then its Seal
+        fresh(); class("WARRIOR")
+        local blue, epic
+        for id, row in pairs(HL.GearDB) do
+            if row.source == "UPGRADE" and row.class == "WARRIOR" and row.faction == "Horde" and row.slot == "HEAD" and row.set then
+                epic, blue = id, row.parts[1]
+            end
+        end
+        check(blue and epic and HL.GearDB[blue].source == "HONOR", "blue and epic: the warrior's Horde head pair exists")
+        for id, row in pairs(HL.GearDB) do
+            if row.class == "WARRIOR" and row.slot == "HEAD" and id ~= blue and id ~= epic then mock.bagItems[id] = 1 end
+        end
+        local blueLevel, epicLevel = HL.GearDB[blue].ilvl, HL.GearDB[epic].ilvl
+        check(epicLevel > blueLevel, "blue and epic: the epic is the higher item level")
+        list = Rec:GetRecommendedGoals()
+        local heads2 = bySlot(list, "HEAD")
+        e = byItem(list, blue)
+        check(#heads2 == 1 and e and not byItem(list, epic), "blue and epic: an empty head slot offers the blue piece, not the epic")
+        check(e.step == "blue" and e.upgradeID == epic and e.ilvl == epicLevel and e.itemIlvl == blueLevel, "blue and epic: the blue piece names the upgrade and the level it reaches")
+        check(e.reason:find("Seal", 1, true), "blue and epic: the reason says the Seal follows")
+        -- wear the blue piece: the epic follows, the blue piece is gone
+        mock.equipped[1], mock.itemLevels[blue] = blue, blueLevel
+        mock.bagItems[blue] = 1
+        list = Rec:GetRecommendedGoals()
+        e = byItem(list, epic)
+        check(e and not byItem(list, blue) and e.step == "seal" and e.gain == epicLevel - blueLevel, "blue and epic: with the blue piece worn, the Seal upgrade is offered")
+        -- own it in the bags only
+        mock.equipped[1] = nil
+        list = Rec:GetRecommendedGoals()
+        check(byItem(list, epic) and byItem(list, epic).empty == true, "blue and epic: a blue piece in the bags offers the epic")
+        -- worn at the epic's level: nothing
+        mock.equipped[1], mock.itemLevels[blue] = blue, epicLevel
+        check(not byItem(Rec:GetRecommendedGoals(), epic), "blue and epic: nothing to offer when the head is already at the epic's level")
+        -- the epic on the goal list: neither is offered
+        mock.equipped[1], mock.bagItems[blue] = nil, nil
+        HL:AddGoal(epic)
+        list = Rec:GetRecommendedGoals()
+        check(not byItem(list, blue) and not byItem(list, epic), "blue and epic: with the epic on the goal list, its blue piece is not offered")
+        HL.db.char.goals.items = {}
+        mock.bagItems[epic] = 1
+        list = Rec:GetRecommendedGoals()
+        check(not byItem(list, blue) and not byItem(list, epic), "blue and epic: an owned epic offers nothing")
+        mock.bagItems[epic] = nil
+
+        ------------------------------------------------------------------ the priority
+        fresh(); class("WARRIOR")
+        HL.Rank.GetPace = function() return { gamesPerDay = 2, pointsPerGame = 0 } end
+        local realBest = HL.GetBestHonorPerGame
+        HL.GetBestHonorPerGame = function() return 100 end -- 100 honor a game: 8 and 38 games to go
+        -- the rest of the warrior's slots are taken care of: every class item and every neutral item is owned
+        for id, row in pairs(HL.GearDB) do mock.bagItems[id] = 1 end
+        local function new(slot, ilvl, extra)
+            local id = add(slot, ilvl, extra)
+            mock.bagItems[id] = nil
+            return id
+        end
+        local readyBig = new("HEAD", 95, { honor = 100 })           -- buyable now, gain from an empty slot
+        local readySmall = new("NECK", 90, { honor = 100 })         -- buyable now, worn 85: gain 5
+        local readyMid = new("WAIST", 90, { honor = 100 })          -- buyable now, worn 70: gain 20
+        local soon = new("WRIST", 90, { honor = 9000 })             -- short 800 honor
+        local later = new("HANDS", 90, { honor = 12000 })           -- short 3800 honor
+        local gated = new("FEET", 90, { reqLevel = 61 })            -- a level gate: no date
+        wear(2, 85)
+        wear(6, 70)
+        wear(9, 60) wear(10, 60) wear(8, 60)
+        list = Rec:GetRecommendedGoals()
+        local order = {}
+        for _, x in ipairs(list) do order[#order + 1] = x.itemID end
+        check(same(order, { readyBig, readyMid, readySmall, soon, later }), "priority: buyable now (empty slot, then biggest gain), then by date (the level 61 reward is out of reach at level 60 and not offered): " .. table.concat(order, ","))
+        check(list[1].buyable and list[2].buyable and list[3].buyable and not list[4].buyable and not list[5].buyable, "priority: only the first three are buyable now")
+        check(list[4].readyDate and list[5].readyDate and list[4].readyDate < list[5].readyDate, "priority: dates come from the goal progress, soonest first")
+        check(list[1].status == "Ready to purchase" and list[4].status and list[4].status:find("ready", 1, true) and not list[4].status:find("|c", 1, true), "priority: the status is the goal's ready text, plain: " .. tostring(list[4].status))
+        check(list[4].statusRich and list[4].statusRich:find("|c", 1, true), "priority: the coloured status is kept too")
+        check(not byItem(list, gated), "level: a reward above the character's level is not offered")
+        check(list[1].progress and list[1].progress.itemID == readyBig, "priority: the progress object is a goal's own")
+        check(#Rec:GetRecommendedGoals(2) == 2 and Rec:GetRecommendedGoals(2)[2].itemID == readyMid, "priority: the limit cuts the ranked list")
+        check(#HL:GetGoals() == 0, "priority: asking for recommendations adds nothing to the goal list")
+
+        ------------------------------------------------------------------ the goal-list sort
+        local calls = 0
+        HL.OnDataUpdated = function() calls = calls + 1 end
+        for _, id in ipairs({ later, gated, readySmall, soon, readyBig }) do HL:AddGoal(id) end
+        local before = {}
+        for i, g in ipairs(HL:GetGoals()) do before[i] = g.itemID end
+        calls = 0
+        Rec:GetRecommendedGoals()
+        HL:GetAllGoalsProgress()
+        local still = {}
+        for i, g in ipairs(HL:GetGoals()) do still[i] = g.itemID end
+        check(same(before, still) and calls == 0, "sort: nothing reorders the list until it is called")
+        check(HL:SortGoalsByPriority() == true, "sort: a list out of order moves")
+        local after = {}
+        for i, g in ipairs(HL:GetGoals()) do after[i] = g.itemID; check(g.priority == i, "sort: priorities renumbered") end
+        check(same(after, { readySmall, readyBig, soon, later, gated }), "sort: buyable now in their present order, then by date, then undated: " .. table.concat(after, ","))
+        check(calls == 1, "sort: the screens are told once")
+        calls = 0
+        check(HL:SortGoalsByPriority() == false and calls == 0, "sort: a list already in order does not move and tells no one")
+        HL:ReorderGoal(gated, 1)
+        check(HL:GetGoals()[1].itemID == gated, "sort: Move up and Move down still work afterwards")
+        HL.db.char.goals.items = {}
+        check(HL:SortGoalsByPriority() == false, "sort: an empty list does nothing")
+        HL.Rank.GetPace, HL.OnDataUpdated, HL.GetBestHonorPerGame = saved.pace, saved.onData, realBest
+
+        ------------------------------------------------------------------ the character's level
+        for _, case in ipairs({ { "WARRIOR", 35 }, { "SHAMAN", 35 }, { "WARRIOR", 50 } }) do
+            fresh(); class(case[1], case[2])
+            list = Rec:GetRecommendedGoals()
+            local tooHigh = 0
+            for _, x in ipairs(list) do
+                if HL.GearDB[x.itemID].reqLevel > case[2] then tooHigh = tooHigh + 1 end
+            end
+            check(#list > 0 and tooHigh == 0, "level: a level " .. case[2] .. " " .. case[1] .. " is offered only what it can wear (" .. #list .. " offered, " .. tooHigh .. " too high)")
+        end
+        fresh(); class("WARRIOR", 35)
+        mock.level = nil
+        list = Rec:GetRecommendedGoals()
+        local anyHigh = false
+        for _, x in ipairs(list) do if HL.GearDB[x.itemID].reqLevel > 35 then anyHigh = true end end
+        check(anyHigh, "level: with the level unknown nothing is filtered by level")
+        -- the blue piece's path reaches the Seal epic only when its level is met
+        fresh(); class("WARRIOR", 57)
+        local pBlue, pEpic
+        for id, row in pairs(HL.GearDB) do
+            if row.source == "UPGRADE" and row.class == "WARRIOR" and row.faction == "Horde" and row.slot == "HEAD" and row.set then
+                pEpic, pBlue = id, row.parts[1]
+            end
+        end
+        for id, row in pairs(HL.GearDB) do
+            if row.class == "WARRIOR" and row.slot == "HEAD" and id ~= pBlue and id ~= pEpic then mock.bagItems[id] = 1 end
+        end
+        check(HL.GearDB[pBlue].reqLevel <= 57 and HL.GearDB[pEpic].reqLevel > 57, "level: the blue piece needs 55 and the epic more (57 sits between)")
+        list = Rec:GetRecommendedGoals()
+        e = byItem(list, pBlue)
+        check(e and e.step == nil and e.upgradeID == nil and e.ilvl == HL.GearDB[pBlue].ilvl and not e.reason:find("Seal", 1, true), "level: at 57 the blue piece is ranked by its own level, with no Seal sentence")
+        class("WARRIOR", 60)
+        e = byItem(Rec:GetRecommendedGoals(), pBlue)
+        check(e and e.step == "blue" and e.ilvl == HL.GearDB[pEpic].ilvl, "level: at 60 the blue piece is ranked by the epic's level")
+
+        ------------------------------------------------------------------ what can be bought now
+        fresh(); class("WARRIOR")
+        for id in pairs(HL.GearDB) do mock.bagItems[id] = 1 end
+        local far = add("HEAD", 95, { rank = 14 })
+        local nearA = add("HEAD", 90, { honor = 100 })
+        local nearB = add("HEAD", 90, { honor = 100 })
+        local lower = add("HEAD", 80, { honor = 100 })
+        for _, id in ipairs({ far, nearA, nearB, lower }) do mock.bagItems[id] = nil end
+        wear(1, 60)
+        list = Rec:GetRecommendedGoals()
+        check(#list == 2 and list[1].itemID == nearA and list[2].itemID == far, "now: a best behind a rank also offers the best buyable upgrade, buyable first (ties to the lower id)")
+        check(list[1].now == true and list[1].buyable and list[1].alternativeTo == far and list[2].now == false and list[2].alternative == nearA and not list[2].buyable, "now: the alternative is marked and the two name each other")
+        check(select(2, Rec:GetRecommendedGoals()).progressBuilt == 4, "now: one progress object per candidate")
+        mock.itemLevels[mock.equipped[1]] = 92
+        list = Rec:GetRecommendedGoals()
+        check(#list == 1 and list[1].itemID == far and list[1].alternative == nil, "now: a buyable reward that is no upgrade over what is worn is not offered")
+        mock.itemLevels[mock.equipped[1]] = 60
+        HL.GearDB[far].rank = nil
+        list = Rec:GetRecommendedGoals()
+        check(#list == 1 and list[1].itemID == far and list[1].buyable and not list[1].now and list[1].alternative == nil, "now: when the best itself is buyable there is one entry")
+        mock.equipped[1] = nil
+        HL.GearDB[far].rank = 14
+        list = Rec:GetRecommendedGoals()
+        check(#list == 2 and list[1].now == true and list[1].empty, "now: an empty slot also gets its alternative")
+        clear()
+
+        ------------------------------------------------------------------ nothing worn at all
+        fresh(); class("WARRIOR")
+        mock.equipped = {}
+        list, info = Rec:GetRecommendedGoals()
+        check(#list == 0 and info.inventoryUnknown == true, "inventory: nothing reported anywhere gives no recommendations")
+        local realGetID = GetInventoryItemID
+        for _, bad in ipairs({ function() error("no") end, function() return mock.newSecret() end }) do
+            GetInventoryItemID = bad -- luacheck: ignore 121
+            list, info = Rec:GetRecommendedGoals()
+            check(#list == 0 and info.inventoryUnknown == true, "inventory: every place raising or secret gives no recommendations")
+        end
+        GetInventoryItemID = realGetID -- luacheck: ignore 121
+        wear(14, 10) -- one worn trinket anywhere: the rest are really empty
+        list, info = Rec:GetRecommendedGoals()
+        check(not info.inventoryUnknown and #bySlot(list, "HEAD") > 0 and bySlot(list, "HEAD")[1].reason:find("Empty slot", 1, true), "inventory: one worn item switches the Empty slot entries back on")
+        check(info.inventoryUnknown == nil or info.inventoryUnknown == false, "inventory: the flag is not set")
+
+        ------------------------------------------------------------------ restore
+        clear()
+        mock.playerClass, mock.level, mock.faction = saved.class, saved.level, saved.faction
+        mock.equipped, mock.itemLevels, mock.invTypes, mock.bagItems, mock.bagContents = saved.equipped, saved.levels, saved.types, saved.bag, saved.bagContents
+        mock.spec, mock.specError = saved.spec, nil
+        HL.db.char.recommendRole, HL.db.char.goals.items = saved.role, saved.goals
     end)()
 
     -- The mock's registration rules are live: the restricted event raises.
