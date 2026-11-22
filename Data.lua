@@ -191,6 +191,7 @@ local DEFAULTS = {
         windowVendorClass = "player", -- the vendor browser's class filter: "player" (the player's class) or "all"
         windowBattleground = "all", -- the Battlegrounds screen's battleground filter: "all" or a battleground key
         windowResult = "all", -- its result filter: "all", "win" or "loss"
+        windowWorldKind = "all", -- the World PvP screen's log filter: "all", "kill" or "death"
         viewMode = "character", -- "character" or "account"
         exportFormat = "text", -- "text" or "csv"
         notificationsEnabled = false,

@@ -55,7 +55,7 @@ local function run()
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/Quests.lua", "UI/Moments.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Moments.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3528,7 +3528,7 @@ local function run()
             end })
         end
         registerProbe()
-        check(#Window.screens == 6 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "quests" and Window.screens[6].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 7 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -4014,11 +4014,12 @@ local function run()
             HL.GearScreen:Open("vendors")
             HL.GearScreen:Open("goals")
             Window:Show("battlegrounds")
+            Window:Show("world")
             Window:Show("quests")
             Window:Show("overview")
             local S3 = HL.db.settings
-            local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode }
-            local n, gearClicks, bgClicks, questClicks = 0, 0, 0, 0
+            local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode, kind = S3.windowWorldKind }
+            local n, gearClicks, bgClicks, questClicks, worldClicks = 0, 0, 0, 0, 0
             -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
             -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
@@ -4052,6 +4053,13 @@ local function run()
                             p, hops = p.__parent, hops + 1
                         end
                     end
+                    if Window.frames.world then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.world then worldClicks = worldClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if Window.frames.quests then
                         local hops, p = 0, f
                         while p and hops < 40 do
@@ -4066,8 +4074,9 @@ local function run()
             check(gearClicks > 25, label .. "integration clicked " .. gearClicks .. " controls on the Gear goals screen")
             check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
             check(questClicks > 8, label .. "integration clicked " .. questClicks .. " controls on the Quests screen")
+            check(worldClicks > 8, label .. "integration clicked " .. worldClicks .. " controls on the World PvP screen")
             mock.momentsPass(label)
-            S3.windowBattleground, S3.windowResult, S3.viewMode = savedBg.bg, savedBg.result, savedBg.view
+            S3.windowBattleground, S3.windowResult, S3.viewMode, S3.windowWorldKind = savedBg.bg, savedBg.result, savedBg.view, savedBg.kind
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
             HL.GearScreen.mode = "goals"
             Window:Hide()
@@ -5887,6 +5896,385 @@ local function run()
             Window:Hide()
         end)()
 
+        -- ═══ World PvP: the fifth screen over the world log ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, WS, WorldLog = HL.Kit, HL.WorldScreen, HL.WorldLog
+            local S = HonorLogDB.settings
+            local db = HL.db
+            local save = { log = db.char.worldLog, opp = db.char.opponents, pvp = db.char.worldPvP, since = db.char.since, tab = S.windowTab,
+                kind = S.windowWorldKind, updated = HL.OnDataUpdated, place = HL.ShowPlaceOnMap, openMap = HL.MapPin.OpenMap, players = HL.PlayersScreen,
+                top = HL.GetTopOpponents, view = S.viewMode, gworld = db.global.worldPvP }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local function chipClick(chips, key)
+                for _, bt in ipairs(chips.honorLogButtons) do
+                    if bt:IsShown() and bt.honorLogKey == key then click(bt) return end
+                end
+                error("no chip " .. key)
+            end
+            local function dayOf(ts) return date("%b ", ts) .. tonumber(date("%d", ts)) end
+            local now = time()
+            local DAYS3 = 3 * 86400
+            local function seed()
+                db.char.worldLog = {
+                    { t = now - 10, kind = "kill", name = "Alpha One", class = "MAGE", kb = true, honor = 30, map = 1424, x = 50, y = 25, zone = "Hillsbrad Foothills", subzone = "Southshore" },
+                    { t = now - 20, kind = "kill", map = 1417, zone = "Arathi Highlands" },
+                    { t = now - 30, kind = "death", name = "Bravo", class = "ROGUE", map = 1424, x = 60, y = 40, zone = "Hillsbrad Foothills" },
+                    { t = now - 40, kind = "kill", name = "Charlie", class = "WARRIOR", honor = 12, zone = "Mystery Zone", subzone = "Hall" },
+                    { t = now - 50, kind = "death", name = "Alpha One", class = "MAGE" },
+                    { t = now - DAYS3, kind = "kill", name = "Alpha One", class = "MAGE", honor = 20, map = 1424, x = 1, y = 2, zone = "Hillsbrad Foothills" },
+                }
+                db.char.opponents = {
+                    ["Alpha One"] = { class = "MAGE", kills = 5, deaths = 2, lastSeen = now },
+                    Bravo = { class = "ROGUE", kills = 0, deaths = 3, lastSeen = now - 5 },
+                    Charlie = { class = "WARRIOR", kills = 1, deaths = 0, lastSeen = now - 9 },
+                }
+                db.char.worldPvP = { kills = 7, deaths = 3, honor = 0, honorKill = 0, honorAward = 0, killingBlows = 1, unknownKills = 1 }
+                db.char.since = now - 10 * 86400
+            end
+            seed()
+
+            local errorsBefore = #mock.handledErrors
+            Window:Show("world")
+            check(#mock.handledErrors == errorsBefore, "world: it builds and draws without an error: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            local scr = Window.frames.world
+            local P = scr.honorLogParts
+            local G = P.log
+            check(scr and Window.current == "world" and S.windowTab == "world" and Window:GetScreen("world").title == "World PvP" and Window:GetScreen("world").order == 5
+                and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.tabs.list[5].honorLogKey == "world", "tabs: World PvP is a screen of its own between Battlegrounds and Quests")
+            check(S.windowWorldKind == "all", "settings: the log filter defaults to all")
+
+            -- the boxes
+            local T = P.tiles
+            check(#T == 4 and T[1]:GetWidth() == 211 and T[1]:GetHeight() == 68 and T[4].__points[1][4] == 657, "tiles: four of 211 x 68, 219 apart")
+            check(T[1].label.__points[1][4] == 12 + Kit.PORTRAIT_CLEAR and T[1].value.__points[1][4] == 12 + Kit.PORTRAIT_CLEAR, "tiles: the first one's label and value start past the portrait")
+            check(G.inset:GetWidth() == 580 and G.inset:GetHeight() == 414 and P.head.inset:GetWidth() == 280 and P.head.inset:GetHeight() == 196
+                and P.zones.inset:GetWidth() == 280 and P.zones.inset:GetHeight() == 210, "boxes: the log and the two side panels")
+            check(G.area:GetWidth() == 542 and G.area:GetHeight() == 320 and G.search:GetWidth() == 200 and G.search:GetHeight() == 20, "boxes: the scroll area and the search box")
+            local lastColumn = WS.COLUMNS[#WS.COLUMNS]
+            check(lastColumn.x + lastColumn.w <= 542 and #WS.COLUMNS == 6 and G.titles[1]:GetText() == "When" and G.titles[2]:GetText() == "Result" and G.titles[3]:GetText() == "Player"
+                and G.titles[4]:GetText() == "Class" and G.titles[5]:GetText() == "Where" and G.titles[6]:GetText() == "Honor", "log: the columns fit, and their titles")
+
+            -- tiles
+            check(T[1].label:GetText() == "Kills today" and T[1].value:GetText() == "3" and T[1].note:GetText() == "1 killing blow", "tiles: kills today and the killing blows")
+            check(T[2].label:GetText() == "Deaths today" and T[2].value:GetText() == "2" and T[2].note:GetText() == "In Hillsbrad Foothills", "tiles: deaths today in the one zone")
+            check(T[3].label:GetText() == "Honor from kills" and T[3].value:GetText() == "42" and T[3].note:GetText() == "Today, 2 named kills" and same(textColor(T[3].value), Kit.COLORS.gold), "tiles: honor from kills and the named ones")
+            check(T[4].label:GetText() == "All time" and T[4].value:GetText() == "7 - 3" and T[4].note:GetText() == "Kills and deaths since " .. dayOf(db.char.since), "tiles: all time for this character, since the date counting began")
+            S.viewMode = "account"
+            db.global.worldPvP = { kills = 99, deaths = 98 }
+            Window:RefreshCurrent()
+            check(T[4].value:GetText() == "7 - 3", "tiles: all time is this character's whatever the saved view mode")
+            S.viewMode, db.global.worldPvP = save.view, save.gworld
+            T[2].honorLogTipButton.__scripts.OnEnter(T[2].honorLogTipButton)
+            check(tipText() == "In Hillsbrad Foothills", "tiles: the note's tooltip")
+            table.insert(db.char.worldLog, 1, { t = now - 5, kind = "death", name = "Delta", zone = "Arathi Highlands" })
+            Window:RefreshCurrent()
+            check(T[2].value:GetText() == "3" and T[2].note:GetText() == "In 2 zones" and T[2].honorLogTipButton.honorLogText == "Hillsbrad Foothills\nArathi Highlands",
+                "tiles: several zones are 'In 2 zones', with the zones in the tooltip: " .. tostring(T[2].honorLogTipButton.honorLogText))
+            table.remove(db.char.worldLog, 1)
+            db.char.worldLog[5].zone = nil
+            table.remove(db.char.worldLog, 3)
+            Window:RefreshCurrent()
+            check(T[2].value:GetText() == "1" and T[2].note:GetText() == "No place recorded", "tiles: a death with no zone says no place was recorded")
+            seed()
+            table.insert(db.char.worldLog, 1, { t = now - 5, kind = "kill", name = "Echo", kb = true })
+            table.insert(db.char.worldLog, 1, { t = now - 6, kind = "kill", name = "Foxtrot", kb = true, honor = 5 })
+            Window:RefreshCurrent()
+            check(T[1].note:GetText() == "3 killing blows" and T[3].note:GetText() == "Today, 4 named kills", "tiles: killing blows and named kills in the plural")
+            seed()
+            Window:RefreshCurrent()
+
+            -- the log rows
+            local pool = G.stack.pools.fight
+            check(G.stack.count == 6 and #pool >= 6 and G.area.honorLogContentHeight == 120 and G.foot:GetText() == "6 fights" and not G.empty:IsShown() and G.hint:IsShown()
+                and G.hint:GetText() == "Click a place to see it on your map.", "log: six rows of 20, '6 fights' and the hint under them")
+            local r1, r2, r3, r4, r5, r6 = pool[1], pool[2], pool[3], pool[4], pool[5], pool[6]
+            local c = r1.cells
+            local _, mr, mg, mb = Kit:ClassText("MAGE")
+            check(c.when:GetText():find("^Today %d%d:%d%d$") and c.result:GetText() == "Kill" and same(textColor(c.result), Kit.COLORS.green) and c.player:GetText() == "Alpha One"
+                and same(textColor(c.player), Kit.COLORS.white) and c.class:GetText() == "Mage" and same(textColor(c.class), { mr, mg, mb }) and c.honor:GetText() == "30" and same(textColor(c.honor), Kit.COLORS.gold),
+                "log: when, result word in green, player, the class word in its colour, honor")
+            check(r1.place:IsShown() and r1.place.honorLogMode == "pin" and r1.place.honorLogFull == "Hillsbrad Foothills \194\183 Southshore" and r1.place:GetWidth() == 136 and not r1.none:IsShown(), "log: a place with a position is a pin link in a fixed width")
+            check(c.when.__wrapWidth == 96 and c.result.__wrapWidth == 44 and c.player.__wrapWidth == 140 and c.class.__wrapWidth == 50 and c.honor.__wrapWidth == 34, "log: fixed widths")
+            local u = r2.cells
+            check(u.player:GetText() == "Unknown player" and same(textColor(u.player), Kit.COLORS.grey) and u.class:GetText() == "-" and same(textColor(u.class), Kit.COLORS.grey) and u.honor:GetText() == "-"
+                and r2.place.honorLogMode == "zone" and r2.place.honorLogFull == "Arathi Highlands", "log: a kill nobody was named for reads Unknown player in grey; a map alone is a zone link")
+            check(r3.cells.result:GetText() == "Death" and same(textColor(r3.cells.result), Kit.COLORS.red) and r3.cells.honor:GetText() == "-" and r3.cells.class:GetText() == "Rogue" and r3.place.honorLogMode == "pin", "log: a death is a red word, no honor")
+            check(r4.place.honorLogMode == "plain" and r4.cells.honor:GetText() == "12" and r4.place.honorLogFull == "Mystery Zone \194\183 Hall", "log: a place with no map is plain text")
+            check(not r5.place:IsShown() and r5.none:IsShown() and r5.none:GetText() == "-", "log: no place at all is a dash")
+            check(r6.cells.when:GetText() == date("%b %d ", now - DAYS3) .. date("%H:%M", now - DAYS3) and r6.cells.honor:GetText() == "20", "log: an older day is its date")
+            check(r1.stripe:IsShown() == false and r2.stripe:IsShown() == true, "log: every second row is striped")
+
+            -- row tooltips
+            r1.__scripts.OnEnter(r1)
+            local tt = tipText()
+            check(tt:find("Alpha One", 1, true) and tt:find("Mage", 1, true) and tt:find("You killed this player.", 1, true) and tt:find("Killing blow", 1, true) and tt:find("30 honor", 1, true)
+                and tt:find("Southshore, Hillsbrad Foothills", 1, true) and mock.tip.owner == r1, "log: a killing blow says so in the row's tooltip: " .. tt)
+            r3.__scripts.OnEnter(r3)
+            tt = tipText()
+            check(tt:find("This player killed you.", 1, true) and not tt:find("Killing blow", 1, true) and not tt:find("honor", 1, true), "log: a death's tooltip: " .. tt)
+            r2.__scripts.OnEnter(r2)
+            check(tipText():find("Unknown player", 1, true), "log: an unnamed kill's tooltip")
+            r2.__scripts.OnLeave(r2)
+            check(not mock.tip.shown, "log: the tooltip goes away")
+
+            -- places: a position pins, a map alone opens the zone, none is plain; one key
+            local pinned, opened = {}, {}
+            HL.ShowPlaceOnMap = function(_, place) pinned[#pinned + 1] = place return true end
+            HL.MapPin.OpenMap = function(_, map) opened[#opened + 1] = map end
+            click(r1.place)
+            click(r3.place)
+            check(#pinned == 2 and pinned[1].map == 1424 and pinned[1].x == 50 and pinned[1].name == "Alpha One" and pinned[1].detail == "Southshore, Hillsbrad Foothills"
+                and pinned[1].key == "honorLogWorld" and pinned[2].key == "honorLogWorld" and pinned[2].name == "Bravo", "places: a position pins the player there, and every pin has the one key")
+            click(r2.place)
+            check(#pinned == 2 and opened[1] == 1417, "places: a map alone opens that zone and pins nothing")
+            click(r4.place)
+            check(#pinned == 2 and #opened == 1, "places: a place with no map does nothing")
+            r4.place.__scripts.OnEnter(r4.place)
+            check(tipText():find("The game gave no position for this place.", 1, true), "places: and says so in its tooltip")
+            r4.place.__scripts.OnLeave(r4.place)
+            r2.place.__scripts.OnEnter(r2.place)
+            check(tipText():find("The game gave no position here", 1, true), "places: a zone link says the game gave no position")
+            r2.place.__scripts.OnLeave(r2.place)
+
+            -- head to head
+            local H = P.head
+            check(H.rows[1].name:GetText() == "Alpha One" and H.rows[1].class:GetText() == "Mage" and same(textColor(H.rows[1].class), { mr, mg, mb }) and H.rows[1].record:GetText() == "5 - 2"
+                and H.rows[1].bar.honorLogLeftCount == 5 and H.rows[1].bar.honorLogRightCount == 2 and H.rows[2].name:GetText() == "Bravo" and H.rows[2].record:GetText() == "0 - 3"
+                and H.rows[3].name:GetText() == "Charlie" and not H.rows[4]:IsShown() and H.rows[1]:IsShown() and not H.empty:IsShown(), "head: the most fought, with record and split bar")
+            check(H.rows[1].name.__wrapWidth == 128 and H.rows[1].bar:GetWidth() == 252 and H.rows[1].bar:GetHeight() == 8 and H.note:GetText() == "Green: your kills. Red: their kills." and H.note:IsShown(), "head: widths, and the line that says whose side is whose")
+            check(not H.rows[1].hl:IsShown() and not H.rows[1].honorLogClickable, "head: with no Players screen a row has no highlight")
+            noErrors("head: a click with no Players screen", function() click(H.rows[1]) end)
+            H.rows[1].__scripts.OnEnter(H.rows[1])
+            check(tipText():find("Alpha One", 1, true) and tipText():find("Your kills: 5", 1, true) and tipText():find("Their kills: 2", 1, true) and not tipText():find("Click", 1, true), "head: the row's tooltip, no hint of a click: " .. tipText())
+            H.rows[1].__scripts.OnLeave(H.rows[1])
+            local opened1
+            HL.PlayersScreen = { Open = function(_, name) opened1 = name end }
+            Window:RefreshCurrent()
+            check(H.rows[1].hl:IsShown() and H.rows[1].honorLogClickable, "head: with a Players screen a row shows its highlight")
+            click(H.rows[2])
+            check(opened1 == "Bravo", "head: a click opens the player on the Players screen")
+            H.rows[1].__scripts.OnEnter(H.rows[1])
+            check(tipText():find("Click to open this player", 1, true), "head: and the tooltip says so")
+            H.rows[1].__scripts.OnLeave(H.rows[1])
+            HL.PlayersScreen = save.players
+
+            -- where you fight
+            local Z = P.zones
+            check(Z.rows[1].place.honorLogFull == "Hillsbrad Foothills" and Z.rows[1].place.honorLogMode == "pin" and Z.rows[1].count:GetText() == "3" and Z.rows[1].bar.honorLogFraction == 1
+                and Z.rows[2].place.honorLogFull == "Arathi Highlands" and Z.rows[2].place.honorLogMode == "zone" and Z.rows[2].count:GetText() == "1" and math.abs(Z.rows[2].bar.honorLogFraction - 1 / 3) < 0.001
+                and Z.rows[3].place.honorLogFull == "Mystery Zone" and Z.rows[3].place.honorLogMode == "plain" and not Z.rows[4]:IsShown() and not Z.empty:IsShown(), "zones: a row a zone, with its bar over the first one's and its count")
+            check(Z.rows[1].place:GetWidth() == 130 and Z.rows[1].bar:GetWidth() == 80 and Z.rows[1].count.__wrapWidth == 30, "zones: widths")
+            Z.rows[1].counts.__scripts.OnEnter(Z.rows[1].counts)
+            check(tipText():find("Hillsbrad Foothills", 1, true) and tipText():find("2 kills, 1 death", 1, true), "zones: the tooltip splits the count: " .. tipText())
+            Z.rows[1].counts.__scripts.OnLeave(Z.rows[1].counts)
+            pinned, opened = {}, {}
+            click(Z.rows[1].place)
+            click(r1.place)
+            click(Z.rows[2].place)
+            check(#pinned == 2 and pinned[1].key == "honorLogWorld" and pinned[2].key == "honorLogWorld" and pinned[1].name == "Hillsbrad Foothills" and opened[1] == 1417, "zones: the same pin key as the log; a zone with no position opens its map")
+            check(Z.foot:IsShown() and Z.foot:GetText() == "Fights counted since " .. dayOf(now - DAYS3) .. ".", "zones: the foot says since when fights are counted: " .. Z.foot:GetText())
+
+            -- the filter chips
+            check(G.chips.honorLogButtons[1]:GetText() == "All" and G.chips.honorLogButtons[2]:GetText() == "Kills" and G.chips.honorLogButtons[3]:GetText() == "Deaths" and G.chips.honorLogChosen == "all"
+                and G.chips:GetWidth() <= 142, "filters: All, Kills, Deaths")
+            local function names()
+                local out = {}
+                for i = 1, G.stack.count do out[#out + 1] = pool[i].cells.player:GetText() end
+                return table.concat(out, ",")
+            end
+            chipClick(G.chips, "kill")
+            check(S.windowWorldKind == "kill" and G.stack.count == 4 and G.foot:GetText() == "4 fights" and names() == "Alpha One,Unknown player,Charlie,Alpha One", "filters: kills alone: " .. names())
+            chipClick(G.chips, "death")
+            check(S.windowWorldKind == "death" and G.stack.count == 2 and names() == "Bravo,Alpha One", "filters: deaths alone: " .. names())
+            -- saved, and restored with the window
+            S.windowTab = "world"
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show()
+            P = Window.frames.world.honorLogParts
+            G = P.log
+            T, Z, H = P.tiles, P.zones, P.head
+            pool = G.stack.pools.fight
+            check(Window.current == "world" and G.chips.honorLogChosen == "death" and G.stack.count == 2, "filters: the saved tab and choice restore the screen")
+            S.windowWorldKind = "nonsense"
+            Window:RefreshCurrent()
+            check(G.chips.honorLogChosen == "all" and G.stack.count == 6 and S.windowWorldKind == "nonsense", "filters: an unknown saved choice reads as all and is not rewritten")
+            S.windowWorldKind = "all"
+            Window:RefreshCurrent()
+
+            -- search
+            local box = G.search
+            check(box:honorLogGetText() == "", "search: starts empty")
+            mock.typeText(box, "  alpha ")
+            check(G.stack.count == 3 and names() == "Alpha One,Alpha One,Alpha One" and G.foot:GetText() == "3 fights", "search: by player, in any case: " .. names())
+            mock.typeText(box, "hillsb")
+            check(G.stack.count == 3 and names() == "Alpha One,Bravo,Alpha One", "search: by zone: " .. names())
+            mock.typeText(box, "hall")
+            check(G.stack.count == 1 and names() == "Charlie" and G.foot:GetText() == "1 fight", "search: by subzone, and '1 fight'")
+            chipClick(G.chips, "death")
+            check(G.stack.count == 0 and G.empty:IsShown() and G.empty:GetText() == "No fights match." and G.foot:GetText() == "" and not G.hint:IsShown(), "search: with a kind that has none, the empty state says nothing matches")
+            chipClick(G.chips, "all")
+            mock.typeText(box, "")
+            check(G.stack.count == 6 and not G.empty:IsShown() and G.hint:IsShown(), "search: clearing it brings every fight back")
+            mock.typeText(box, "zzz")
+            check(G.stack.count == 0 and G.empty:GetText() == "No fights match.", "search: nothing matches")
+            mock.typeText(box, "")
+
+            -- the limit, the foot, the scroll position
+            local many = {}
+            for i = 1, 130 do many[i] = { t = now - i, kind = "kill", name = "P" .. i, zone = "Z", honor = i } end
+            db.char.worldLog = many
+            Window:RefreshCurrent()
+            check(G.stack.count == 100 and #pool == 100 and G.foot:GetText() == "Showing the latest 100 of 130 fights." and G.area.honorLogContentHeight == 2000 and pool[1].cells.player:GetText() == "P1"
+                and pool[100].cells.player:GetText() == "P100", "limit: 100 rows, newest first, and the foot says there are more")
+            G.area:SetVerticalScroll(400)
+            Window:RefreshCurrent()
+            check(G.area:GetVerticalScroll() == 400, "scroll: a refresh keeps the position")
+            chipClick(G.chips, "kill")
+            check(G.area:GetVerticalScroll() == 0, "scroll: a filter change goes back to the top")
+            G.area:SetVerticalScroll(300)
+            mock.typeText(box, "P1")
+            check(G.area:GetVerticalScroll() == 0 and G.stack.count == 42 and G.foot:GetText() == "42 fights", "scroll: so does a search; the foot counts what matches: " .. G.foot:GetText())
+            mock.typeText(box, "")
+            chipClick(G.chips, "all")
+            for i = 130, 101, -1 do many[i] = nil end
+            Window:RefreshCurrent()
+            check(G.foot:GetText() == "100 fights", "limit: exactly 100 is a plain count")
+
+            -- 500 kept: the foot says the log is cut
+            local full = {}
+            for i = 1, 500 do full[i] = { t = now - i, kind = "death", name = "Q" .. i, zone = "Z" } end
+            db.char.worldLog = full
+            Window:RefreshCurrent()
+            check(Z.foot:GetText() == "The last 500 fights, counted since " .. dayOf(now - 500) .. ".", "zones: a full log says it is the last 500: " .. Z.foot:GetText())
+
+            -- empty
+            db.char.worldLog, db.char.opponents = {}, {}
+            Window:RefreshCurrent()
+            check(G.empty:IsShown() and G.empty:GetText() == "Nothing here yet. Every kill and death outside a battleground is listed here as it happens." and G.stack.count == 0 and G.foot:GetText() == ""
+                and not G.hint:IsShown() and G.area.honorLogContentHeight == 0, "empty: the log says what will appear and when")
+            check(not H.rows[1]:IsShown() and H.empty:IsShown() and H.empty:GetText() == "The players you fight most will appear here." and not H.note:IsShown(), "empty: head to head")
+            check(not Z.rows[1]:IsShown() and Z.empty:IsShown() and not Z.foot:IsShown(), "empty: where you fight")
+            check(T[1].value:GetText() == "0" and T[1].note:GetText() == "No killing blows" and T[2].note:GetText() == "No deaths today" and T[3].note:GetText() == "Today, no named kills" and T[3].value:GetText() == "0", "empty: the tiles")
+            db.char.worldPvP, db.char.since = { kills = 0, deaths = 0 }, nil
+            Window:RefreshCurrent()
+            check(T[4].value:GetText() == "0 - 0" and T[4].note:GetText() == "Kills and deaths", "empty: no start date, the note still says what the numbers are")
+            seed()
+
+            -- staying current: a kill or a death redraws the screen on the next tick, once, only while shown
+            HL.OnDataUpdated = function() end
+            Window:RefreshCurrent()
+            local refreshes = 0
+            local worldFrame = Window.frames.world
+            local realRefresh = worldFrame.Refresh
+            worldFrame.Refresh = function(self, ...) refreshes = refreshes + 1 return realRefresh(self, ...) end
+            mock.deferTimers = true
+            local before = G.stack.count
+            HL:RecordWorldKill("Golf", "MAGE", true, { honor = 11 })
+            HL:RecordWorldDeath("Hotel", "ROGUE")
+            check(refreshes == 0 and G.stack.count == before, "events: nothing is drawn inside the event")
+            mock.flushTimers()
+            check(refreshes == 1 and G.stack.count == before + 2 and pool[1].cells.player:GetText() == "Hotel" and pool[2].cells.player:GetText() == "Golf", "events: one redraw on the next tick shows both: " .. refreshes .. " " .. names())
+            Window:Show("overview")
+            refreshes = 0
+            HL:RecordWorldKill("India", "MAGE", false, nil)
+            mock.flushTimers()
+            check(refreshes == 0, "events: nothing is redrawn while another screen is shown")
+            Window:Hide()
+            HL:RecordWorldDeath("Juliet", "ROGUE")
+            mock.flushTimers()
+            check(refreshes == 0, "events: nor while the window is hidden")
+            mock.deferTimers = false
+            worldFrame.Refresh = realRefresh
+            HL.OnDataUpdated = save.updated
+            Window:Show("world")
+            check(pool[1].cells.player:GetText() == "Juliet", "events: showing the screen draws what came in meanwhile")
+
+            -- hygiene
+            do
+                local inScreen = function(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == Window.frames.world then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inScreen(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar"
+                                    and k ~= "Instructions" and k ~= "searchIcon" and k ~= "clearButton" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "world: no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 10 and #foreign == 0, "world: only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            end
+            local framesBefore = #mock.frames
+            for _ = 1, 10 do Window:RefreshCurrent() end
+            check(#mock.frames == framesBefore, "world: ten refreshes make no new frames")
+
+            -- every client read gone or secret; every source answering nothing or raising
+            local errorsMid = #mock.handledErrors
+            local secret = mock.newSecret
+            noErrors("world: secret and odd values in the log", function()
+                db.char.worldLog = {
+                    { t = now, kind = "kill", name = secret(), class = secret(), zone = secret(), honor = secret() },
+                    { t = now, kind = "death", name = 5, class = 7, zone = {}, map = secret(), x = secret(), y = secret() },
+                    { t = now, kind = "kill", name = "Kilo", class = "NOSUCHCLASS", zone = "Z", map = 1, x = 1, y = 1 },
+                    { t = "x", kind = "kill" }, "junk", {},
+                }
+                Window:RefreshCurrent()
+            end)
+            local odd = pool[3].cells.class
+            check(odd:GetText() == "NOSUCHCLASS" and same(textColor(odd), Kit.COLORS.white), "world: a class the client does not know is its token in white")
+            local realToday, realList, realZones, realSpan, realTotals = WorldLog.GetToday, WorldLog.GetList, WorldLog.GetZones, WorldLog.GetSpan, WorldLog.GetTotals
+            WorldLog.GetToday, WorldLog.GetList, WorldLog.GetZones, WorldLog.GetSpan, WorldLog.GetTotals = function() return nil end, function() return nil end, function() return "x" end, function() return nil end, function() return 5 end
+            HL.GetTopOpponents = function() return nil end
+            noErrors("world: sources that answer nothing", function() Window:RefreshCurrent() end)
+            WorldLog.GetToday, WorldLog.GetList, WorldLog.GetZones, WorldLog.GetSpan, WorldLog.GetTotals = function() error("today gone") end, function() error("list gone") end,
+                function() error("zones gone") end, function() error("span gone") end, function() error("totals gone") end
+            HL.GetTopOpponents = function() error("opponents gone") end
+            noErrors("world: sources that raise", function() Window:RefreshCurrent() end)
+            check(H.empty:IsShown() and G.empty:IsShown() and Z.empty:IsShown(), "world: with nothing readable every part is empty")
+            WorldLog.GetToday, WorldLog.GetList, WorldLog.GetZones, WorldLog.GetSpan, WorldLog.GetTotals = realToday, realList, realZones, realSpan, realTotals
+            HL.GetTopOpponents = save.top
+            -- a failing part is reported and leaves the others drawn
+            seed()
+            local realClass = Kit.ClassText
+            Kit.ClassText = function() error("class gone") end
+            Window:RefreshCurrent()
+            Kit.ClassText = realClass
+            check(#mock.handledErrors > errorsMid and T[1].value:GetText() == "3" and T[4].value:GetText() == "7 - 3" and Z.rows[1].count:GetText() == "3" and Z.rows[1].place.honorLogFull == "Hillsbrad Foothills",
+                "world: a failing part is reported and the others are still drawn")
+            for i = #mock.handledErrors, errorsMid + 1, -1 do mock.handledErrors[i] = nil end
+
+            -- put it back
+            HL.ShowPlaceOnMap, HL.MapPin.OpenMap, HL.PlayersScreen = save.place, save.openMap, save.players
+            db.char.worldLog, db.char.opponents, db.char.worldPvP, db.char.since = save.log, save.opp, save.pvp, save.since
+            S.windowTab, S.windowWorldKind, S.viewMode = save.tab, save.kind, save.view
+            Window:Hide()
+        end)()
+
         -- ═══ Quests: the data, the shared read, the hand-in store, the list and the fifth screen ═══
         -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
         ;(function()
@@ -6164,7 +6552,7 @@ local function run()
             local scr = Window.frames.quests
             local P = scr.honorLogParts
             check(scr and Window.current == "quests" and S.windowTab == "quests" and Window:GetScreen("quests").title == "Quests" and Window:GetScreen("quests").order == 6
-                and Window.screens[5].key == "quests" and Window.tabs.list[5].honorLogKey == "quests" and Window.tabs.list[4].honorLogKey == "battlegrounds", "tabs: Quests comes after Battlegrounds")
+                and Window.screens[6].key == "quests" and Window.tabs.list[6].honorLogKey == "quests" and Window.tabs.list[5].honorLogKey == "world", "tabs: Quests comes after World PvP")
             S.windowTab = "overview"
             Window:Hide()
             Window:Show()
