@@ -715,11 +715,13 @@ function UnitClass(unit)
     return "Warrior", "WARRIOR", 1
 end
 -- Class names and colours: LocalizedClassList is a function in this build, RAID_CLASS_COLORS a table of colours.
-M.classNames = { WARRIOR = "Warrior", MAGE = "Mage", ROGUE = "Rogue", PRIEST = "Priest", HUNTER = "Hunter", SHAMAN = "Shaman" }
+M.classNames = { WARRIOR = "Warrior", MAGE = "Mage", ROGUE = "Rogue", PRIEST = "Priest", HUNTER = "Hunter", SHAMAN = "Shaman",
+    PALADIN = "Paladin", DRUID = "Druid", WARLOCK = "Warlock" }
 function LocalizedClassList() return M.classNames end
 RAID_CLASS_COLORS = {
     WARRIOR = { r = 0.78, g = 0.61, b = 0.43 }, MAGE = { r = 0.25, g = 0.78, b = 0.92 }, ROGUE = { r = 1, g = 0.96, b = 0.41 },
     PRIEST = { r = 1, g = 1, b = 1 }, HUNTER = { r = 0.67, g = 0.83, b = 0.45 }, SHAMAN = { r = 0, g = 0.44, b = 0.87 },
+    PALADIN = { r = 0.96, g = 0.55, b = 0.73 }, DRUID = { r = 1, g = 0.49, b = 0.04 }, WARLOCK = { r = 0.53, g = 0.53, b = 0.93 },
 }
 function UnitRace() return "Human", "Human" end
 -- UnitGUID("npc") is the open vendor's GUID (nil when no test sets one); M.npcGuidSecret makes it secret.

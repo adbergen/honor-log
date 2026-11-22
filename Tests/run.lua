@@ -5962,7 +5962,7 @@ local function run()
             check(T[1].label.__points[1][4] == 12 + Kit.PORTRAIT_CLEAR and T[1].value.__points[1][4] == 12 + Kit.PORTRAIT_CLEAR, "tiles: the first one's label and value start past the portrait")
             check(G.inset:GetWidth() == 580 and G.inset:GetHeight() == 414 and P.head.inset:GetWidth() == 280 and P.head.inset:GetHeight() == 196
                 and P.zones.inset:GetWidth() == 280 and P.zones.inset:GetHeight() == 210, "boxes: the log and the two side panels")
-            check(G.area:GetWidth() == 542 and G.area:GetHeight() == 334 and G.search:GetWidth() == 200 and G.search:GetHeight() == 20, "boxes: the scroll area and the search box")
+            check(G.area:GetWidth() == 542 and G.area:GetHeight() == 320 and G.search:GetWidth() == 200 and G.search:GetHeight() == 20, "boxes: the scroll area and the search box")
             local lastColumn = WS.COLUMNS[#WS.COLUMNS]
             check(lastColumn.x + lastColumn.w <= 542 and #WS.COLUMNS == 6 and G.titles[1]:GetText() == "When" and G.titles[2]:GetText() == "Result" and G.titles[3]:GetText() == "Player"
                 and G.titles[4]:GetText() == "Class" and G.titles[5]:GetText() == "Where" and G.titles[6]:GetText() == "Honor", "log: the columns fit, and their titles")
@@ -5971,7 +5971,7 @@ local function run()
             check(T[1].label:GetText() == "Kills today" and T[1].value:GetText() == "3" and T[1].note:GetText() == "1 killing blow", "tiles: kills today and the killing blows")
             check(T[2].label:GetText() == "Deaths today" and T[2].value:GetText() == "2" and T[2].note:GetText() == "In Hillsbrad Foothills", "tiles: deaths today in the one zone")
             check(T[3].label:GetText() == "Honor from kills" and T[3].value:GetText() == "42" and T[3].note:GetText() == "Today, 2 named kills" and same(textColor(T[3].value), Kit.COLORS.gold), "tiles: honor from kills and the named ones")
-            check(T[4].label:GetText() == "All time: kills - deaths" and T[4].value:GetText() == "7 - 3" and T[4].note:GetText() == "Since " .. dayOf(db.char.since), "tiles: all time for this character, since the date counting began")
+            check(T[4].label:GetText() == "All time" and T[4].value:GetText() == "7 - 3" and T[4].note:GetText() == "Kills and deaths since " .. dayOf(db.char.since), "tiles: all time for this character, since the date counting began")
             S.viewMode = "account"
             db.global.worldPvP = { kills = 99, deaths = 98 }
             Window:RefreshCurrent()
@@ -6006,13 +6006,13 @@ local function run()
             check(c.when:GetText():find("^Today %d%d:%d%d$") and c.result:GetText() == "Kill" and same(textColor(c.result), Kit.COLORS.green) and c.player:GetText() == "Alpha One"
                 and same(textColor(c.player), Kit.COLORS.white) and c.class:GetText() == "Mage" and same(textColor(c.class), { mr, mg, mb }) and c.honor:GetText() == "30" and same(textColor(c.honor), Kit.COLORS.gold),
                 "log: when, result word in green, player, the class word in its colour, honor")
-            check(r1.place:IsShown() and r1.place.honorLogMode == "pin" and r1.place.honorLogFull == "Southshore, Hillsbrad Foothills" and r1.place:GetWidth() == 136 and not r1.none:IsShown(), "log: a place with a position is a pin link in a fixed width")
+            check(r1.place:IsShown() and r1.place.honorLogMode == "pin" and r1.place.honorLogFull == "Hillsbrad Foothills \194\183 Southshore" and r1.place:GetWidth() == 136 and not r1.none:IsShown(), "log: a place with a position is a pin link in a fixed width")
             check(c.when.__wrapWidth == 96 and c.result.__wrapWidth == 44 and c.player.__wrapWidth == 140 and c.class.__wrapWidth == 50 and c.honor.__wrapWidth == 34, "log: fixed widths")
             local u = r2.cells
             check(u.player:GetText() == "Unknown player" and same(textColor(u.player), Kit.COLORS.grey) and u.class:GetText() == "-" and same(textColor(u.class), Kit.COLORS.grey) and u.honor:GetText() == "-"
                 and r2.place.honorLogMode == "zone" and r2.place.honorLogFull == "Arathi Highlands", "log: a kill nobody was named for reads Unknown player in grey; a map alone is a zone link")
             check(r3.cells.result:GetText() == "Death" and same(textColor(r3.cells.result), Kit.COLORS.red) and r3.cells.honor:GetText() == "-" and r3.cells.class:GetText() == "Rogue" and r3.place.honorLogMode == "pin", "log: a death is a red word, no honor")
-            check(r4.place.honorLogMode == "plain" and r4.cells.honor:GetText() == "12" and r4.place.honorLogFull == "Hall, Mystery Zone", "log: a place with no map is plain text")
+            check(r4.place.honorLogMode == "plain" and r4.cells.honor:GetText() == "12" and r4.place.honorLogFull == "Mystery Zone \194\183 Hall", "log: a place with no map is plain text")
             check(not r5.place:IsShown() and r5.none:IsShown() and r5.none:GetText() == "-", "log: no place at all is a dash")
             check(r6.cells.when:GetText() == date("%b %d ", now - DAYS3) .. date("%H:%M", now - DAYS3) and r6.cells.honor:GetText() == "20", "log: an older day is its date")
             check(r1.stripe:IsShown() == false and r2.stripe:IsShown() == true, "log: every second row is striped")
@@ -6171,7 +6171,7 @@ local function run()
             check(T[1].value:GetText() == "0" and T[1].note:GetText() == "No killing blows" and T[2].note:GetText() == "No deaths today" and T[3].note:GetText() == "Today, no named kills" and T[3].value:GetText() == "0", "empty: the tiles")
             db.char.worldPvP, db.char.since = { kills = 0, deaths = 0 }, nil
             Window:RefreshCurrent()
-            check(T[4].value:GetText() == "0 - 0" and T[4].note:GetText() == "", "empty: no start date, no 'Since'")
+            check(T[4].value:GetText() == "0 - 0" and T[4].note:GetText() == "Kills and deaths", "empty: no start date, the note still says what the numbers are")
             seed()
 
             -- staying current: a kill or a death redraws the screen on the next tick, once, only while shown

@@ -40,7 +40,7 @@ local ZONES_Y, ZONES_H = 280, 210
 local ROW_H, MAX_ROWS = 20, 100
 local AREA_TOP = 46
 local AREA_W = LOG_W - 16 - Kit.SCROLL_BAR_SPACE -- 542
-local AREA_H = 334
+local AREA_H = 16 * 20 -- sixteen whole rows: a row is never cut by the foot
 local OPPONENTS, ZONE_ROWS = 4, 6
 local INNER_W = SIDE_W - 28 -- 252
 local PLACE_KEY = "honorLogWorld" -- the one pin every place on this screen uses
@@ -130,11 +130,19 @@ local function buildTiles(parent)
         tile:SetSize(TILE_W, TILE_H)
         tile:SetPoint("TOPLEFT", parent, "TOPLEFT", (i - 1) * TILE_STEP, 0)
         if i == 1 then
-            -- the first tile's top left corner is under the window portrait: its label and value start past it
+            -- the first tile's top left corner is under the window portrait: its texts start past it, the note
+            -- too, so the tile keeps one left edge
+            local left = 12 + Kit.PORTRAIT_CLEAR
             tile.label:ClearAllPoints()
-            tile.label:SetPoint("TOPLEFT", tile, "TOPLEFT", 12 + Kit.PORTRAIT_CLEAR, -7)
+            tile.label:SetPoint("TOPLEFT", tile, "TOPLEFT", left, -7)
             tile.value:ClearAllPoints()
-            tile.value:SetPoint("TOPLEFT", tile, "TOPLEFT", 12 + Kit.PORTRAIT_CLEAR, -20)
+            tile.value:SetPoint("TOPLEFT", tile, "TOPLEFT", left, -20)
+            tile.note:ClearAllPoints()
+            tile.note:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", left, 7)
+            tile.note:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -8, 7)
+            tile.honorLogTipButton:ClearAllPoints()
+            tile.honorLogTipButton:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", left - 6, 3)
+            tile.honorLogTipButton:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -4, 3)
         end
         tiles[i] = tile
     end
@@ -172,8 +180,8 @@ local function refreshTiles(tiles)
     local totals = safe(WorldLog.GetTotals, WorldLog, "character")
     if type(totals) ~= "table" then totals = {} end
     local since = dayText(totals.since)
-    Kit:SetNoteTile(tiles[4], L["All time: kills - deaths"], string.format("%d - %d", num(totals.kills) or 0, num(totals.deaths) or 0),
-        since and string.format(L["Since %s"], since) or "", nil, "white", "grey")
+    Kit:SetNoteTile(tiles[4], L["All time"], string.format("%d - %d", num(totals.kills) or 0, num(totals.deaths) or 0),
+        since and string.format(L["Kills and deaths since %s"], since) or L["Kills and deaths"], nil, "white", "grey")
 end
 
 --------------------------------------------------------------------------------
@@ -206,6 +214,16 @@ local function showRowTip(row)
     if kill and honor and honor > 0 then GameTooltip:AddLine(string.format(L["%s honor"], commas(honor)), 1, 0.82, 0, true) end
     if str(r.where) then GameTooltip:AddLine(r.where, 0.66, 0.64, 0.59, true) end
     GameTooltip:Show()
+end
+
+-- The Where cell's label: the zone first, then the subzone. The column is narrow and the end of a long text
+-- is cut, so the zone is what stays readable; the row's tooltip and the pin carry the whole place.
+local function whereLabel(r)
+    local zone, sub = str(r.zone), str(r.subzone)
+    if zone == "" then zone = nil end
+    if sub == "" then sub = nil end
+    if zone and sub and sub ~= zone then return zone .. " \194\183 " .. sub end
+    return zone or sub
 end
 
 local function createRow(row)
@@ -245,7 +263,7 @@ local function updateRow(row, entry)
     local where = str(r.where)
     row.place:SetShown(where ~= nil)
     row.none:SetShown(where == nil)
-    if where then row.place:SetPlace(placeFor(r, where, name or L["Unknown player"]), where, COLUMNS[5].w) end
+    if where then row.place:SetPlace(placeFor(r, where, name or L["Unknown player"]), whereLabel(r) or where, COLUMNS[5].w) end
     local honor = num(r.honor)
     setCell(cells.honor, kill and honor and honor > 0 and commas(honor) or "-", "gold")
 end
@@ -261,7 +279,7 @@ local function buildLog(parent, onKind, onSearch)
     g.title:SetText(L["Kill log"])
     g.chips = Kit:Chips(inset, onKind)
     g.chips:SetPoint("TOPLEFT", inset, "TOPLEFT", 80, -7)
-    g.search = Kit:SearchBox(inset, L["A player or zone"], 200, onSearch)
+    g.search = Kit:SearchBox(inset, L["Search a player or zone"], 200, onSearch)
     g.search:SetPoint("TOPLEFT", inset, "TOPLEFT", 370, -7)
 
     g.titles = {}
@@ -280,9 +298,9 @@ local function buildLog(parent, onKind, onSearch)
     g.empty = Kit:FixedText(inset, "grey", LOG_W - 28)
     g.empty:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -(AREA_TOP + 6))
     g.foot = Kit:FixedText(inset, "grey", LOG_W - 28)
-    g.foot:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -382)
+    g.foot:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -376)
     g.hint = Kit:FixedText(inset, "grey", LOG_W - 28)
-    g.hint:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -396)
+    g.hint:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -392)
     g.hint:SetText(L["Click a place to see it on your map."])
     return g
 end
