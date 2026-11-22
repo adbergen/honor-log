@@ -3,7 +3,7 @@
 -- when its item level beats what the character wears. The engine only; no frame, nothing per frame, and nothing
 -- is ever added to the goal list or reordered here. The player clicks (the screens call AddGoal).
 --
--- The rules (Round 8b, "recommended goals"):
+-- The rules:
 --   * Candidates: the generated gear database (HonorLog:GetPickerItems: the player's side, stocked, not owned,
 --     not already a goal), for the player's class: its own set pieces and the neutral items. Neutral armour must
 --     be the heaviest type the class wears at its level (HonorLog.ArmorLevels, from SkillRaceClassInfo); a weapon
@@ -20,8 +20,12 @@
 --     the second result, never guessed.
 --   * A blue piece and its Seal upgrade are one path: the blue piece is recommended first (ranked by the item
 --     level the path reaches); once it is worn or owned, the epic.
+--   * Level: a reward whose required level is above the character's is never offered (with the level unknown,
+--     nothing is filtered by level). A blue piece reaches its Seal epic only when the epic's required level is met.
 --   * One recommendation per slot (and per role line while the role is unknown): the highest item level; ties go
---     to what can be bought now, then the soonest date.
+--     to what can be bought now, then the soonest date. When that best is not buyable now, the best reward of the
+--     slot that is buyable now and still an upgrade comes beside it (now = true), so there is always something to buy.
+--   * Nothing worn at all (no place reports an item) means the client is not telling: no recommendations.
 --   * Priority: buyable now first, biggest gain first; then by the date it becomes buyable, soonest first, then
 --     by gain. The date and the status sentence come from the same progress object a goal has
 --     (HonorLog:BuildGoalProgress and HonorLog:GoalReadyText); there is no second forecast.
@@ -185,6 +189,18 @@ local function readPlace(place)
     return { kind = "worn", id = id, level = level, name = str(name) }
 end
 
+-- Whether any inventory place reports an item (a number, not a secret).
+local function anyWorn()
+    if type(GetInventoryItemID) ~= "function" then return false end
+    for place = 1, 18 do
+        if place ~= 4 then
+            local ok, id = pcall(GetInventoryItemID, "player", place)
+            if ok and not isSecret(id) and num(id) and id > 0 then return true end
+        end
+    end
+    return false
+end
+
 local function inventoryType(id)
     return C_Item and num((call(C_Item.GetItemInventoryTypeByID, id))) or nil
 end
@@ -319,7 +335,11 @@ end
 --     upgrade, or nil), upgradeID (the epic that follows a blue piece, or nil), mainHandOnly (true when a two-hander
 --     was compared with the main hand only)
 --   }
---   info = { class, level, role, roleSource ("choice", "spec" or "unknown"), classRoles = { "healer", ... },
+--   (also on an entry: now = true on the buyable-today alternative that sits beside a slot's best when the best is
+--   not buyable now, alternative = that alternative's item id on the best, alternativeTo = the best's item id on
+--   the alternative.)
+--   info = { progressBuilt (goal progress objects this call built), inventoryUnknown (true when no place reported
+--     an item and nothing was recommended), class, level, role, roleSource ("choice", "spec" or "unknown"), classRoles = { "healer", ... },
 --     skipped = { "HEAD", ... } (slots the client would not report), levelUnknown (true when armour
 --     could not be judged) }
 function Recommend:GetRecommendedGoals(limit)
@@ -336,6 +356,13 @@ function Recommend:GetRecommendedGoals(limit)
     local armor = heaviestArmor(class, level)
     local oneLine = lineCount(class) == 1
     local classUsesWeapon = HonorLog.ClassUsesWeapon
+
+    -- Nothing worn at all: the client is not saying (a nil answer also means an empty slot), so what the
+    -- character wears is unknown and nothing is recommended.
+    if not anyWorn() then
+        info.inventoryUnknown = true
+        return {}, info
+    end
 
     local skipped = {}
     local wornCache = {}
@@ -365,6 +392,7 @@ function Recommend:GetRecommendedGoals(limit)
                 ok = hasRoles[data.role] == true and (role == nil or data.role == role)
             end
         end
+        if ok and level and (data.reqLevel or 0) > level then ok = false end
         local start, finish -- the item to offer, the item whose level it reaches
         if ok and data.source == "UPGRADE" and type(data.parts) == "table" and data.parts[1] then
             -- The epic: offered only once its blue piece is worn or owned.
@@ -373,7 +401,11 @@ function Recommend:GetRecommendedGoals(limit)
             local epicID = data.source == "HONOR" and upgradeOf(id) or nil
             local epic = epicID and HonorLog.GearDB[epicID] or nil
             if epic and not HonorLog:IsGoal(epicID) and not owned(epicID) then
-                start, finish = id, epicID
+                if level and (epic.reqLevel or 0) > level then
+                    start, finish = id, id -- the Seal upgrade is out of reach: the blue piece stands on its own level
+                else
+                    start, finish = id, epicID
+                end
             elseif epic then
                 ok = false -- the epic is already a goal or owned: this blue piece is part of it
             else
@@ -386,9 +418,10 @@ function Recommend:GetRecommendedGoals(limit)
                 skipped[slot] = true
             elseif w ~= false then
                 local reach = HonorLog.GearDB[finish].ilvl
-                local gain
+                local gain, ownGain
                 if w.kind == "worn" then
                     gain = reach - w.level
+                    ownGain = data.ilvl - w.level
                     if gain <= 0 then ok = false end
                 end
                 if ok then
@@ -396,7 +429,7 @@ function Recommend:GetRecommendedGoals(limit)
                     if role == nil then key = (data.role or "-") .. ":" .. slot end
                     local cand = {
                         itemID = start, finishID = finish, data = data, slot = slot, ilvl = reach, gain = gain,
-                        worn = w, role = data.role, key = key,
+                        upgradeNow = ownGain == nil or ownGain > 0, worn = w, role = data.role, key = key,
                     }
                     local group = groups[key]
                     if not group then
@@ -411,34 +444,42 @@ function Recommend:GetRecommendedGoals(limit)
         end
     end
 
-    -- Progress for the contenders (the highest level of each group), then the pick of each group.
+    -- Progress for every candidate (one context for all), then the best of each group and, when the best
+    -- cannot be bought now, the best that can.
     local okCtx, ctx = pcall(HonorLog.NewGoalContext, HonorLog)
     if not okCtx or type(ctx) ~= "table" then return {}, info end
-    local picks = {}
+    local picks, built = {}, 0
+    local function better(a, b) -- a over b: higher level, then buyable, then sooner, then lower id
+        if a.ilvl ~= b.ilvl then return a.ilvl > b.ilvl end
+        if a.buyable ~= b.buyable then return a.buyable end
+        local da, db = a.readyDate or math.huge, b.readyDate or math.huge
+        if da ~= db then return da < db end
+        return a.itemID < b.itemID
+    end
     for _, key in ipairs(groupOrder) do
-        local group = groups[key]
-        local best
-        for _, cand in ipairs(group.list) do
-            if cand.ilvl == group.best then
-                local okProgress, progress = pcall(HonorLog.BuildGoalProgress, HonorLog, cand.itemID, ctx, nil)
-                cand.progress = okProgress and type(progress) == "table" and progress or nil
-                cand.buyable = cand.progress ~= nil and cand.progress.isComplete == true
-                cand.readyDate = cand.progress and num(cand.progress.readyDate) or nil
-                if cand.progress then
-                    if not best then
-                        best = cand
-                    elseif cand.buyable ~= best.buyable then
-                        if cand.buyable then best = cand end
-                    elseif (cand.readyDate or math.huge) ~= (best.readyDate or math.huge) then
-                        if (cand.readyDate or math.huge) < (best.readyDate or math.huge) then best = cand end
-                    elseif cand.itemID < best.itemID then
-                        best = cand
-                    end
+        local best, near
+        for _, cand in ipairs(groups[key].list) do
+            local okProgress, progress = pcall(HonorLog.BuildGoalProgress, HonorLog, cand.itemID, ctx, nil)
+            built = built + 1
+            cand.progress = okProgress and type(progress) == "table" and progress or nil
+            cand.buyable = cand.progress ~= nil and cand.progress.isComplete == true
+            cand.readyDate = cand.progress and num(cand.progress.readyDate) or nil
+            if cand.progress then
+                if not best or better(cand, best) then best = cand end
+                if cand.buyable and cand.upgradeNow then
+                    if not near or cand.ilvl > near.ilvl or (cand.ilvl == near.ilvl and cand.itemID < near.itemID) then near = cand end
                 end
             end
         end
-        if best then picks[#picks + 1] = best end
+        if best then
+            picks[#picks + 1] = best
+            if not best.buyable and near then
+                near.now, near.alternativeTo, best.alternative = true, best.itemID, near.itemID
+                picks[#picks + 1] = near
+            end
+        end
     end
+    info.progressBuilt = built
 
     table.sort(picks, function(a, b)
         if a.buyable ~= b.buyable then return a.buyable end
@@ -477,6 +518,7 @@ function Recommend:GetRecommendedGoals(limit)
             buyable = c.buyable, status = ready and plain(ready) or nil, statusRich = ready,
             readyDate = c.readyDate, progress = c.progress, step = viaSeal and "blue" or (upgrade and "seal" or nil),
             upgradeID = viaSeal and c.finishID or nil, mainHandOnly = c.worn.mainHandOnly == true,
+            now = c.now == true, alternative = c.alternative, alternativeTo = c.alternativeTo,
         }
     end
 

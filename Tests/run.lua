@@ -9149,6 +9149,8 @@ check(secretBeta and secretBeta.weekText == nil and secretBeta.rankTitle == nil,
         local function fresh()
             mock.equipped, mock.itemLevels, mock.invTypes, mock.bagItems, mock.bagContents = {}, {}, {}, {}, {}
             mock.spec, mock.specError = nil, nil
+            -- one item worn out of the way (the ranged slot, far above any reward): a character wearing nothing at all is "unknown"
+            mock.equipped[18], mock.itemLevels[8000000] = 8000000, 1000
             HL.db.char.recommendRole = nil
             HL.db.char.goals.items = {}
         end
@@ -9586,12 +9588,12 @@ check(secretBeta and secretBeta.weekText == nil and secretBeta.rankTitle == nil,
         list = Rec:GetRecommendedGoals()
         local order = {}
         for _, x in ipairs(list) do order[#order + 1] = x.itemID end
-        check(same(order, { readyBig, readyMid, readySmall, soon, later, gated }), "priority: buyable now (empty slot, then biggest gain), then by date, then undated: " .. table.concat(order, ","))
-        check(list[1].buyable and list[2].buyable and list[3].buyable and not list[4].buyable and not list[5].buyable and not list[6].buyable, "priority: only the first three are buyable now")
-        check(list[4].readyDate and list[5].readyDate and list[4].readyDate < list[5].readyDate and list[6].readyDate == nil, "priority: dates come from the goal progress, soonest first")
+        check(same(order, { readyBig, readyMid, readySmall, soon, later }), "priority: buyable now (empty slot, then biggest gain), then by date (the level 61 reward is out of reach at level 60 and not offered): " .. table.concat(order, ","))
+        check(list[1].buyable and list[2].buyable and list[3].buyable and not list[4].buyable and not list[5].buyable, "priority: only the first three are buyable now")
+        check(list[4].readyDate and list[5].readyDate and list[4].readyDate < list[5].readyDate, "priority: dates come from the goal progress, soonest first")
         check(list[1].status == "Ready to purchase" and list[4].status and list[4].status:find("ready", 1, true) and not list[4].status:find("|c", 1, true), "priority: the status is the goal's ready text, plain: " .. tostring(list[4].status))
         check(list[4].statusRich and list[4].statusRich:find("|c", 1, true), "priority: the coloured status is kept too")
-        check(list[6].status and list[6].status:find("level 61", 1, true), "priority: a level gate says so: " .. tostring(list[6].status))
+        check(not byItem(list, gated), "level: a reward above the character's level is not offered")
         check(list[1].progress and list[1].progress.itemID == readyBig, "priority: the progress object is a goal's own")
         check(#Rec:GetRecommendedGoals(2) == 2 and Rec:GetRecommendedGoals(2)[2].itemID == readyMid, "priority: the limit cuts the ranked list")
         check(#HL:GetGoals() == 0, "priority: asking for recommendations adds nothing to the goal list")
@@ -9620,6 +9622,84 @@ check(secretBeta and secretBeta.weekText == nil and secretBeta.rankTitle == nil,
         HL.db.char.goals.items = {}
         check(HL:SortGoalsByPriority() == false, "sort: an empty list does nothing")
         HL.Rank.GetPace, HL.OnDataUpdated, HL.GetBestHonorPerGame = saved.pace, saved.onData, realBest
+
+        ------------------------------------------------------------------ the character's level
+        for _, case in ipairs({ { "WARRIOR", 35 }, { "SHAMAN", 35 }, { "WARRIOR", 50 } }) do
+            fresh(); class(case[1], case[2])
+            list = Rec:GetRecommendedGoals()
+            local tooHigh = 0
+            for _, x in ipairs(list) do
+                if HL.GearDB[x.itemID].reqLevel > case[2] then tooHigh = tooHigh + 1 end
+            end
+            check(#list > 0 and tooHigh == 0, "level: a level " .. case[2] .. " " .. case[1] .. " is offered only what it can wear (" .. #list .. " offered, " .. tooHigh .. " too high)")
+        end
+        fresh(); class("WARRIOR", 35)
+        mock.level = nil
+        list = Rec:GetRecommendedGoals()
+        local anyHigh = false
+        for _, x in ipairs(list) do if HL.GearDB[x.itemID].reqLevel > 35 then anyHigh = true end end
+        check(anyHigh, "level: with the level unknown nothing is filtered by level")
+        -- the blue piece's path reaches the Seal epic only when its level is met
+        fresh(); class("WARRIOR", 57)
+        local pBlue, pEpic
+        for id, row in pairs(HL.GearDB) do
+            if row.source == "UPGRADE" and row.class == "WARRIOR" and row.faction == "Horde" and row.slot == "HEAD" and row.set then
+                pEpic, pBlue = id, row.parts[1]
+            end
+        end
+        for id, row in pairs(HL.GearDB) do
+            if row.class == "WARRIOR" and row.slot == "HEAD" and id ~= pBlue and id ~= pEpic then mock.bagItems[id] = 1 end
+        end
+        check(HL.GearDB[pBlue].reqLevel <= 57 and HL.GearDB[pEpic].reqLevel > 57, "level: the blue piece needs 55 and the epic more (57 sits between)")
+        list = Rec:GetRecommendedGoals()
+        e = byItem(list, pBlue)
+        check(e and e.step == nil and e.upgradeID == nil and e.ilvl == HL.GearDB[pBlue].ilvl and not e.reason:find("Seal", 1, true), "level: at 57 the blue piece is ranked by its own level, with no Seal sentence")
+        class("WARRIOR", 60)
+        e = byItem(Rec:GetRecommendedGoals(), pBlue)
+        check(e and e.step == "blue" and e.ilvl == HL.GearDB[pEpic].ilvl, "level: at 60 the blue piece is ranked by the epic's level")
+
+        ------------------------------------------------------------------ what can be bought now
+        fresh(); class("WARRIOR")
+        for id in pairs(HL.GearDB) do mock.bagItems[id] = 1 end
+        local far = add("HEAD", 95, { rank = 14 })
+        local nearA = add("HEAD", 90, { honor = 100 })
+        local nearB = add("HEAD", 90, { honor = 100 })
+        local lower = add("HEAD", 80, { honor = 100 })
+        for _, id in ipairs({ far, nearA, nearB, lower }) do mock.bagItems[id] = nil end
+        wear(1, 60)
+        list = Rec:GetRecommendedGoals()
+        check(#list == 2 and list[1].itemID == nearA and list[2].itemID == far, "now: a best behind a rank also offers the best buyable upgrade, buyable first (ties to the lower id)")
+        check(list[1].now == true and list[1].buyable and list[1].alternativeTo == far and list[2].now == false and list[2].alternative == nearA and not list[2].buyable, "now: the alternative is marked and the two name each other")
+        check(select(2, Rec:GetRecommendedGoals()).progressBuilt == 4, "now: one progress object per candidate")
+        mock.itemLevels[mock.equipped[1]] = 92
+        list = Rec:GetRecommendedGoals()
+        check(#list == 1 and list[1].itemID == far and list[1].alternative == nil, "now: a buyable reward that is no upgrade over what is worn is not offered")
+        mock.itemLevels[mock.equipped[1]] = 60
+        HL.GearDB[far].rank = nil
+        list = Rec:GetRecommendedGoals()
+        check(#list == 1 and list[1].itemID == far and list[1].buyable and not list[1].now and list[1].alternative == nil, "now: when the best itself is buyable there is one entry")
+        mock.equipped[1] = nil
+        HL.GearDB[far].rank = 14
+        list = Rec:GetRecommendedGoals()
+        check(#list == 2 and list[1].now == true and list[1].empty, "now: an empty slot also gets its alternative")
+        clear()
+
+        ------------------------------------------------------------------ nothing worn at all
+        fresh(); class("WARRIOR")
+        mock.equipped = {}
+        list, info = Rec:GetRecommendedGoals()
+        check(#list == 0 and info.inventoryUnknown == true, "inventory: nothing reported anywhere gives no recommendations")
+        local realGetID = GetInventoryItemID
+        for _, bad in ipairs({ function() error("no") end, function() return mock.newSecret() end }) do
+            GetInventoryItemID = bad -- luacheck: ignore 121
+            list, info = Rec:GetRecommendedGoals()
+            check(#list == 0 and info.inventoryUnknown == true, "inventory: every place raising or secret gives no recommendations")
+        end
+        GetInventoryItemID = realGetID -- luacheck: ignore 121
+        wear(14, 10) -- one worn trinket anywhere: the rest are really empty
+        list, info = Rec:GetRecommendedGoals()
+        check(not info.inventoryUnknown and #bySlot(list, "HEAD") > 0 and bySlot(list, "HEAD")[1].reason:find("Empty slot", 1, true), "inventory: one worn item switches the Empty slot entries back on")
+        check(info.inventoryUnknown == nil or info.inventoryUnknown == false, "inventory: the flag is not set")
 
         ------------------------------------------------------------------ restore
         clear()
