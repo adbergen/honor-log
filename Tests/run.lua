@@ -55,7 +55,7 @@ local function run()
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Moments.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Screens/Characters.lua", "UI/Moments.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3521,14 +3521,14 @@ local function run()
         local probeRefreshes
         local function registerProbe()
             probeRefreshes = 0
-            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 7, create = function(parent)
+            HL.Window:RegisterScreen({ key = "probe", title = "Probe", order = 9, create = function(parent)
                 local f = CreateFrame("Frame", nil, parent)
                 function f:Refresh() probeRefreshes = probeRefreshes + 1 end
                 return f
             end })
         end
         registerProbe()
-        check(#Window.screens == 7 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 8 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "characters" and Window.screens[8].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -4056,10 +4056,11 @@ local function run()
             Window:Show("battlegrounds")
             Window:Show("world")
             Window:Show("quests")
+            Window:Show("characters")
             Window:Show("overview")
             local S3 = HL.db.settings
             local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode, kind = S3.windowWorldKind }
-            local n, gearClicks, bgClicks, questClicks, worldClicks = 0, 0, 0, 0, 0
+            local n, gearClicks, bgClicks, questClicks, worldClicks, charClicks = 0, 0, 0, 0, 0, 0
             -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
             -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
@@ -4100,6 +4101,13 @@ local function run()
                             p, hops = p.__parent, hops + 1
                         end
                     end
+                    if Window.frames.characters then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.characters then charClicks = charClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if Window.frames.quests then
                         local hops, p = 0, f
                         while p and hops < 40 do
@@ -4115,6 +4123,7 @@ local function run()
             check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
             check(questClicks > 8, label .. "integration clicked " .. questClicks .. " controls on the Quests screen")
             check(worldClicks > 8, label .. "integration clicked " .. worldClicks .. " controls on the World PvP screen")
+            check(charClicks > 0, label .. "integration clicked " .. charClicks .. " controls on the Characters screen")
             mock.momentsPass(label)
             S3.windowBattleground, S3.windowResult, S3.viewMode, S3.windowWorldKind = savedBg.bg, savedBg.result, savedBg.view, savedBg.kind
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
@@ -6695,6 +6704,253 @@ local function run()
             HL.ShowPlaceOnMap, HL.MapPin.OpenMap, HL.PlayersScreen = save.place, save.openMap, save.players
             db.char.worldLog, db.char.opponents, db.char.worldPvP, db.char.since = save.log, save.opp, save.pvp, save.since
             S.windowTab, S.windowWorldKind, S.viewMode = save.tab, save.kind, save.view
+            Window:Hide()
+        end)()
+
+        -- ═══ Characters: the last screen, one card per character ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Window, Characters = HL.Kit, HL.Window, HL.Characters
+            local S, db = HonorLogDB.settings, HL.db
+            local save = { store = db.global.characters, tab = S.windowTab, snapshot = Characters.Snapshot, cap = mock.currencies[1792].maxQuantity,
+                deferred = mock.deferTimers, level = mock.level }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local now = time()
+            local DAY = 86400
+            local key = HL:GetCharacterKey()
+            local goalItem = next(HL.GearDB)
+            mock.currencies[1792].maxQuantity = 25000
+            local snapshots = 0
+            Characters.Snapshot = function() snapshots = snapshots + 1 end -- the seeded records stay as they are
+            local function seed(n)
+                local s = {}
+                db.global.characters = s
+                s[key] = { name = "Alpha", class = "SHAMAN", faction = "Horde", level = 35, rank = 2, rankPoints = HL.Rank:TotalForRank(3) - 430, honor = 18420,
+                    marks = { AV = 12, WSG = 3, AB = 0 }, lastSeen = now - 10, nextGoal = goalItem, goalPercent = 40 }
+                if n >= 2 then
+                    s["Beta Long-TestRealm"] = { name = "Beta With A Very Long Name", class = "MAGE", faction = "Alliance", level = 38, rank = 3, rankPoints = HL.Rank:TotalForRank(3) + 10,
+                        honor = 22500, marks = { DI = 7, AV = 2 }, lastSeen = now - 2 * DAY, nextGoal = goalItem, goalPercent = 100 }
+                    s["Gamma-TestRealm"] = { name = "Gamma", class = "ROGUE", faction = "Horde", level = 60, rank = 5, rankPoints = 1, capped = true, capUntil = now + 1000,
+                        honor = 22499, lastSeen = now - DAY }
+                    s["Delta-TestRealm"] = { name = "Delta", class = "PRIEST", lastSeen = now - 5 * DAY }
+                    s["Zed-TestRealm"] = { name = "Zed" }
+                end
+            end
+            seed(5)
+            S.windowTab = "characters"
+            local before = #mock.handledErrors
+            Window:Show("characters")
+            check(#mock.handledErrors == before, "characters: it builds and draws without an error: " .. tostring(mock.handledErrors[before + 1]))
+            local scr = Window.frames.characters
+            local P = scr.honorLogParts
+            local pool = P.list.stack.pools.card
+            check(scr and Window.current == "characters" and Window:GetScreen("characters").title == "Characters" and Window:GetScreen("characters").order == 8
+                and Window.screens[7].key == "characters" and Window.tabs.list[7].honorLogKey == "characters" and Window.tabs.list[6].honorLogKey == "quests",
+                "characters: the tab is the seventh, after Quests")
+            check(snapshots >= 1, "characters: a refresh asks for a fresh snapshot first")
+
+            -- boxes
+            check(P.list.area:GetWidth() == 846 and P.list.area:GetHeight() == 438 and P.list.area.__points[1][4] == 0 and P.list.area.__points[1][5] == -30, "characters: the list is 846 x 438 at y 30")
+            check(P.list.stack.count == 5 and #pool >= 5 and pool[1]:GetHeight() == 86 and pool[1].inset:GetWidth() == 846 and pool[1].inset:GetHeight() == 80, "characters: five cards of 80 with a 6 px gap")
+            check(P.head.title.__points[1][4] >= Kit.PORTRAIT_CLEAR and P.head.title:GetText() == "Your characters" and P.head.title.__wrapWidth == 130
+                and P.head.summary.__wrapWidth == 680 and P.head.summary.__points[1][4] == 188, "characters: the head clears the portrait ")
+            check(pool[1].name.__points[1][5] <= -8 and pool[1].edge.__points[1][5] <= -6, "characters: nothing of the first card starts in the portrait's corner")
+            check(P.foot:GetText() == "Each character's line is saved when you log out of it. Nothing leaves your computer.", "characters: the foot")
+            check(pool[1].name.__wrapWidth == 200 and pool[1].title.__wrapWidth == 152 and pool[1].week.__wrapWidth == 180 and pool[1].goalName.__wrapWidth == 183 and pool[1].goalNote.__wrapWidth == 183
+                and pool[1].honor.__wrapWidth == 120 and pool[1].bar:GetWidth() == 170 and pool[1].bar:GetHeight() == 8, "characters: fixed widths of the texts that can outgrow their box")
+
+            -- the summary
+            check(P.head.summary:GetText() == "5 characters \194\183 63,419 honor \194\183 1 capped this week", "characters: summary with several: " .. tostring(P.head.summary:GetText()))
+            seed(1)
+            Window:RefreshCurrent()
+            check(P.head.summary:GetText() == "1 character \194\183 18,420 honor \194\183 None capped this week", "characters: summary with one: " .. tostring(P.head.summary:GetText()))
+            check(P.list.stack.count == 2 and P.list.stack.pools.note[1]:IsShown() and P.list.stack.pools.note[1].text:GetText() == "Other characters appear here after they have been logged in once.",
+                "characters: with one character its card and a line about the others")
+            seed(5)
+            Window:RefreshCurrent()
+            check(not P.list.stack.pools.note[1]:IsShown(), "characters: with several there is no such line")
+
+            -- a full card (the current character, first)
+            local c1 = pool[1]
+            check(c1.honorLogCurrent and c1.honorLogKey == key and c1.name:GetText() == "Alpha", "characters: the current character is first")
+            check(c1.level:GetText():find("^Level 35 |cff%x%x%x%x%x%xShaman|r$") and c1.last:GetText() == "Playing now", "characters: level, class word in its colour, playing now: " .. c1.level:GetText())
+            check(not c1.forget:IsShown(), "characters: the current character has no Forget control")
+            check(c1.badge:IsShown() and c1.badge.number:GetText() == "2" and c1.title:GetText() == HL.Rank:TitleForRank(2, "Horde") and c1.week:GetText() == "430 points to Rank 3"
+                and same(textColor(c1.week), Kit.COLORS.white), "characters: rank badge, title and the points line")
+            check(c1.honor:GetText() == "18,420 / 25,000" and c1.bar:IsShown() and c1.bar.honorLogFraction > 0.73 and c1.bar.honorLogFraction < 0.74 and same(textColor(c1.honor), Kit.COLORS.white)
+                and same(c1.bar.honorLogColor, { 1, 0.82, 0.1 }), "characters: honor over the cap on a bar")
+            check(c1.marks[1].icon:IsShown() and c1.marks[1].icon.honorLogBG == "AV" and c1.marks[1].count:GetText() == "12" and c1.marks[2].icon.honorLogBG == "WSG" and c1.marks[2].count:GetText() == "3"
+                and not c1.marks[3].icon:IsShown(), "characters: marks in battleground order, none for a count of 0")
+            c1.marks[1].icon.__scripts.OnEnter(c1.marks[1].icon)
+            check(tipText():find("In the bags of Alpha: 12", 1, true), "characters: a mark's tooltip names its character: " .. tipText())
+            check(c1.goalIcon:IsShown() and c1.goalIcon.honorLogItemID == goalItem and c1.goalName:GetText() == HL:GetGearName(goalItem) and c1.goalNote:IsShown()
+                and not c1.noGoal:IsShown(), "characters: the next goal with its icon, name and note")
+
+            -- another character
+            local c2 = pool[3]
+            check(not c2.honorLogCurrent and c2.name:GetText() == "Beta With A Very Long Name" and c2.last:GetText() == "Played 2 days ago" and c2.forget:IsShown() and c2.forget:GetText() == "Forget", "characters: another character's card ")
+            check(c2.week:GetText() == "Rank 4 needs level 40" and same(textColor(c2.week), Kit.COLORS.orange) and c2.goalNote:GetText() == "Ready to buy", "characters: the level gate and a goal ready to buy")
+            c2.marks[1].icon.__scripts.OnEnter(c2.marks[1].icon)
+            check(c2.marks[1].icon.honorLogBG == "AV" and c2.marks[2].icon.honorLogBG == "DI" and tipText():find("In the bags of Beta With A Very Long Name: 2", 1, true), "characters: the marks of another character name it: " .. tipText())
+            c2.nameHit.__scripts.OnEnter(c2.nameHit)
+            check(tipText():find("Beta With A Very Long Name", 1, true), "characters: a long name has its full text in a tooltip")
+            c2.weekHit.__scripts.OnEnter(c2.weekHit)
+            check(tipText():find("Rank 4 needs level 40", 1, true), "characters: the week line has a tooltip")
+            c2.goalHit.__scripts.OnEnter(c2.goalHit)
+            check(tipText():find("Ready to buy", 1, true), "characters: the goal text has a tooltip")
+            c2.goalHit.__scripts.OnLeave(c2.goalHit)
+
+            -- honor at 89 and 90 percent, and with no cap
+            check(c2.honor:GetText() == "22,500 / 25,000" and same(textColor(c2.honor), Kit.COLORS.orange) and same(c2.bar.honorLogColor, Kit.COLORS.orange), "characters: 90 percent of the cap is orange")
+            local c3 = pool[2]
+            check(c3.name:GetText() == "Gamma" and c3.honor:GetText() == "22,499 / 25,000" and same(textColor(c3.honor), Kit.COLORS.white) and same(c3.bar.honorLogColor, { 1, 0.82, 0.1 }), "characters: 22,499 is just under 90 percent and not orange")
+            db.global.characters["Gamma-TestRealm"].honor = 22400
+            Window:RefreshCurrent()
+            check(c3.honor:GetText() == "22,400 / 25,000" and same(textColor(c3.honor), Kit.COLORS.white) and same(c3.bar.honorLogColor, { 1, 0.82, 0.1 }), "characters: 89.6 percent is not either")
+            check(c3.week:GetText() == "Capped this week" and same(textColor(c3.week), Kit.COLORS.green), "characters: capped this week, by its words and green")
+            mock.currencies[1792].maxQuantity = 0
+            Window:RefreshCurrent()
+            check(c1.honor:GetText() == "18,420" and not c1.bar:IsShown() and c1.honor:IsShown(), "characters: with the cap unreadable, the number alone and no bar")
+            mock.currencies[1792].maxQuantity = 25000
+
+            -- a card with missing values
+            local c4 = pool[4]
+            check(c4.name:GetText() == "Delta" and c4.last:GetText() == "Played 5 days ago" and c4.level:GetText():find("Priest", 1, true) and not c4.level:GetText():find("Level", 1, true), "characters: no level, the class word alone")
+            check(not c4.badge:IsShown() and not c4.title:IsShown() and not c4.week:IsShown() and not c4.rankHead:IsShown(), "characters: no rank, nothing of the rank part")
+            check(not c4.honor:IsShown() and not c4.bar:IsShown() and not c4.honorHead:IsShown() and not c4.marks[1].icon:IsShown(), "characters: no honor, no marks, nothing of the honor part")
+            check(c4.noGoal:IsShown() and c4.noGoal:GetText() == "No goals yet" and c4.noGoalNote:GetText() == "Pick gear to aim for on this character." and not c4.goalIcon:IsShown() and not c4.goalName:IsShown(),
+                "characters: no goal says so and one grey line")
+
+            -- a stub
+            local c5 = pool[5]
+            check(c5.name:GetText() == "Zed" and c5.stub:IsShown() and c5.stub:GetText() == "It appears in full after it has been logged in once." and c5.forget:IsShown(), "characters: a stub is its name and one sentence")
+            check(not c5.level:IsShown() and not c5.badge:IsShown() and not c5.honor:IsShown() and not c5.goalIcon:IsShown() and not c5.noGoal:IsShown() and not c5.marks[1].icon:IsShown() and not c5.last:IsShown(),
+                "characters: a stub draws nothing else")
+            check(not c4.stub:IsShown(), "characters: a full card has no stub sentence")
+
+            -- Forget: two clicks, disarming, refusing the current character
+            mock.deferTimers = true
+            click(c5.forget)
+            check(c5.forget:GetText() == "Click again" and db.global.characters["Zed-TestRealm"] ~= nil, "forget: the first click only arms")
+            mock.advance(3)
+            check(c5.forget:GetText() == "Click again", "forget: still armed within its time")
+            mock.advance(2)
+            check(c5.forget:GetText() == "Forget" and db.global.characters["Zed-TestRealm"] ~= nil, "forget: it disarms by itself")
+            click(c5.forget)
+            click(c5.forget)
+            check(db.global.characters["Zed-TestRealm"] == nil and P.list.stack.count == 4 and P.head.summary:GetText():find("^4 characters"), "forget: the second click removes the record and redraws: " .. tostring(P.head.summary:GetText()))
+            check(c5.forget:GetText() == "Forget" and not c5:IsShown(), "forget: the freed card is hidden and not armed")
+            click(c4.forget)
+            seed(5)
+            Window:RefreshCurrent()
+            check(c4.forget:GetText() == "Click again" and pool[4].honorLogKey == "Delta-TestRealm", "forget: arming survives a redraw of the same card")
+            click(c3.forget)
+            mock.advance(1)
+            click(c3.forget)
+            check(db.global.characters["Gamma-TestRealm"] == nil, "forget: a second click within the time removes it")
+            mock.advance(10)
+            mock.deferTimers = save.deferred
+            seed(5)
+            Window:RefreshCurrent()
+            click(c1.forget)
+            click(c1.forget)
+            check(db.global.characters[key] ~= nil, "forget: the current character is refused")
+            c2.forget.__scripts.OnEnter(c2.forget)
+            check(tipText():find("saved line", 1, true), "forget: its tooltip says what it does")
+
+            -- the snapshot taken on refresh
+            Characters.Snapshot = save.snapshot
+            seed(2)
+            db.global.characters[key].level = 20
+            mock.level = 35
+            Window:RefreshCurrent()
+            check(db.global.characters[key].level == 35 and pool[1].level:GetText():find("Level 35", 1, true), "characters: refresh snapshots the current character first")
+            mock.level = save.level
+            Characters.Snapshot = function() error("snapshot gone") end
+            local errSnap = #mock.handledErrors
+            Window:RefreshCurrent()
+            check(#mock.handledErrors == errSnap + 1 and P.list.stack.count == 5 and pool[1].name:GetText() ~= nil, "characters: a snapshot that raises is reported and the cards are still drawn")
+            mock.handledErrors[#mock.handledErrors] = nil
+            Characters.Snapshot = function() snapshots = snapshots + 1 end
+
+            -- hygiene
+            do
+                local inScreen = function(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == Window.frames.characters then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inScreen(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "characters: no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 5 and #foreign == 0, "characters: only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            end
+            seed(5)
+            Window:RefreshCurrent()
+            local framesBefore = #mock.frames
+            for _ = 1, 10 do Window:RefreshCurrent() end
+            check(#mock.frames == framesBefore, "characters: ten refreshes make no new frames")
+
+            -- scroll position kept on refresh
+            for i = 1, 8 do db.global.characters["Extra" .. i .. "-TestRealm"] = { name = "Extra" .. i, class = "MAGE", level = 10 + i, lastSeen = now - i * 100 } end
+            Window:RefreshCurrent()
+            P.list.area:SetVerticalScroll(100)
+            Window:RefreshCurrent()
+            check(P.list.stack.count == 13 and P.list.area:GetVerticalScroll() == 100, "characters: many characters scroll, and a refresh keeps the place")
+
+            -- odd and secret values, sources that answer nothing or raise
+            local secret = mock.newSecret
+            noErrors("characters: secret and odd values in a record", function()
+                db.global.characters = { [key] = { name = secret(), class = secret(), level = secret(), rank = secret(), honor = secret(), marks = { AV = secret(), WSG = "x" },
+                    nextGoal = secret(), lastSeen = now }, ["Odd-TestRealm"] = { name = 5, class = "NOSUCHCLASS", level = "x", marks = "junk", honor = {}, lastSeen = now - 5 }, Bad = "junk" }
+                Window:RefreshCurrent()
+            end)
+            local realRows = HL.GetCharacterRows
+            HL.GetCharacterRows = function() return nil end
+            noErrors("characters: rows that answer nothing", function() Window:RefreshCurrent() end)
+            check(P.list.empty:IsShown() and P.head.summary:GetText() == "", "characters: with no rows the screen says so")
+            HL.GetCharacterRows = function() error("rows gone") end
+            local errMid = #mock.handledErrors
+            Window:RefreshCurrent()
+            check(#mock.handledErrors == errMid + 1, "characters: rows that raise are reported")
+            HL.GetCharacterRows = realRows
+            seed(5)
+            local realTotals = Characters.GetTotals
+            Characters.GetTotals = function() error("totals gone") end
+            Window:RefreshCurrent()
+            Characters.GetTotals = realTotals
+            check(P.head.summary:GetText() == "", "characters: totals that raise leave the summary empty")
+            check(P.list.stack.count == 5 and pool[1].name:GetText() == "Alpha", "characters: a failing part leaves the others drawn")
+            for i = #mock.handledErrors, errMid + 1, -1 do mock.handledErrors[i] = nil end
+
+            -- put it back
+            Characters.Snapshot, db.global.characters, S.windowTab = save.snapshot, save.store, save.tab
+            mock.currencies[1792].maxQuantity, mock.deferTimers = save.cap, save.deferred
             Window:Hide()
         end)()
 
