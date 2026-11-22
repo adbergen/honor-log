@@ -122,6 +122,15 @@ local function entries()
     return out
 end
 
+-- A short label for a narrow column: the zone first, then the subzone, because the end of a long text is
+-- what gets cut and the zone is what must stay readable. nil when the entry names no place.
+function WorldLog:WhereLabel(e)
+    if type(e) ~= "table" then return nil end
+    local zone, sub = nonEmpty(e.zone), nonEmpty(e.subzone)
+    if zone and sub and sub ~= zone then return zone .. " \194\183 " .. sub end
+    return zone or sub
+end
+
 local function whereOf(e)
     local sub, zone = nonEmpty(e.subzone), nonEmpty(e.zone)
     if sub and zone and sub ~= zone then return sub .. ", " .. zone end

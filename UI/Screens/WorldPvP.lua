@@ -216,16 +216,6 @@ local function showRowTip(row)
     GameTooltip:Show()
 end
 
--- The Where cell's label: the zone first, then the subzone. The column is narrow and the end of a long text
--- is cut, so the zone is what stays readable; the row's tooltip and the pin carry the whole place.
-local function whereLabel(r)
-    local zone, sub = str(r.zone), str(r.subzone)
-    if zone == "" then zone = nil end
-    if sub == "" then sub = nil end
-    if zone and sub and sub ~= zone then return zone .. " \194\183 " .. sub end
-    return zone or sub
-end
-
 local function createRow(row)
     row:EnableMouse(true)
     row.stripe = row:CreateTexture(nil, "BACKGROUND")
@@ -263,7 +253,7 @@ local function updateRow(row, entry)
     local where = str(r.where)
     row.place:SetShown(where ~= nil)
     row.none:SetShown(where == nil)
-    if where then row.place:SetPlace(placeFor(r, where, name or L["Unknown player"]), whereLabel(r) or where, COLUMNS[5].w) end
+    if where then row.place:SetPlace(placeFor(r, where, name or L["Unknown player"]), (HonorLog.WorldLog and HonorLog.WorldLog:WhereLabel(r)) or where, COLUMNS[5].w) end
     local honor = num(r.honor)
     setCell(cells.honor, kill and honor and honor > 0 and commas(honor) or "-", "gold")
 end

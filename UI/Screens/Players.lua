@@ -294,7 +294,12 @@ local function metEntries(group, list)
     local out = {}
     for _, r in ipairs(type(list) == "table" and list or {}) do
         local name = type(r) == "table" and str(r.name) or nil
-        if name and name ~= "" and #out < GROUP_ROWS then
+        -- "Who you win with" means more wins than not, and "Who you lose to" fewer: a group's title must hold for
+        -- every row under it, so a 53 percent record is in neither.
+        local rate = type(r) == "table" and num(r.rate) or nil
+        local fits = true
+        if group == "allies" then fits = rate ~= nil and rate > 0.5 elseif group == "rivals" then fits = rate ~= nil and rate < 0.5 end
+        if fits and name and name ~= "" and #out < GROUP_ROWS then
             local games, wins = num(r.games) or 0, num(r.wins) or 0
             local e = { kind = "player", height = ROW_H, group = group, name = name, class = str(r.class), games = games, wins = wins,
                 rate = num(r.rate) or 0, kb = num(r.kbBest) or 0, gamesText = gamesText(games) }
@@ -508,6 +513,7 @@ local function showBattlegrounds(d, met)
     else
         setValue(d.withValue, L["No games on your team"], "grey")
     end
+    d.withValue:SetWidth(with > 0 and 130 or 200) -- the sentence takes the bar's room when there is no bar
     d.withValue:Show()
     d.againstLabel:SetText(L["Against them"])
     d.againstLabel:Show()
@@ -518,6 +524,7 @@ local function showBattlegrounds(d, met)
     else
         setValue(d.againstValue, L["No games against them"], "grey")
     end
+    d.againstValue:SetWidth(against > 0 and 130 or 200)
     d.againstValue:Show()
     if against > 0 then
         d.kbLabel:SetText(L["Most killing blows in one game against your team"])
@@ -566,7 +573,7 @@ local function showFights(d, rows, name)
             local where = str(r.where)
             f.place:SetShown(where ~= nil)
             f.none:SetShown(where == nil)
-            if where then f.place:SetPlace(placeFor(r, where, name), where, 160) end
+            if where then f.place:SetPlace(placeFor(r, where, name), (HonorLog.WorldLog and HonorLog.WorldLog:WhereLabel(r)) or where, 160) end
         end
     end
     if used == 0 then

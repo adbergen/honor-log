@@ -6322,7 +6322,7 @@ local function run()
                     Ally2 = { class = "PRIEST", with = 5, withWins = 3, against = 0, againstWins = 0, kbBest = 0, last = now - 120 },
                     Drawn = { class = "WARRIOR", with = 8, withWins = 5, against = 0, againstWins = 0, kbBest = 0, last = now - 130 },
                     Foe1 = { class = "ROGUE", with = 0, withWins = 0, against = 6, againstWins = 1, kbBest = 9, last = now - 200 },
-                    ["Bob-Realm"] = { class = "WARRIOR", with = 2, withWins = 1, against = 8, againstWins = 5, kbBest = 14, last = now - 300 },
+                    ["Bob-Realm"] = { class = "WARRIOR", with = 2, withWins = 1, against = 8, againstWins = 3, kbBest = 14, last = now - 300 },
                     Rare = { class = "HUNTER", with = 1, withWins = 0, against = 0, againstWins = 0, kbBest = 0, last = now - 50 },
                 }
                 db.char.opponents = {
@@ -6389,7 +6389,7 @@ local function run()
             check(S.windowPlayer == "Bob-Realm" and rows[5].wash:IsShown() and rows[5].edge:IsShown() and rows[6].wash:IsShown() and not rows[1].wash:IsShown(), "players: a click chooses the player, saves it and marks the row")
             check(D.title:GetText() == "Bob-Realm" and D.title:IsShown() and D.title.__wrapWidth == 316 and not D.empty:IsShown() and D.class:GetText() == "Warrior"
                 and D.lastGame:GetText():find("^Last game: "), "players: the detail head: name, class, last game")
-            check(D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 5 of 8 games" and D.withBar.honorLogFraction == 0.5 and D.againstBar.honorLogFraction == 0.625
+            check(D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 3 of 8 games" and D.withBar.honorLogFraction == 0.5 and D.againstBar.honorLogFraction == 0.375
                 and D.kbLabel:GetText() == "Most killing blows in one game against your team" and D.kbValue:GetText() == "14 killing blows" and not D.bgNone:IsShown(), "players: in battlegrounds, won N of M, and the killing blows labelled")
             check(D.yourKills:GetText() == "Your kills: 4" and D.theirKills:GetText() == "Their kills: 2" and D.split.honorLogLeftCount == 4 and D.split.honorLogRightCount == 2
                 and D.splitNote:GetText() == "Green: your kills. Red: their kills." and D.lastSeen:GetText():find("^Last seen: ") and not D.worldNone:IsShown(),
@@ -6411,6 +6411,10 @@ local function run()
             click(rows[2].click)
             check(D.withValue:GetText() == "won 5 of 8 games" and not D.withValue:GetText():find("5 %- 3") and D.againstValue:GetText() == "No games against them" and same(textColor(D.againstValue), Kit.COLORS.grey)
                 and not D.againstBar:IsShown() and not D.kbValue:IsShown() and not D.kbLabel:IsShown(), "players: a draw counts as no win: won 5 of 8 games")
+            check(D.againstValue.__wrapWidth == 200 and D.withValue.__wrapWidth == 130, "players: with no games against them the sentence takes the bar's room")
+            check(HL.WorldLog:WhereLabel({ zone = "Tanaris", subzone = "Gadgetzan" }) == "Tanaris \194\183 Gadgetzan" and HL.WorldLog:WhereLabel({ zone = "Tanaris", subzone = "Tanaris" }) == "Tanaris"
+                and HL.WorldLog:WhereLabel({ subzone = "Gadgetzan" }) == "Gadgetzan" and HL.WorldLog:WhereLabel({}) == nil and HL.WorldLog:WhereLabel(nil) == nil,
+                "world log: the short place label puts the zone first")
             check(D.worldNone:IsShown() and D.worldNone:GetText() == "Never fought outside a battleground." and not D.yourKills:IsShown() and not D.split:IsShown() and not D.lastSeen:IsShown()
                 and D.fightNone:IsShown() and D.fightNone:GetText() == "No fights to list yet." and not F[1].result:IsShown(), "players: a part with no data is one grey line, not zeros")
             click(rows[9].click)
@@ -6423,7 +6427,7 @@ local function run()
 
             -- the name without a suffix finds the record of the one with it
             PS:Open("Bob")
-            check(Window.current == "players" and S.windowPlayer == "Bob" and D.title:GetText() == "Bob" and D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 5 of 8 games"
+            check(Window.current == "players" and S.windowPlayer == "Bob" and D.title:GetText() == "Bob" and D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 3 of 8 games"
                 and D.yourKills:GetText() == "Your kills: 4", "players: Open(name) chooses the player, and a name without a realm finds the suffixed record")
             check(rows[8].wash:IsShown(), "players: and the row of the world group is marked")
 
@@ -6474,13 +6478,23 @@ local function run()
             -- stubbed groups: an empty group is left out; all empty is one sentence
             local realList, realTop = Met.GetList, HL.GetTopOpponents
             Met.GetList = function(_, kind)
-                if kind == "allies" then return { { name = "Stub", class = "MAGE", games = 4, wins = 2, rate = 0.5, kbBest = 0, last = 1 }, "junk", { name = 5 } } end
+                if kind == "allies" then return { { name = "Stub", class = "MAGE", games = 4, wins = 3, rate = 0.75, kbBest = 0, last = 1 }, "junk", { name = 5 } } end
                 return {}
             end
             HL.GetTopOpponents = function() return {} end
             Window:RefreshCurrent()
-            check(Lst.stack.count == 2 and Lst.stack.pools.title[1].text:GetText() == "Who you win with" and rows[1].name:GetText() == "Stub" and rows[1].value:GetText() == "50%",
+            check(Lst.stack.count == 2 and Lst.stack.pools.title[1].text:GetText() == "Who you win with" and rows[1].name:GetText() == "Stub" and rows[1].value:GetText() == "75%",
                 "players: stubbed data: a group with nothing is left out")
+            -- a group's title holds for every row under it: an even record is in neither, a winning one is not a rival
+            Met.GetList = function(_, kind)
+                if kind == "allies" then return { { name = "Even", class = "MAGE", games = 4, wins = 2, rate = 0.5, kbBest = 0, last = 1 }, { name = "Mostly", class = "MAGE", games = 5, wins = 3, rate = 0.6, kbBest = 0, last = 1 } } end
+                if kind == "rivals" then return { { name = "Hard", class = "ROGUE", games = 5, wins = 1, rate = 0.2, kbBest = 0, last = 1 }, { name = "Easy", class = "ROGUE", games = 8, wins = 5, rate = 0.625, kbBest = 0, last = 1 },
+                    { name = "Even", class = "MAGE", games = 4, wins = 2, rate = 0.5, kbBest = 0, last = 1 } } end
+                return {}
+            end
+            Window:RefreshCurrent()
+            check(Lst.stack.count == 4 and rows[1].name:GetText() == "Mostly" and Lst.stack.pools.title[2].text:GetText() == "Who you lose to" and rows[2].name:GetText() == "Hard",
+                "players: only a winning record is under 'win with' and only a losing one under 'lose to': " .. tostring(Lst.stack.count))
             Met.GetList = function() return {} end
             Window:RefreshCurrent()
             check(Lst.stack.count == 0 and Lst.empty:IsShown() and Lst.empty:GetText() == "Players appear here after a battleground whose scoreboard HonorLog could read, and a player needs three games to be ranked.",
@@ -6564,7 +6578,7 @@ local function run()
             -- odd values and failing sources
             local secret = mock.newSecret
             noErrors("players: secret and odd values in the stores", function()
-                db.char.met = { [secret()] = {}, Odd = { class = secret(), with = secret(), against = "x", kbBest = secret(), last = secret() }, Bad = "junk", Fine = { class = "NOSUCHCLASS", with = 4, withWins = 2 } }
+                db.char.met = { [secret()] = {}, Odd = { class = secret(), with = secret(), against = "x", kbBest = secret(), last = secret() }, Bad = "junk", Fine = { class = "NOSUCHCLASS", with = 4, withWins = 3 } }
                 db.char.opponents = { Odd = { class = secret(), kills = 1, deaths = 1, lastSeen = 5 } }
                 db.char.worldLog = { { t = secret(), kind = "kill", name = "Odd", zone = secret() }, "junk", {} }
                 S.windowPlayer = "Odd"
