@@ -306,13 +306,30 @@ function HonorLog:GetAdvice(limit)
             body = Rank:GateText(info.gate) }
     end
 
+    -- the cached read: the best recommendation, when it can be bought today and is not a goal yet
+    local recommend = HonorLog.Recommend
+    local okTop, top = pcall(function() return recommend and (recommend:GetCached(1)) end)
+    top = okTop and type(top) == "table" and top[1] or nil
+    if top and not (top.buyable and top.itemID and not self:IsGoal(top.itemID)) then top = nil end
+
     local cap = self:GetHonorCapAdvice()
     if cap then
         local buyable = cap.buyable
         if not buyable or #buyable == 0 then buyable = self:GetBuyableNow(3) end
         local entry = { kind = "cap",
             head = string.format(L["Honor is at %s of %s, so spend it before it is wasted."], commas(cap.current), commas(cap.cap)) }
-        if buyable and #buyable > 0 then
+        if top then
+            -- the best upgrade is what to spend it on: one item, so the sentence fits its three lines
+            local name = str(top.name) or tostring(top.itemID)
+            local body
+            if top.empty then
+                body = string.format(L["%s is your best upgrade: it fills an empty slot."], name)
+            elseif num(top.gain) then
+                body = string.format(top.gain == 1 and L["%s is your best upgrade: +%d item level."] or L["%s is your best upgrade: +%d item levels."], name, top.gain)
+            end
+            if not body or #entry.head + 1 + #body > 135 then body = string.format(L["Buy %s now."], name) end
+            entry.itemID, entry.body = top.itemID, body
+        elseif buyable and #buyable > 0 then
             -- one name, so the sentence fits its three lines; the Gear goals screen lists them all
             local first = buyable[1].name or tostring(buyable[1].itemID)
             local others = #buyable - 1
@@ -331,6 +348,22 @@ function HonorLog:GetAdvice(limit)
             entry.body = cap.text
         end
         out[#out + 1] = entry
+    end
+
+    -- the best upgrade, when it can be bought today and is not a goal yet
+    if top and not cap then
+        local name = str(top.name) or tostring(top.itemID)
+        local head = string.format(L["Best upgrade today: %s."], name)
+        local body = str(top.reason)
+        -- head and body share three lines of about 47 characters: a long reason gives way to the short one
+        if not body or #head + #body > 130 then
+            if top.empty then
+                body = L["Empty slot"]
+            elseif num(top.gain) then
+                body = string.format(top.gain == 1 and L["+%d item level over what you wear"] or L["+%d item levels over what you wear"], top.gain)
+            end
+        end
+        if body then out[#out + 1] = { kind = "upgrade", itemID = top.itemID, head = head, body = body } end
     end
 
     local zero = Rank and Rank:GetZeroPointBattlegrounds()[1]

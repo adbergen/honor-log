@@ -55,7 +55,7 @@ local function run()
         "Model.lua",
         "UI/Theme.lua", "UI/MapPin.lua", "UI/Animation.lua", "UI/MainFrame.lua", "UI/GoalsPanel.lua", "UI/Options.lua",
         "UI/Export.lua", "UI/Kit.lua", "UI/RankPane.lua", "UI/GearVendors.lua", "UI/Window.lua", "UI/Screens/Overview.lua", "UI/Screens/RankPlan.lua",
-        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Screens/Characters.lua", "UI/Moments.lua",
+        "UI/Screens/Gear.lua", "UI/Screens/Battlegrounds.lua", "UI/Screens/WorldPvP.lua", "UI/Screens/Quests.lua", "UI/Screens/Players.lua", "UI/Screens/Characters.lua", "UI/Moments.lua",
     }
     local tocFiles = {}
     for line in io.lines(ROOT .. "/HonorLog.toc") do
@@ -3528,7 +3528,7 @@ local function run()
             end })
         end
         registerProbe()
-        check(#Window.screens == 8 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "characters" and Window.screens[8].key == "probe", "window: screens are kept in order")
+        check(#Window.screens == 9 and Window.screens[1].key == "overview" and Window.screens[2].key == "rank" and Window.screens[3].key == "gear" and Window.screens[4].key == "battlegrounds" and Window.screens[5].key == "world" and Window.screens[6].key == "quests" and Window.screens[7].key == "players" and Window.screens[8].key == "characters" and Window.screens[9].key == "probe", "window: screens are kept in order")
         check(_G.HonorLogWindow == nil and not Window:IsShown(), "window: still nothing before the first open")
         check(HonorLogDB.settings.windowScale == 1 and HonorLogDB.settings.windowTab == "overview" and HonorLogDB.settings.windowRankTarget == 0, "window: the new settings have defaults")
 
@@ -3999,6 +3999,38 @@ local function run()
             end
         end)()
 
+        -- A synthetic answer of the recommendation engine for the screens' tests: five entries (a buyable one, a dated one
+        -- with a buy-today alternative, that alternative, a blue piece, an empty slot), the info of a class with two set
+        -- lines, and two ids that are not among the entries (for goals).
+        mock.recFixture = function()
+            local ids = {}
+            for id in pairs(HL.GearDB) do ids[#ids + 1] = id end
+            table.sort(ids)
+            local picked, slots = {}, {}
+            for _, id in ipairs(ids) do
+                local row = HL.GearDB[id]
+                if #picked < 5 and row.source == "HONOR" and row.name and not slots[row.slot] and id ~= 272738 and id ~= 20041 then
+                    slots[row.slot] = true
+                    picked[#picked + 1] = id
+                end
+            end
+            local function entry(i, fields)
+                local id = picked[i]
+                local e = { itemID = id, name = HL.GearDB[id].name, slot = HL.GearDB[id].slot, source = "HONOR", ilvl = 66, gain = 5 }
+                for k, v in pairs(fields) do e[k] = v end
+                return e
+            end
+            local entries = {
+                entry(1, { gain = 8, reason = "+8 item levels over Legplates of Might", status = "Ready to purchase", buyable = true }),
+                entry(2, { gain = 6, reason = "+6 item levels over Linen Cap", status = "Rank 8 · Dec 2", buyable = false, alternative = picked[3] }),
+                entry(3, { gain = 3, reason = "+3 item levels over Linen Cap", status = "Ready to purchase", buyable = true, now = true, alternativeTo = picked[2] }),
+                entry(4, { gain = 4, reason = "Empty slot Buy the blue piece first, then upgrade it with a Seal.", status = "Rank 9 · Dec 20", buyable = false, step = "blue", upgradeID = 272787 }),
+                entry(5, { gain = nil, empty = true, reason = "Empty slot", status = "ready on Dec 30", buyable = false }),
+            }
+            return { entries = entries, goalID = 272738, goalID2 = 20041,
+                info = { class = "MAGE", level = 60, classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {} } }
+        end
+
         -- ── Integration: every control, twice ───────────────────────────────────────
         char.history = games
         local function integration(label)
@@ -4008,6 +4040,14 @@ local function run()
             local savedGoals, realUpdated = char.goals, HL.OnDataUpdated
             HL.OnDataUpdated = function() Window:OnDataChanged() end
             char.goals = { items = {}, completed = {}, settings = savedGoals.settings }
+            -- recommendations to click on: the vendor browser's first entry and role chips, and the empty goal list's
+            -- Add controls and link, drawn before the goals are added (Sort by priority needs the goals)
+            local Rec = HL.Recommend
+            local realEngine, recFixture, realRole = Rec.GetRecommendedGoals, mock.recFixture(), char.recommendRole
+            Rec.GetRecommendedGoals = function() return recFixture.entries, recFixture.info end
+            Rec:Invalidate()
+            Window:Show("gear")
+            HL.GearScreen:Open("goals")
             for _, id in ipairs({ 272738, 272787, 20041 }) do HL:AddGoal(id) end
             HL:CompleteGoal(20041)
             Window:Show("rank")
@@ -4017,11 +4057,12 @@ local function run()
             Window:Show("battlegrounds")
             Window:Show("world")
             Window:Show("quests")
+            Window:Show("players")
             Window:Show("characters")
             Window:Show("overview")
             local S3 = HL.db.settings
             local savedBg = { bg = S3.windowBattleground, result = S3.windowResult, view = S3.viewMode, kind = S3.windowWorldKind }
-            local n, gearClicks, bgClicks, questClicks, worldClicks, charClicks = 0, 0, 0, 0, 0, 0
+            local n, gearClicks, bgClicks, questClicks, worldClicks, charClicks, playerClicks = 0, 0, 0, 0, 0, 0, 0
             -- Only what belongs to the window: a click on "Show on map" or a goal row reaches into the map pin and the
             -- model, which have their own tests; the pass is about the controls raising nothing.
             local function inWindow(f)
@@ -4062,6 +4103,13 @@ local function run()
                             p, hops = p.__parent, hops + 1
                         end
                     end
+                    if Window.frames.players then
+                        local hops, p = 0, f
+                        while p and hops < 40 do
+                            if p == Window.frames.players then playerClicks = playerClicks + 1 break end
+                            p, hops = p.__parent, hops + 1
+                        end
+                    end
                     if Window.frames.characters then
                         local hops, p = 0, f
                         while p and hops < 40 do
@@ -4084,10 +4132,13 @@ local function run()
             check(bgClicks > 15, label .. "integration clicked " .. bgClicks .. " controls on the Battlegrounds screen")
             check(questClicks > 8, label .. "integration clicked " .. questClicks .. " controls on the Quests screen")
             check(worldClicks > 8, label .. "integration clicked " .. worldClicks .. " controls on the World PvP screen")
+            check(playerClicks > 0, label .. "integration clicked " .. playerClicks .. " controls on the Players screen")
             check(charClicks > 0, label .. "integration clicked " .. charClicks .. " controls on the Characters screen")
             mock.momentsPass(label)
             S3.windowBattleground, S3.windowResult, S3.viewMode, S3.windowWorldKind = savedBg.bg, savedBg.result, savedBg.view, savedBg.kind
             char.goals, HL.OnDataUpdated = savedGoals, realUpdated
+            Rec.GetRecommendedGoals, char.recommendRole = realEngine, realRole
+            Rec:Invalidate()
             HL.GearScreen.mode = "goals"
             Window:Hide()
             Window:Show()
@@ -4822,7 +4873,7 @@ local function run()
 
             -- no goals
             Window:RefreshCurrent()
-            check(list.stack.count == 0 and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock and HonorLog plans the way to it."
+            check(list.stack.count == 0 and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock."
                 , "goals: no goals, one sentence")
             check(not list.totals.wrap:IsShown() and list.add:GetText() == "Add a goal", "goals: no totals box without goals, and the Add a goal button")
             check(detail.none:IsShown() and detail.none:GetText() == "Choose a goal on the left, or add one." and not detail.icon:IsShown() and not detail.buttons[1]:IsShown(), "goals: the detail asks for a goal")
@@ -5176,7 +5227,7 @@ local function run()
             for _, v in ipairs(quarter) do ordered[#ordered + 1] = v end
             for _, v in ipairs(supply) do ordered[#ordered + 1] = v end
             local titles, vrows = vlist.stack.pools.title, vlist.stack.pools.vendor
-            check(vlist.stack.count == #vendors + 2 and titles[1].text:GetText() == quarter[1].place and titles[2].text:GetText() == "Battleground supply officers"
+            check(vlist.stack.count == #vendors + 3 and titles[1].text:GetText() == quarter[1].place and titles[2].text:GetText() == "Battleground supply officers"
                 and titles[1]:GetHeight() == 22, "vendors: two groups, the quartermasters under their place and the supply officers")
             for i, v in ipairs(ordered) do
                 local r = vrows[i]
@@ -5185,7 +5236,9 @@ local function run()
             end
             check(vrows[1].name.__wrapWidth == 150 and vrows[1].role.__wrapWidth == 164 and vrows[1].count.__wrapWidth == 34, "vendors: the vendor texts have fixed widths")
             check(vlist.foot:GetText() == "Counts are what your class can use.", "vendors: the foot note")
-            check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name, "vendors: with none chosen the first has the wash and edge, and its stock shows")
+            check(not vrows[1].wash:IsShown() and not vrows[1].edge:IsShown() and S.windowVendor == "", "vendors: with none chosen no vendor is chosen: the recommendations are")
+            click(vrows[1].click)
+            check(vrows[1].wash:IsShown() and vrows[1].edge:IsShown() and not vrows[2].wash:IsShown() and stock.name:GetText() == ordered[1].name and S.windowVendor == ordered[1].key, "vendors: a vendor chosen has the wash and edge, and its stock shows")
             -- a vendor with no position: none is left in the table, so one is blanked while the list is built
             local palanseer
             for _, v in ipairs(HL.VENDORS) do if v.npc == 12792 then palanseer = v end end
@@ -5433,6 +5486,424 @@ local function run()
             mock.level, mock.currencies[1792].quantity, mock.money, mock.bagContents = save.level, save.honor, save.money, save.bags
             mock.rank.level, mock.rank.earned, mock.rank.threshold = 3, 120, 1050
             mock.rankWindow.cap, mock.rankWindow.prevCap, mock.rankWindow.week = 5, 3, 2
+            Gear.mode, Gear.request = "goals", nil
+            Window:Hide()
+        end)()
+
+        -- ═══ Recommended gear goals in the window: the cached read, the vendor browser's first entry, the empty goal list, Sort by priority, the advice ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Window, Gear, Vend, Rec = HL.Kit, HL.Window, HL.GearScreen, HL.GearVendors, HL.Recommend
+            local S = HonorLogDB.settings
+            local char = HL.db.char
+            local save = { engine = Rec.GetRecommendedGoals, goals = char.goals, vendor = S.windowVendor, goal = S.windowGoal, class = S.windowVendorClass,
+                tab = S.windowTab, sort = HL.SortGoalsByPriority, role = char.recommendRole, cap = HL.GetHonorCapAdvice, buyable = HL.GetBuyableNow,
+                level = mock.level, faction = mock.faction }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function enter(f) f.__scripts.OnEnter(f) end
+            local function leave(f) f.__scripts.OnLeave(f) end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local function names(list)
+                local out = {}
+                for i, e in ipairs(list) do out[i] = e.name end
+                return table.concat(out, "|")
+            end
+            mock.level, mock.faction = 60, "Alliance"
+            char.goals = { items = {}, completed = {}, settings = save.goals.settings }
+            S.windowVendor, S.windowVendorClass = "", "player"
+
+            -- a stubbed engine: the entries it returns (never a goal) and what it answers, with a count of its calls
+            local calls, raises, answer = 0, false, nil
+            local fixture = mock.recFixture()
+            local E = fixture.entries
+            Rec.GetRecommendedGoals = function()
+                calls = calls + 1
+                if raises then error("engine failed") end
+                if answer == "nil" then return nil end
+                local out = {}
+                for _, e in ipairs(answer or E) do
+                    if not HL:IsGoal(e.itemID) then out[#out + 1] = e end
+                end
+                return out, fixture.info
+            end
+            local function engine(entries, info)
+                answer = entries
+                if info then fixture.info = info end
+                Rec:Invalidate()
+            end
+
+            -- ── the cached read ──
+            Rec:Invalidate()
+            calls = 0
+            local first = Rec:GetCached()
+            for _ = 1, 6 do Rec:GetCached() Rec:GetCached(2) end
+            check(calls == 1 and #first == #E, "cache: one engine call for many reads (" .. calls .. ")")
+            check(#Rec:GetCached(2) == 2 and Rec:GetCached(2)[1].itemID == E[1].itemID and #Rec:GetCached(0) == 0, "cache: a limit cuts the list and not the cache")
+            local function after(label, fn)
+                local before = calls
+                fn()
+                Rec:GetCached()
+                Rec:GetCached()
+                check(calls == before + 1, "cache: " .. label .. " throws it away (" .. (calls - before) .. " calls)")
+            end
+            after("the data-updated notification", function() HL:OnDataUpdated() end)
+            after("a goal added", function() HL:AddGoal(fixture.goalID) end)
+            after("a goal removed", function() HL:RemoveGoal(fixture.goalID) end)
+            for _, event in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED",
+                "ACTIVE_PLAYER_SPECIALIZATION_CHANGED", "CURRENCY_DISPLAY_UPDATE", "BAG_UPDATE_DELAYED" }) do
+                after("the event " .. event, function() mock.fireEvent(event, 16, false) end)
+            end
+            after("a role chosen", function() check(Rec:SetRole("caster"), "cache: SetRole accepts caster") end)
+            after("the role cleared", function() Rec:SetRole(nil) end)
+            local before = calls
+            Rec:SetRole("nonsense")
+            Rec:GetCached()
+            Rec:GetCached()
+            check(calls == before, "cache: a refused role changes nothing")
+            -- the engine answering nothing, or raising: no list, and nothing kept
+            answer, calls = "nil", 0
+            Rec:Invalidate()
+            check(Rec:GetCached() == nil and Rec:GetCached() == nil and calls == 2, "cache: an engine answering nil gives nil and is asked again")
+            answer, raises, calls = nil, true, 0
+            check(Rec:GetCached() == nil and calls == 1, "cache: an engine that raises gives nil")
+            raises = false
+            check(#Rec:GetCached() == #E and calls == 2, "cache: and the next read recovers")
+            -- many refreshes of the open window: one call
+            S.windowVendor = ""
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Gear.mode, Gear.request = "goals", nil
+            mock.runShowScripts = true
+            Window:Show("gear")
+            Gear:Open("vendors")
+            Rec:Invalidate()
+            calls = 0
+            for _ = 1, 5 do Window:RefreshCurrent() end
+            check(calls == 1, "cache: five refreshes of the vendor browser, one engine call (" .. calls .. ")")
+            Window:Show("overview")
+            Window:RefreshCurrent()
+            Window:RefreshCurrent()
+            HL:GetAdvice(10)
+            check(calls == 1, "cache: the overview and the advice share it (" .. calls .. ")")
+            Window:Show("gear")
+
+            -- ── the vendor browser's first entry ──
+            Gear:Open("vendors")
+            local parts = Window.frames.gear.honorLogParts
+            local gv = parts.vendors
+            local vlist, stock = gv.list, gv.stock
+            local first1 = vlist.stack.pools.recommended[1]
+            check(vlist.stack.count == #HL:GetVendorList() + 3 and first1 and first1:IsShown() and first1.name:GetText() == "Recommended for you", "recommended: the first entry of the list")
+            check(first1.name.__wrapWidth == 150 and first1.role.__wrapWidth == 164 and first1.count.__wrapWidth == 34 and first1:GetHeight() == 40, "recommended: fixed widths and the vendor row's height")
+            check(first1.count:GetText() == tostring(#E) and first1.role:GetText() == "Best upgrade for each slot", "recommended: its count and its line")
+            local _, _, _, _, rowY = first1:GetPoint()
+            check(rowY == 0 and select(5, first1.name:GetPoint()) <= -9, "recommended: its name sits below the window's portrait corner")
+            check(S.windowVendor == "" and first1.wash:IsShown() and first1.edge:IsShown(), "recommended: a save that never chose a vendor starts on it")
+            check(stock.name:GetText() == "Recommended for you" and not stock.map:IsShown() and not stock.link:IsShown() and stock.back:IsShown(), "recommended: the head names it and has no map or place")
+            check(stock.recTitles[1]:IsShown() and #stock.recTitles == 2 and stock.recTitles[2]:GetText() == "Status" and stock.recTitles[1]:GetText() == "Item" and not stock.titles[1]:IsShown(), "recommended: its own column titles")
+            check(not stock.classChips:IsShown() and not stock.setChips:IsShown() and not stock.totals:IsShown() and not stock.empty:IsShown(), "recommended: no class or set filter")
+            local rows = stock.stack.pools.rec
+            check(stock.stack.count == #E and rows[1]:IsShown() and rows[#E]:IsShown(), "recommended: a row for each recommendation")
+            for i, e in ipairs(E) do
+                local r = rows[i]
+                check(r.icon.honorLogItemID == e.itemID and r.name:GetText():find(e.name, 1, true) and r.slot:GetText() == ""
+                    and r.why:GetText() == Vend.SlotName(e.slot) .. " \194\183 " .. e.reason and r:GetHeight() == 40, "recommended: row " .. i .. " has the icon, the name, and the slot leading the reason")
+                check(r.name.__wrapWidth == 342 and r.why.__wrapWidth == 342 and r.status.__wrapWidth == 150 and r.slot.__wrapWidth == 60, "recommended: row " .. i .. " texts are fixed width")
+                enter(r.whyCell)
+                check(tipText():find(e.reason, 1, true), "recommended: row " .. i .. " the reason's tooltip carries the whole sentence")
+                leave(r.whyCell)
+            end
+            check(rows[1].status:GetText() == "Ready to purchase" and rows[2].status:GetText() == "Rank 8 · Dec 2", "recommended: a buyable row and a dated row say so in the status")
+            check(rows[3].status:GetText() == "Ready to purchase" and rows[1].status:GetText() == "Ready to purchase"
+                and same(textColor(rows[3].status), Kit.COLORS.green) and same(textColor(rows[1].status), Kit.COLORS.green) and not same(textColor(rows[2].status), Kit.COLORS.green),
+                "recommended: every buyable row, the buy-today one too, reads Ready to purchase in green")
+            enter(rows[3].statusCell)
+            check(tipText():find("Ready to purchase", 1, true) and tipText():find(E[2].name, 1, true), "recommended: and its tooltip names the better item it stands in for")
+            leave(rows[3].statusCell)
+            enter(rows[2].whyCell)
+            check(tipText():find(E[2].reason, 1, true) and tipText():find("A smaller upgrade can be bought today: " .. E[3].name, 1, true), "recommended: the row with an alternative names it in its tooltip")
+            leave(rows[2].whyCell)
+            enter(rows[3].whyCell)
+            check(tipText():find("This is a smaller upgrade than " .. E[2].name, 1, true), "recommended: the alternative says what it stands in for")
+            leave(rows[3].whyCell)
+            check(rows[4].why:GetText():find("Buy the blue piece first", 1, true) and rows[4].icon.honorLogItemID == E[4].itemID, "recommended: a blue piece's reason says to buy it first")
+            check(rows[1].star:IsShown() and not rows[1].star:IsOn(), "recommended: a star, off")
+            -- the footnote
+            check(stock.foot:GetText() == "PvP rewards only, compared by item level with what you wear." and not stock.foot2:IsShown() and not stock.recEmpty:IsShown(), "recommended: one grey foot")
+            enter(stock.foot.honorLogCell)
+            check(tipText():find("PvP rewards only", 1, true), "recommended: and it carries a tooltip")
+            leave(stock.foot.honorLogCell)
+
+            -- the star adds a goal, and the row leaves with the redraw
+            local firstID = E[1].itemID
+            click(rows[1].star)
+            check(HL:IsGoal(firstID), "recommended: the star adds the goal")
+            check(stock.stack.count == #E - 1 and rows[1].icon.honorLogItemID == E[2].itemID and not rows[1].star:IsOn() and not rows[#E]:IsShown(), "recommended: the row leaves the list, the next takes its place with its star off")
+            check(first1.count:GetText() == tostring(#E - 1), "recommended: and the count follows")
+            HL:RemoveGoal(firstID)
+            check(stock.stack.count == #E and rows[1].icon.honorLogItemID == firstID, "recommended: removing the goal brings it back")
+
+            -- a saved vendor is still restored, and the first entry is chosen again with a click
+            local vendors = HL:GetVendorList()
+            S.windowVendor = vendors[2].key
+            Window:RefreshCurrent()
+            check(stock.name:GetText() == vendors[2].name and stock.titles[1]:IsShown() and not stock.recTitles[1]:IsShown() and stock.classChips:IsShown() and not first1.wash:IsShown() and stock.map:IsShown(),
+                "recommended: a saved vendor still opens its own stock")
+            check(stock.foot:GetText() == "The star adds a goal. Prices come from the vendor once you have opened it, otherwise from game data." and not stock.roleChips:IsShown() and not stock.recEmpty:IsShown(),
+                "recommended: and the vendor view has its own foot and none of the recommended view's parts")
+            click(first1.click)
+            check(S.windowVendor == "@recommended" and first1.wash:IsShown() and stock.name:GetText() == "Recommended for you" and Vend.RECOMMENDED == "@recommended", "recommended: a click chooses it and saves it")
+            S.windowVendor = "Nobody"
+            Window:RefreshCurrent()
+            check(stock.name:GetText() == vendors[1].name and not first1.wash:IsShown(), "recommended: an unknown vendor still falls back to the first vendor")
+            S.windowVendor = "@recommended"
+            Window:RefreshCurrent()
+
+            -- the role chips: only for a class with several lines
+            check(stock.roleChips:IsShown() and #fixture.info.classRoles == 2, "roles: a class with two lines shows the chips")
+            local withChipsHeight = stock.area:GetHeight()
+            check(select(5, stock.recTitles[1]:GetPoint()) == -104 and select(5, stock.area:GetPoint()) == -120 and withChipsHeight == 334, "roles: with chips the titles are at 104 and the list at 120")
+            local chips = stock.roleChips
+            check(chips.honorLogButtons[1]:GetText() == "From your spec" and chips.honorLogButtons[2]:GetText() == "Healer" and chips.honorLogButtons[3]:GetText() == "Caster"
+                and not (chips.honorLogButtons[4] and chips.honorLogButtons[4]:IsShown()) and chips.honorLogChosen == "spec", "roles: From your spec and each role the class has, the first chosen")
+            check(stock.roleNote:IsShown() and stock.roleNote:GetText() == "Your spec gives no role, so every line is shown.", "roles: with no role from the spec a grey line says every line is shown")
+            local roleCalls = {}
+            local realSetRole = Rec.SetRole
+            Rec.SetRole = function(self, role) roleCalls[#roleCalls + 1] = role or "nil" return realSetRole(self, role) end
+            click(chips.honorLogButtons[3])
+            check(roleCalls[1] == "caster" and char.recommendRole == "caster" and chips.honorLogChosen == "caster", "roles: a role chip reaches SetRole and is saved")
+            click(chips.honorLogButtons[1])
+            check(roleCalls[2] == "nil" and char.recommendRole == nil and chips.honorLogChosen == "spec", "roles: From your spec clears the choice (nil)")
+            Rec.SetRole = realSetRole
+            engine(nil, { classRoles = { "healer", "caster" }, roleSource = "spec", role = "caster", skipped = {} })
+            Window:RefreshCurrent()
+            check(stock.roleChips:IsShown() and not stock.roleNote:IsShown(), "roles: with a role from the spec there is no grey line")
+            engine(nil, { classRoles = { "physical" }, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(not stock.roleChips:IsShown() and not stock.roleNote:IsShown(), "roles: a class with one line has no chips and no line")
+            check(select(5, stock.recTitles[1]:GetPoint()) == -52 and select(5, stock.area:GetPoint()) == -68 and stock.area:GetHeight() == withChipsHeight + 52,
+                "roles: with no chips and no line the titles and the list move up 52 and the list is taller by the same")
+            engine(nil, { classRoles = {}, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(not stock.roleChips:IsShown(), "roles: a class with no lines has no chips")
+
+            -- the three foot states and the empty one
+            engine(nil, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = { "HEAD", "TRINKET" } })
+            Window:RefreshCurrent()
+            check(stock.foot2:IsShown() and stock.foot2:GetText() == "Not compared, the game would not say what you wear there: Head, Trinket." and stock.foot:IsShown() and stock.area:GetHeight() < 330,
+                "foot: skipped slots are named in a second line, and the table gives way")
+            enter(stock.foot2.honorLogCell)
+            check(tipText():find("Head, Trinket", 1, true), "foot: the second line has a tooltip")
+            leave(stock.foot2.honorLogCell)
+            engine({}, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {}, inventoryUnknown = true })
+            Window:RefreshCurrent()
+            check(stock.stack.count == 0 and stock.recEmpty:IsShown() and stock.recEmpty:GetText() == "HonorLog cannot see what your character is wearing right now, so it cannot compare. Try again in a moment."
+                and stock.foot:GetText():find("PvP rewards only", 1, true), "foot: with no view of the equipment, one sentence and the foot")
+            engine({}, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(stock.stack.count == 0 and stock.recEmpty:GetText() == "You already wear better than every PvP reward you can buy." and not stock.foot2:IsShown(), "foot: nothing to recommend, one sentence")
+            engine("nil")
+            noErrors("recommended: an engine answering nil", function() Window:RefreshCurrent() end)
+            check(stock.stack.count == 0 and not stock.recEmpty:IsShown() and vlist.stack.count == #HL:GetVendorList() + 3 and first1.count:GetText() == "0", "recommended: no answer draws the list and the head, and claims nothing")
+            raises = true
+            Rec:Invalidate()
+            noErrors("recommended: an engine that raises", function() Window:RefreshCurrent() end)
+            check(stock.name:GetText() == "Recommended for you" and vlist.stack.count == #HL:GetVendorList() + 3, "recommended: an engine that raises leaves the rest drawn")
+            raises = false
+            engine(nil, { classRoles = { "healer", "caster" }, roleSource = "unknown", skipped = {} })
+            Window:RefreshCurrent()
+            check(stock.stack.count == #E, "recommended: and the rows come back")
+
+            -- ── the empty goal list ──
+            Gear:Open("goals")
+            local list = parts.list
+            check(not list.sort:IsShown() and list.none:IsShown() and list.none:GetText() == "No goals yet. Pick gear from a vendor's stock.", "empty: the shortened sentence")
+            check(list.recHeader:IsShown() and list.recHeader.Label:GetText() == "Recommended for you" and list.recLink:IsShown() and list.recLink:GetText() == "See all recommendations", "empty: the header and the link")
+            check(list.recLink:GetWidth() < 200 and list.recLink:GetHeight() == 20 and select(4, list.recLink:GetPoint()) == 12 and list.recLink:GetWidth() < list.add:GetWidth(), "empty: the link is a small control at its natural width, left aligned")
+            for i = 1, 3 do
+                local r = list.recRows[i]
+                check(r:IsShown() and r.icon.honorLogItemID == E[i].itemID and r.name:GetText():find(E[i].name, 1, true) and r.reason:GetText() == E[i].reason and r.add:GetText() == "Add"
+                    and r.name.__wrapWidth == 180 and r.reason.__wrapWidth == 180 and r:GetHeight() == 50, "empty: row " .. i .. " has the icon, name, reason and Add")
+            end
+            enter(list.recRows[2].cell)
+            check(tipText():find(E[2].name, 1, true) and tipText():find(E[2].reason, 1, true) and tipText():find(E[3].name, 1, true), "empty: a row's tooltip carries the reason and the alternative")
+            leave(list.recRows[2].cell)
+            check(select(5, list.recHeader:GetPoint()) <= -(list.none:GetStringHeight() + 34 - 28), "empty: the header sits under the sentence")
+            click(list.recRows[2].add)
+            check(HL:IsGoal(E[2].itemID) and list.stack.count == 1 and not list.none:IsShown() and not list.recHeader:IsShown() and not list.recRows[1]:IsShown() and not list.recLink:IsShown(),
+                "empty: Add makes the goal, and the list takes over from the recommendations")
+            HL:RemoveGoal(E[2].itemID)
+            check(list.recRows[1]:IsShown() and list.recRows[2].icon.honorLogItemID == E[2].itemID, "empty: with the goal gone they are back")
+            S.windowVendor = vendors[1].key
+            click(list.recLink)
+            check(Gear.mode == "vendors" and S.windowVendor == "@recommended" and parts.vendorsRoot:IsShown() and stock.name:GetText() == "Recommended for you", "empty: the link opens the vendor browser on Recommended for you")
+            Gear:Open("goals")
+            engine({ E[1] })
+            Window:RefreshCurrent()
+            check(list.recRows[1]:IsShown() and not list.recRows[2]:IsShown() and not list.recRows[3]:IsShown() and list.recLink:IsShown(), "empty: one recommendation, one row")
+            engine({ E[1], E[2], E[3], E[4], E[5] })
+            Window:RefreshCurrent()
+            check(list.recRows[3]:IsShown() and #list.recRows == 3, "empty: never more than the top three")
+            for _, none in ipairs({ {}, "nil" }) do
+                engine(none)
+                noErrors("empty: nothing to recommend", function() Window:RefreshCurrent() end)
+                check(list.none:IsShown() and not list.recHeader:IsShown() and not list.recLink:IsShown() and not list.recRows[1]:IsShown(), "empty: with nothing to recommend the sentence alone")
+            end
+            raises = true
+            Rec:Invalidate()
+            noErrors("empty: an engine that raises", function() Window:RefreshCurrent() end)
+            check(list.none:IsShown() and not list.recRows[1]:IsShown() and list.add:IsShown(), "empty: an engine that raises leaves the sentence and the Add a goal button")
+            raises = false
+            engine(nil)
+
+            -- ── Sort by priority ──
+            Window:RefreshCurrent()
+            HL:AddGoal(fixture.goalID)
+            check(not list.sort:IsShown() and list.stack.count == 1 and list.area:GetHeight() > 400, "sort: one goal, no control")
+            HL:AddGoal(fixture.goalID2)
+            local gps = HL:GetAllGoalsProgress()
+            check(#gps == 2 and list.sort:IsShown() and list.sort:GetText() == "Sort by priority" and list.sort:GetWidth() == 112, "sort: two goals show it")
+            local _, _, _, _, areaY = list.area:GetPoint()
+            check(areaY == -50 and list.area:GetHeight() < 330, "sort: the list starts under it")
+            enter(list.sort)
+            check(tipText():find("what you can buy now first, then what comes soonest", 1, true), "sort: its tooltip says the order: " .. tipText())
+            leave(list.sort)
+            local sortCalls, sorted = 0, nil
+            HL.SortGoalsByPriority = function(self)
+                sortCalls = sortCalls + 1
+                local g = char.goals.items
+                g[1], g[2] = g[2], g[1]
+                for i, x in ipairs(g) do x.priority = i end
+                sorted = true
+                self:OnDataUpdated()
+                return true
+            end
+            local pool = list.stack.pools.goal
+            local before1, before2 = pool[1].icon.honorLogItemID, pool[2].icon.honorLogItemID
+            click(list.sort)
+            check(sortCalls == 1 and sorted and pool[1].icon.honorLogItemID == before2 and pool[2].icon.honorLogItemID == before1, "sort: one click calls the sort once and the list is redrawn in the new order")
+            -- Move up and Move down keep working afterwards
+            S.windowGoal = before1
+            Window:RefreshCurrent()
+            local detail = parts.detail
+            local up, down
+            for _, b in ipairs(detail.buttons) do
+                if b:GetText() == "Move up" then up = b elseif b:GetText() == "Move down" then down = b end
+            end
+            check(up and down and up:IsEnabled() and not down:IsEnabled(), "sort: the chosen goal is last, so Move up is enabled")
+            click(up)
+            check(pool[1].icon.honorLogItemID == before1 and pool[2].icon.honorLogItemID == before2, "sort: Move up still works after the sort")
+            click(down)
+            check(pool[1].icon.honorLogItemID == before2, "sort: and Move down")
+            -- the real sort, on the real goal progress
+            HL.SortGoalsByPriority = save.sort
+            noErrors("sort: the real sort", function() click(list.sort) end)
+            check(list.stack.pools.goal[1]:IsShown() and #HL:GetAllGoalsProgress() == 2, "sort: the real sort leaves both goals")
+            noErrors("sort: raising", function()
+                HL.SortGoalsByPriority = function() error("sort failed") end
+                click(list.sort)
+                HL.SortGoalsByPriority = save.sort
+            end)
+            HL:RemoveGoal(fixture.goalID2)
+            check(not list.sort:IsShown() and list.area:GetHeight() > 400 and select(5, list.area:GetPoint()) == -28, "sort: back to one goal, the control goes and the list moves up")
+            HL:RemoveGoal(fixture.goalID)
+
+            -- ── Overview: What to do next ──
+            local function kindList(adviceList)
+                local out = {}
+                for i, a in ipairs(adviceList) do out[i] = a.kind end
+                return table.concat(out, ",")
+            end
+            local function find(adviceList, kind)
+                for _, a in ipairs(adviceList) do if a.kind == kind then return a end end
+            end
+            local function lines(a) return #a.head + 1 + #a.body end
+            local capAdvice = function() return { text = "Spend your honor.", current = 24000, cap = 25000, buyable = {} } end
+            -- 1. with the honor-cap advice: it names the best upgrade, and there is no second line
+            HL.GetHonorCapAdvice = capAdvice
+            HL.GetBuyableNow = function() return { { itemID = E[5].itemID, name = "Some Other Piece" } } end
+            engine(nil)
+            local advice = HL:GetAdvice(10)
+            local cap = find(advice, "cap")
+            check(cap and not find(advice, "upgrade"), "advice: with the cap advice there is no separate upgrade line: " .. kindList(advice))
+            check(cap.itemID == E[1].itemID and cap.head:find("24,000 of 25,000", 1, true) and cap.body == E[1].name .. " is your best upgrade: +8 item levels.",
+                "advice: the cap advice names the best upgrade and by how much: " .. tostring(cap.body))
+            engine({ E[3] })
+            cap = find(HL:GetAdvice(10), "cap")
+            check(cap.itemID == E[3].itemID and cap.body == E[3].name .. " is your best upgrade: +3 item levels.", "advice: a buy-today row is named the same way")
+            engine({ { itemID = E[1].itemID, name = E[1].name, buyable = true, gain = 1, reason = "x" } })
+            check(find(HL:GetAdvice(10), "cap").body == E[1].name .. " is your best upgrade: +1 item level.", "advice: one item level is singular")
+            engine({ { itemID = E[1].itemID, name = E[1].name, buyable = true, empty = true, reason = "Empty slot" } })
+            check(find(HL:GetAdvice(10), "cap").body == E[1].name .. " is your best upgrade: it fills an empty slot.", "advice: an empty slot says so")
+            -- 2. without the cap advice: the separate line
+            HL.GetHonorCapAdvice = function() return nil end
+            engine(nil)
+            advice = HL:GetAdvice(10)
+            local entry = find(advice, "upgrade")
+            check(not find(advice, "cap") and entry and entry.itemID == E[1].itemID and entry.head:find(E[1].name, 1, true) and entry.body == E[1].reason,
+                "advice: with no cap advice the Best upgrade today line names the top item, its reason and its icon: " .. kindList(advice))
+            engine({ E[2], E[1] })
+            check(not find(HL:GetAdvice(10), "upgrade"), "advice: not when the top item cannot be bought today")
+            engine({})
+            check(not find(HL:GetAdvice(10), "upgrade"), "advice: not with nothing to recommend")
+            -- 3. the cap advice with nothing buyable among the recommendations is what it was
+            HL.GetHonorCapAdvice = capAdvice
+            for _, none in ipairs({ {}, { E[2] }, "nil" }) do
+                engine(none)
+                HL.GetBuyableNow = function() return { { itemID = E[5].itemID, name = "Some Other Piece" } } end
+                cap = find(HL:GetAdvice(10), "cap")
+                check(cap and cap.itemID == E[5].itemID and cap.body == "You can buy Some Other Piece now.", "advice: the cap advice is what it was with nothing buyable to recommend")
+            end
+            local goalEntry = { itemID = fixture.goalID, name = "Goal piece", slot = "HEAD", reason = "Empty slot", buyable = true, empty = true }
+            HL:AddGoal(fixture.goalID)
+            Rec.GetRecommendedGoals = function() return { goalEntry }, fixture.info end
+            Rec:Invalidate()
+            check(find(HL:GetAdvice(10), "cap").itemID ~= fixture.goalID and not find(HL:GetAdvice(10), "upgrade"), "advice: a top item that is already a goal is not named")
+            HL:RemoveGoal(fixture.goalID)
+            -- the longest name in the database, in both lines
+            local longest = ""
+            for _, row in pairs(HL.GearDB) do if #row.name > #longest then longest = row.name end end
+            local longEntry = { itemID = E[1].itemID, name = longest, slot = "HEAD", buyable = true, gain = 12, ilvl = 70,
+                worn = { name = longest, ilvl = 58 }, step = "blue",
+                reason = "+12 item levels over " .. longest .. " Buy the blue piece first, then upgrade it with a Seal." }
+            Rec.GetRecommendedGoals = function() return { longEntry }, fixture.info end
+            Rec:Invalidate()
+            cap = find(HL:GetAdvice(10), "cap")
+            check(cap.itemID == E[1].itemID and lines(cap) <= 135 and cap.body:find(longest, 1, true), "advice: the cap advice with the longest name fits three lines: " .. lines(cap))
+            HL.GetHonorCapAdvice = function() return nil end
+            Rec:Invalidate()
+            entry = find(HL:GetAdvice(10), "upgrade")
+            check(entry and lines(entry) <= 135 and entry.head:find(longest, 1, true) and entry.body == "+12 item levels over what you wear",
+                "advice: the upgrade line with the longest name fits three lines, the reason giving way: " .. tostring(entry and lines(entry)))
+            longEntry.reason = "+12 item levels over Short"
+            Rec:Invalidate()
+            entry = find(HL:GetAdvice(10), "upgrade")
+            check(entry.body == "+12 item levels over Short", "advice: a short reason is kept")
+            HL.GetHonorCapAdvice = capAdvice
+            Rec.GetRecommendedGoals = function() error("engine failed") end
+            Rec:Invalidate()
+            noErrors("advice: an engine that raises", function() HL:GetAdvice(10) end)
+            Rec.GetRecommendedGoals = function() return nil end
+            Rec:Invalidate()
+            noErrors("advice: an engine answering nil", function() HL:GetAdvice(10) end)
+
+            -- put it back
+            Rec.GetRecommendedGoals = save.engine
+            HL.SortGoalsByPriority, HL.GetHonorCapAdvice, HL.GetBuyableNow = save.sort, save.cap, save.buyable
+            Rec:Invalidate()
+            char.goals, char.recommendRole = save.goals, save.role
+            S.windowVendor, S.windowGoal, S.windowVendorClass, S.windowTab = save.vendor, save.goal, save.class, "overview"
+            mock.level, mock.faction = save.level, save.faction
             Gear.mode, Gear.request = "goals", nil
             Window:Hide()
         end)()
@@ -6065,6 +6536,8 @@ local function run()
                 and H.rows[1].bar.honorLogLeftCount == 5 and H.rows[1].bar.honorLogRightCount == 2 and H.rows[2].name:GetText() == "Bravo" and H.rows[2].record:GetText() == "0 - 3"
                 and H.rows[3].name:GetText() == "Charlie" and not H.rows[4]:IsShown() and H.rows[1]:IsShown() and not H.empty:IsShown(), "head: the most fought, with record and split bar")
             check(H.rows[1].name.__wrapWidth == 128 and H.rows[1].bar:GetWidth() == 252 and H.rows[1].bar:GetHeight() == 8 and H.note:GetText() == "Green: your kills. Red: their kills." and H.note:IsShown(), "head: widths, and the line that says whose side is whose")
+            HL.PlayersScreen = nil
+            Window:RefreshCurrent()
             check(not H.rows[1].hl:IsShown() and not H.rows[1].honorLogClickable, "head: with no Players screen a row has no highlight")
             noErrors("head: a click with no Players screen", function() click(H.rows[1]) end)
             H.rows[1].__scripts.OnEnter(H.rows[1])
@@ -6285,6 +6758,328 @@ local function run()
             Window:Hide()
         end)()
 
+        -- ═══ Players: the seventh screen, who this player is to you ═══
+        -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
+        ;(function()
+            local Kit, Window, PS, Met, WorldLog = HL.Kit, HL.Window, HL.PlayersScreen, HL.Met, HL.WorldLog
+            local S, db = HonorLogDB.settings, HL.db
+            local save = { met = db.char.met, opp = db.char.opponents, log = db.char.worldLog, tab = S.windowTab, chosen = S.windowPlayer, place = HL.ShowPlaceOnMap,
+                openMap = HL.MapPin.OpenMap, updated = HL.OnDataUpdated, deferred = mock.deferTimers }
+            local function textColor(fs) local c = fs.__textColor return c and { c[1], c[2], c[3] } end
+            local function same(c, rgb) return c and c[1] == rgb[1] and c[2] == rgb[2] and c[3] == rgb[3] end
+            local function click(f) f.__scripts.OnClick(f, "LeftButton") end
+            local function tipText()
+                local t = {}
+                for _, l in ipairs(mock.tip.lines) do t[#t + 1] = l.text end
+                return table.concat(t, "\n")
+            end
+            local function noErrors(label, fn)
+                local before = #mock.handledErrors
+                fn()
+                check(#mock.handledErrors == before, label .. ": " .. tostring(mock.handledErrors[before + 1]))
+            end
+            local now = time()
+            local function seed()
+                db.char.met = {
+                    Ally1 = { class = "MAGE", with = 8, withWins = 7, against = 0, againstWins = 0, kbBest = 0, last = now - 100 },
+                    Ally2 = { class = "PRIEST", with = 5, withWins = 3, against = 0, againstWins = 0, kbBest = 0, last = now - 120 },
+                    Drawn = { class = "WARRIOR", with = 8, withWins = 5, against = 0, againstWins = 0, kbBest = 0, last = now - 130 },
+                    Foe1 = { class = "ROGUE", with = 0, withWins = 0, against = 6, againstWins = 1, kbBest = 9, last = now - 200 },
+                    ["Bob-Realm"] = { class = "WARRIOR", with = 2, withWins = 1, against = 8, againstWins = 3, kbBest = 14, last = now - 300 },
+                    Rare = { class = "HUNTER", with = 1, withWins = 0, against = 0, againstWins = 0, kbBest = 0, last = now - 50 },
+                }
+                db.char.opponents = {
+                    Bob = { class = "WARRIOR", kills = 4, deaths = 2, lastSeen = now - 60 },
+                    Charlie = { class = "SHAMAN", kills = 1, deaths = 0, lastSeen = now - 90 },
+                }
+                db.char.worldLog = {
+                    { t = now - 60, kind = "death", name = "Bob", class = "WARRIOR", map = 1424, x = 60, y = 40, zone = "Hillsbrad Foothills" },
+                    { t = now - 70, kind = "kill", name = "Bob", class = "WARRIOR", map = 1417, zone = "Arathi Highlands" },
+                    { t = now - 80, kind = "kill", name = "Bob", class = "WARRIOR" },
+                    { t = now - 90, kind = "kill", name = "Charlie", class = "SHAMAN", zone = "Mystery Zone" },
+                }
+            end
+            seed()
+            S.windowPlayer = ""
+            S.windowTab = "players"
+            local errorsBefore = #mock.handledErrors
+            Window:Show("players")
+            check(#mock.handledErrors == errorsBefore, "players: it builds and draws without an error: " .. tostring(mock.handledErrors[errorsBefore + 1]))
+            local scr = Window.frames.players
+            local P = scr.honorLogParts
+            local Lst, D = P.list, P.detail
+            check(PS == HL.PlayersScreen and Window.current == "players" and Window:GetScreen("players").title == "Players" and Window:GetScreen("players").order == 7
+                and Window.screens[6].key == "quests" and Window.screens[7].key == "players" and Window.screens[8].key == "characters"
+                and Window.tabs.list[7].honorLogKey == "players" and Window.tabs.list[8].honorLogKey == "characters", "players: the tab is the seventh, between Quests and Characters")
+            check(S.windowPlayer == "", "players: the chosen player defaults to nobody")
+
+            -- the boxes
+            check(P.search:GetWidth() == 220 and P.search:GetHeight() == 20 and P.search.__points[1][4] == 44 and P.search.__points[1][4] >= Kit.PORTRAIT_CLEAR and P.search.__points[1][5] == -2,
+                "players: the search box is 220 x 20 at 44, 2, clear of the portrait")
+            check(P.count.__wrapWidth == 300 and P.count.__points[1][4] == 568 and P.count.__points[1][5] == -5, "players: the count is 300 wide at 568, 5")
+            check(Lst.inset:GetWidth() == 520 and Lst.inset:GetHeight() == 460 and Lst.inset.__points[1][4] == 0 and Lst.inset.__points[1][5] == -30
+                and Lst.area:GetWidth() == 486 and Lst.area:GetHeight() == 444 and Lst.area.__points[1][4] == 6 and Lst.area.__points[1][5] == -8, "players: the list box and its scroll area")
+            check(D.inset:GetWidth() == 340 and D.inset:GetHeight() == 460 and D.inset.__points[1][4] == 528 and D.inset.__points[1][5] == -30, "players: the detail box")
+            check(P.count:GetText() == "6 players met", "players: how many players have been met: " .. tostring(P.count:GetText()))
+
+            -- the groups from the real store
+            local titles, rows = Lst.stack.pools.title, Lst.stack.pools.player
+            check(Lst.stack.count == 13 and titles[1].text:GetText() == "Who you win with" and titles[2].text:GetText() == "Who you lose to"
+                and titles[3].text:GetText() == "Top killers you have faced" and titles[4].text:GetText() == "Most fought in the world", "players: four groups, each with its heading")
+            check(rows[1].name:GetText() == "Ally1" and rows[2].name:GetText() == "Drawn" and rows[3].name:GetText() == "Ally2" and rows[4].name:GetText() == "Foe1" and rows[5].name:GetText() == "Bob-Realm"
+                and rows[6].name:GetText() == "Bob-Realm" and rows[7].name:GetText() == "Foe1" and rows[8].name:GetText() == "Bob" and rows[9].name:GetText() == "Charlie", "players: the rows in each group's order")
+            local _, mr, mg, mb = Kit:ClassText("MAGE")
+            check(rows[1].class:GetText() == "Mage" and same(textColor(rows[1].class), { mr, mg, mb }) and rows[1].games:GetText() == "8 games" and rows[1].value:GetText() == "88%"
+                and rows[1].bar:IsShown() and rows[1].bar.honorLogFraction == 0.875 and not rows[1].split:IsShown(), "players: an ally row: name, class word in its colour, games, win rate and bar")
+            check(rows[6].value:GetText() == "14 KB" and rows[6].games:GetText() == "8 games" and not rows[6].bar:IsShown(), "players: a killer row: games against and killing blows, no bar")
+            check(rows[8].games:GetText() == "4 - 2" and rows[8].split:IsShown() and rows[8].split.honorLogLeftCount == 4 and rows[8].split.honorLogRightCount == 2 and not rows[8].bar:IsShown(),
+                "players: a world row: the record and a split bar")
+            check(rows[1].name.__wrapWidth == 176 and rows[1].class.__wrapWidth == 56 and rows[1].games.__wrapWidth == 70 and rows[1].bar:GetWidth() == 90 and rows[1].value.__wrapWidth == 50
+                and Lst.stack.pools.title[1].text.__wrapWidth == 470 and titles[1]:GetHeight() == 22 and rows[1]:GetHeight() == 24, "players: the list's columns and heights")
+            check(Lst.area.honorLogContentHeight == 4 * 22 + 9 * 24 and not Lst.empty:IsShown(), "players: the content height")
+            check(P.detail.empty:IsShown() and P.detail.empty:GetText() == "Pick a player on the left to see your whole record with them." and not D.title:IsShown()
+                and D.foot:GetText() == "Nothing about other players leaves your computer." and D.foot:IsShown(), "players: nobody chosen: one sentence, and the foot")
+            rows[1].click.__scripts.OnEnter(rows[1].click)
+            check(tipText():find("Ally1", 1, true) and tipText():find("Mage", 1, true) and tipText():find("On your team: won 7 of 8 games", 1, true), "players: a row's tooltip names the player: " .. tipText())
+            rows[1].click.__scripts.OnLeave(rows[1].click)
+            check(not mock.tip.shown, "players: and goes away")
+            rows[6].click.__scripts.OnEnter(rows[6].click)
+            check(tipText():find("Most killing blows in one game against your team: 14", 1, true), "players: a killer's tooltip says what the number is: " .. tipText())
+            rows[6].click.__scripts.OnLeave(rows[6].click)
+
+            -- choosing a row; the mark; the detail
+            click(rows[5].click)
+            check(S.windowPlayer == "Bob-Realm" and rows[5].wash:IsShown() and rows[5].edge:IsShown() and rows[6].wash:IsShown() and not rows[1].wash:IsShown(), "players: a click chooses the player, saves it and marks the row")
+            check(D.title:GetText() == "Bob-Realm" and D.title:IsShown() and D.title.__wrapWidth == 316 and not D.empty:IsShown() and D.class:GetText() == "Warrior"
+                and D.lastGame:GetText():find("^Last game: "), "players: the detail head: name, class, last game")
+            check(D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 3 of 8 games" and D.withBar.honorLogFraction == 0.5 and D.againstBar.honorLogFraction == 0.375
+                and D.kbLabel:GetText() == "Most killing blows in one game against your team" and D.kbValue:GetText() == "14 killing blows" and not D.bgNone:IsShown(), "players: in battlegrounds, won N of M, and the killing blows labelled")
+            check(D.yourKills:GetText() == "Your kills: 4" and D.theirKills:GetText() == "Their kills: 2" and D.split.honorLogLeftCount == 4 and D.split.honorLogRightCount == 2
+                and D.splitNote:GetText() == "Green: your kills. Red: their kills." and D.lastSeen:GetText():find("^Last seen: ") and not D.worldNone:IsShown(),
+                "players: in the world: the realm-suffixed name found its world record under the name without one")
+            local F = D.fights
+            check(F[1].result:GetText() == "Death" and same(textColor(F[1].result), Kit.COLORS.red) and F[2].result:GetText() == "Kill" and same(textColor(F[2].result), Kit.COLORS.green)
+                and F[3].result:GetText() == "Kill" and not F[4].place:IsShown() and not F[4].result:IsShown() and not D.fightNone:IsShown(), "players: the latest fights, newest first")
+            check(F[1].place:IsShown() and F[1].place.honorLogMode == "pin" and F[2].place.honorLogMode == "zone" and not F[3].place:IsShown() and F[3].none:IsShown() and F[1].place:GetWidth() == 160,
+                "players: where is a place link: a position, a zone, or a dash")
+            local pinned = {}
+            HL.ShowPlaceOnMap = function(_, place) pinned[#pinned + 1] = place return true end
+            click(F[1].place)
+            check(#pinned == 1 and pinned[1].key == "honorLogPlayers" and pinned[1].map == 1424, "players: a place pins with the one fixed key")
+            HL.ShowPlaceOnMap = save.place
+            check(D.fights[1].when.__wrapWidth == 100 and D.fights[1].result.__wrapWidth == 48 and D.fights[1].when.__points[1][5] == -298 and D.fights[2].when.__points[1][5] == -320
+                and D.worldHeader.__points[1][5] == -180 and D.bgHeader.__points[1][5] == -56 and D.fightHeader.__points[1][5] == -274, "players: the detail's boxes")
+
+            -- a draw in the data: "won 5 of 8", never a score
+            click(rows[2].click)
+            check(D.withValue:GetText() == "won 5 of 8 games" and not D.withValue:GetText():find("5 %- 3") and D.againstValue:GetText() == "No games against them" and same(textColor(D.againstValue), Kit.COLORS.grey)
+                and not D.againstBar:IsShown() and not D.kbValue:IsShown() and not D.kbLabel:IsShown(), "players: a draw counts as no win: won 5 of 8 games")
+            check(D.againstValue.__wrapWidth == 200 and D.withValue.__wrapWidth == 130, "players: with no games against them the sentence takes the bar's room")
+            check(HL.WorldLog:WhereLabel({ zone = "Tanaris", subzone = "Gadgetzan" }) == "Tanaris \194\183 Gadgetzan" and HL.WorldLog:WhereLabel({ zone = "Tanaris", subzone = "Tanaris" }) == "Tanaris"
+                and HL.WorldLog:WhereLabel({ subzone = "Gadgetzan" }) == "Gadgetzan" and HL.WorldLog:WhereLabel({}) == nil and HL.WorldLog:WhereLabel(nil) == nil,
+                "world log: the short place label puts the zone first")
+            check(D.worldNone:IsShown() and D.worldNone:GetText() == "Never fought outside a battleground." and not D.yourKills:IsShown() and not D.split:IsShown() and not D.lastSeen:IsShown()
+                and D.fightNone:IsShown() and D.fightNone:GetText() == "No fights to list yet." and not F[1].result:IsShown(), "players: a part with no data is one grey line, not zeros")
+            click(rows[9].click)
+            check(D.bgNone:IsShown() and D.bgNone:GetText() == "No battleground games with this player yet." and not D.withValue:IsShown() and not D.lastGame:IsShown()
+                and D.yourKills:GetText() == "Your kills: 1" and D.fights[1].result:GetText() == "Kill" and not D.fights[2].result:IsShown(), "players: a player met only in the world has no battleground part")
+            -- one game
+            S.windowPlayer = "Rare"
+            Window:RefreshCurrent()
+            check(D.withValue:GetText() == "won 0 of 1 game" and D.title:GetText() == "Rare", "players: one game reads 'won 0 of 1 game'")
+
+            -- the name without a suffix finds the record of the one with it
+            PS:Open("Bob")
+            check(Window.current == "players" and S.windowPlayer == "Bob" and D.title:GetText() == "Bob" and D.withValue:GetText() == "won 1 of 2 games" and D.againstValue:GetText() == "won 3 of 8 games"
+                and D.yourKills:GetText() == "Your kills: 4", "players: Open(name) chooses the player, and a name without a realm finds the suffixed record")
+            check(rows[8].wash:IsShown(), "players: and the row of the world group is marked")
+
+            -- the saved choice, restored after a rebuild; an unknown saved name is nobody
+            S.windowPlayer = "Ally2"
+            Window:Hide()
+            Window.frame, Window.frames, Window.tabs, Window.current, _G.HonorLogWindow = nil, {}, nil, nil, nil
+            Window:Show("players")
+            scr = Window.frames.players
+            P = scr.honorLogParts
+            Lst, D = P.list, P.detail
+            rows = Lst.stack.pools.player
+            check(D.title:GetText() == "Ally2" and rows[3].wash:IsShown() and D.withValue:GetText() == "won 3 of 5 games", "players: the saved choice is restored after a rebuild")
+            S.windowPlayer = "Nobody Atall"
+            Window:RefreshCurrent()
+            check(D.empty:IsShown() and not D.title:IsShown() and not rows[3].wash:IsShown() and S.windowPlayer == "Nobody Atall", "players: a saved name nothing knows is read as nobody")
+            S.windowPlayer = 42
+            noErrors("players: a saved choice of the wrong type", function() Window:RefreshCurrent() end)
+            S.windowPlayer = ""
+
+            -- search
+            local box = P.search
+            mock.typeText(box, "ob")
+            check(scr.honorLogSearchText() == "ob" and Lst.stack.count == 2 and Lst.stack.pools.title[1].text:GetText() == "Matches" and rows[1].name:GetText() == "Bob"
+                and rows[1].games:GetText() == "10 games", "players: a part of a name finds the player in either store, once: " .. tostring(rows[1].name:GetText()))
+            mock.typeText(box, "RAR")
+            check(Lst.stack.count == 2 and rows[1].name:GetText() == "Rare" and rows[1].games:GetText() == "1 game", "players: any case, a battleground-only player")
+            mock.typeText(box, "char")
+            check(Lst.stack.count == 2 and rows[1].name:GetText() == "Charlie" and rows[1].games:GetText() == "1 - 0" and rows[1].split:IsShown(), "players: a world-only player")
+            mock.typeText(box, "zzz")
+            check(Lst.stack.count == 0 and Lst.empty:IsShown() and Lst.empty:GetText() == "No players match.", "players: no match says so")
+            Lst.area:SetVerticalScroll(0)
+            mock.typeText(box, "")
+            check(scr.honorLogSearchText() == "" and Lst.stack.count == 13 and not Lst.empty:IsShown(), "players: clearing the search brings the four groups back")
+
+            -- scroll: kept on a refresh, reset by a search (thirty matches are longer than the box)
+            for i = 1, 30 do db.char.met["Scroll" .. i] = { class = "MAGE", with = 1, withWins = 0, against = 0, againstWins = 0, kbBest = 0, last = now - i } end
+            mock.typeText(box, "scroll")
+            check(Lst.stack.count == 31 and Lst.area.honorLogContentHeight == 22 + 30 * 24, "players: matches are limited to thirty rows and scroll")
+            Lst.area:SetVerticalScroll(100)
+            Window:RefreshCurrent()
+            check(Lst.area:GetVerticalScroll() == 100, "players: a refresh keeps the scroll position")
+            mock.typeText(box, "scrol")
+            check(Lst.area:GetVerticalScroll() == 0, "players: a search goes back to the top")
+            for i = 1, 30 do db.char.met["Scroll" .. i] = nil end
+            mock.typeText(box, "")
+
+            -- stubbed groups: an empty group is left out; all empty is one sentence
+            local realList, realTop = Met.GetList, HL.GetTopOpponents
+            Met.GetList = function(_, kind)
+                if kind == "allies" then return { { name = "Stub", class = "MAGE", games = 4, wins = 3, rate = 0.75, kbBest = 0, last = 1 }, "junk", { name = 5 } } end
+                return {}
+            end
+            HL.GetTopOpponents = function() return {} end
+            Window:RefreshCurrent()
+            check(Lst.stack.count == 2 and Lst.stack.pools.title[1].text:GetText() == "Who you win with" and rows[1].name:GetText() == "Stub" and rows[1].value:GetText() == "75%",
+                "players: stubbed data: a group with nothing is left out")
+            -- a group's title holds for every row under it: an even record is in neither, a winning one is not a rival
+            Met.GetList = function(_, kind)
+                if kind == "allies" then return { { name = "Even", class = "MAGE", games = 4, wins = 2, rate = 0.5, kbBest = 0, last = 1 }, { name = "Mostly", class = "MAGE", games = 5, wins = 3, rate = 0.6, kbBest = 0, last = 1 } } end
+                if kind == "rivals" then return { { name = "Hard", class = "ROGUE", games = 5, wins = 1, rate = 0.2, kbBest = 0, last = 1 }, { name = "Easy", class = "ROGUE", games = 8, wins = 5, rate = 0.625, kbBest = 0, last = 1 },
+                    { name = "Even", class = "MAGE", games = 4, wins = 2, rate = 0.5, kbBest = 0, last = 1 } } end
+                return {}
+            end
+            Window:RefreshCurrent()
+            check(Lst.stack.count == 4 and rows[1].name:GetText() == "Mostly" and Lst.stack.pools.title[2].text:GetText() == "Who you lose to" and rows[2].name:GetText() == "Hard",
+                "players: only a winning record is under 'win with' and only a losing one under 'lose to': " .. tostring(Lst.stack.count))
+            Met.GetList = function() return {} end
+            Window:RefreshCurrent()
+            check(Lst.stack.count == 0 and Lst.empty:IsShown() and Lst.empty:GetText() == "Players appear here after a battleground whose scoreboard HonorLog could read, and a player needs three games to be ranked.",
+                "players: every group empty: one sentence says what will appear and when")
+            Met.GetList, HL.GetTopOpponents = realList, realTop
+            db.char.met, db.char.opponents, db.char.worldLog = {}, {}, {}
+            Window:RefreshCurrent()
+            check(P.count:GetText() == "No players met yet" and Lst.empty:IsShown() and D.empty:IsShown(), "players: no data at all")
+            seed()
+            Window:RefreshCurrent()
+            check(P.count:GetText() == "6 players met" and Lst.stack.count == 13, "players: the data comes back")
+
+            -- the head to head row of the World PvP screen opens this screen
+            S.windowPlayer = ""
+            Window:Show("world")
+            local H = Window.frames.world.honorLogParts.head
+            check(H.rows[1].honorLogClickable and H.rows[1].hl:IsShown() and H.rows[1].name:GetText() == "Bob", "players: the World PvP row is now a link")
+            click(H.rows[1])
+            check(Window.current == "players" and S.windowPlayer == "Bob" and Window.frames.players.honorLogParts.detail.title:GetText() == "Bob", "players: a head-to-head row opens this screen on that player")
+
+            -- staying current: a scoreboard redraws the screen on the next tick, once, only while shown
+            HL.OnDataUpdated = function() end
+            Window:Show("players")
+            local refreshes = 0
+            local frame = Window.frames.players
+            local realRefresh = frame.Refresh
+            frame.Refresh = function(self, ...) refreshes = refreshes + 1 return realRefresh(self, ...) end
+            mock.deferTimers = true
+            local function board(name) return { rows = { { name = name, faction = 1, kb = 0, class = "MAGE" }, { name = "Tester", faction = 1, kb = 1 } },
+                me = { name = "Tester", faction = 1, kb = 1 }, result = "win", bgType = "WSG", timestamp = now } end
+            HL:Fire("HonorLog_GameScoreboard", board("Newbie"))
+            HL:Fire("HonorLog_WorldDeath", { name = "Newbie" })
+            check(refreshes == 0 and P.count:GetText() == "6 players met", "players: nothing is drawn inside the event")
+            mock.flushTimers()
+            check(refreshes == 1 and Window.frames.players.honorLogParts.count:GetText() == "7 players met", "players: one redraw on the next tick sees the new player: " .. refreshes)
+            Window:Show("overview")
+            refreshes = 0
+            HL:Fire("HonorLog_GameScoreboard", board("Newbie2"))
+            mock.flushTimers()
+            check(refreshes == 0, "players: nothing is redrawn while another screen is shown")
+            Window:Hide()
+            HL:Fire("HonorLog_GameScoreboard", board("Newbie3"))
+            mock.flushTimers()
+            check(refreshes == 0, "players: nor while the window is hidden")
+            mock.deferTimers = save.deferred
+            frame.Refresh = realRefresh
+            HL.OnDataUpdated = save.updated
+            Window:Show("players")
+            check(frame.honorLogParts.count:GetText() == "9 players met", "players: showing the screen draws what came in meanwhile")
+
+            -- hygiene
+            do
+                local inScreen = function(f)
+                    local hops = 0
+                    while f and hops < 40 do
+                        if f == Window.frames.players then return true end
+                        f, hops = f.__parent, hops + 1
+                    end
+                    return false
+                end
+                local onUpdates, foreign, templated = 0, {}, 0
+                for _, f in ipairs(mock.frames) do
+                    if inScreen(f) then
+                        if f.__scripts.OnUpdate then onUpdates = onUpdates + 1 end
+                        if f.__template then
+                            templated = templated + 1
+                            for k in pairs(f) do
+                                if type(k) == "string" and not k:find("^__") and not k:find("^honorLog") and k ~= "ScrollBar"
+                                    and k ~= "Instructions" and k ~= "searchIcon" and k ~= "clearButton" then foreign[#foreign + 1] = k end
+                            end
+                        end
+                    end
+                end
+                check(onUpdates == 0, "players: no OnUpdate anywhere (" .. onUpdates .. ")")
+                check(templated > 2 and #foreign == 0, "players: only honorLog names are added to template frames: " .. table.concat(foreign, ","))
+            end
+            local framesBefore = #mock.frames
+            for _ = 1, 10 do Window:RefreshCurrent() end
+            check(#mock.frames == framesBefore, "players: ten refreshes make no new frames")
+
+            -- odd values and failing sources
+            local secret = mock.newSecret
+            noErrors("players: secret and odd values in the stores", function()
+                db.char.met = { [secret()] = {}, Odd = { class = secret(), with = secret(), against = "x", kbBest = secret(), last = secret() }, Bad = "junk", Fine = { class = "NOSUCHCLASS", with = 4, withWins = 3 } }
+                db.char.opponents = { Odd = { class = secret(), kills = 1, deaths = 1, lastSeen = 5 } }
+                db.char.worldLog = { { t = secret(), kind = "kill", name = "Odd", zone = secret() }, "junk", {} }
+                S.windowPlayer = "Odd"
+                Window:RefreshCurrent()
+            end)
+            S.windowPlayer = "Fine"
+            Window:RefreshCurrent()
+            check(rows[1].class:GetText() == "NOSUCHCLASS" and same(textColor(rows[1].class), Kit.COLORS.white), "players: a class the client does not know is its token in white")
+            local realGet, realWith, realSearch, realFind = Met.Get, WorldLog.GetWith, Met.GetCount, HL.FindPlayers
+            Met.Get, WorldLog.GetWith, Met.GetCount = function() return nil end, function() return "x" end, function() return nil end
+            noErrors("players: sources that answer nothing", function() Window:RefreshCurrent() end)
+            Met.Get, WorldLog.GetWith, Met.GetCount, Met.GetList, HL.GetTopOpponents = function() error("get gone") end, function() error("with gone") end,
+                function() error("count gone") end, function() error("list gone") end, function() error("top gone") end
+            HL.FindPlayers = function() error("find gone") end
+            local errMid = #mock.handledErrors
+            Window:RefreshCurrent()
+            mock.typeText(P.search, "x")
+            check(#mock.handledErrors > errMid and D.empty:IsShown(), "players: sources that raise are reported and leave nobody chosen")
+            mock.typeText(P.search, "")
+            Met.Get, WorldLog.GetWith, Met.GetCount, Met.GetList, HL.GetTopOpponents, HL.FindPlayers = realGet, realWith, realSearch, realList, realTop, realFind
+            for i = #mock.handledErrors, errMid + 1, -1 do mock.handledErrors[i] = nil end
+            seed()
+            S.windowPlayer = "Ally1"
+            local realClass = Kit.ClassText
+            Kit.ClassText = function() error("class gone") end
+            local errClass = #mock.handledErrors
+            Window:RefreshCurrent()
+            Kit.ClassText = realClass
+            check(#mock.handledErrors > errClass and P.count:GetText() == "6 players met", "players: a failing part is reported and the others are still drawn")
+            for i = #mock.handledErrors, errClass + 1, -1 do mock.handledErrors[i] = nil end
+
+            -- put it back
+            HL.ShowPlaceOnMap, HL.MapPin.OpenMap = save.place, save.openMap
+            db.char.met, db.char.opponents, db.char.worldLog = save.met, save.opp, save.log
+            S.windowTab, S.windowPlayer = save.tab, save.chosen
+            Window:Hide()
+        end)()
+
         -- ═══ Characters: the last screen, one card per character ═══
         -- (a function of its own: the enclosing function is near Lua's limit of 200 locals)
         ;(function()
@@ -6335,8 +7130,8 @@ local function run()
             local P = scr.honorLogParts
             local pool = P.list.stack.pools.card
             check(scr and Window.current == "characters" and Window:GetScreen("characters").title == "Characters" and Window:GetScreen("characters").order == 8
-                and Window.screens[7].key == "characters" and Window.tabs.list[7].honorLogKey == "characters" and Window.tabs.list[6].honorLogKey == "quests",
-                "characters: the tab is the seventh, after Quests")
+                and Window.screens[8].key == "characters" and Window.tabs.list[8].honorLogKey == "characters" and Window.tabs.list[7].honorLogKey == "players",
+                "characters: the tab is the eighth, after Players")
             check(snapshots >= 1, "characters: a refresh asks for a fresh snapshot first")
 
             -- boxes

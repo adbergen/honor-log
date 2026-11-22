@@ -26,6 +26,11 @@ local MAX_SET_CHIPS = 5
 local TICK = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local DOT = "\194\183"
 
+-- The first entry of the vendor list: the engine's ranked recommendations in place of a vendor's stock. A save
+-- that has never chosen a vendor (windowVendor "") opens on it; no vendor is called this.
+GearVendors.RECOMMENDED = "@recommended"
+local RECOMMENDED = GearVendors.RECOMMENDED
+
 GearVendors.SLOT_NAMES = {
     HEAD = "Head", SHOULDER = "Shoulder", CHEST = "Chest", HANDS = "Hands", LEGS = "Legs", WAIST = "Waist",
     FEET = "Feet", WRIST = "Wrist", MAIN_HAND = "Main hand", TWO_HAND = "Two-hand", OFF_HAND = "Off-hand",
@@ -43,6 +48,16 @@ local function safe(fn, ...)
     local ok, result = pcall(fn, ...)
     if ok then return result end
 end
+
+-- The engine's cached ranked list (cut to `limit` when given) and its info, or nil when it raises or answers
+-- nothing. Shared with UI/Screens/Gear.lua.
+local function readRecommended(limit)
+    local Recommend = HonorLog.Recommend
+    if not (Recommend and Recommend.GetCached) then return nil end
+    local ok, list, info = pcall(Recommend.GetCached, Recommend, limit)
+    if ok and type(list) == "table" then return list, info end
+end
+GearVendors.ReadRecommended = readRecommended
 
 local function color(fs, name)
     local c = Kit.COLORS[name]
@@ -125,6 +140,39 @@ local function buildList(root, onChoose)
             end,
             update = function(row, entry) row.text:SetText(entry.text or "") end,
         },
+        recommended = {
+            create = function(row)
+                GearVendors.AddChosenMarks(row)
+                row.click = CreateFrame("Button", nil, row)
+                row.click:SetAllPoints(row)
+                local hl = row.click:CreateTexture(nil, "HIGHLIGHT")
+                hl:SetAllPoints(row.click)
+                hl:SetColorTexture(1, 1, 1, 0.07)
+                -- a little lower than a vendor's name: the window's portrait hangs over the top left corner
+                row.name = fixedText(row, "value", 150)
+                row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -9)
+                row.role = fixedText(row, "grey", 164)
+                row.role:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -25)
+                row.count = fixedText(row, "value", 34)
+                row.count:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                row.count:SetJustifyH("RIGHT")
+                color(row.count, "gold")
+                row.click:SetScript("OnClick", function() if onChoose then onChoose(RECOMMENDED) end end)
+                row.click:SetScript("OnEnter", function()
+                    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine(L["Recommended for you"], 1, 1, 1)
+                    GameTooltip:AddLine(L["The best PvP reward for each slot, when it beats what you wear."], 0.66, 0.64, 0.59, true)
+                    GameTooltip:Show()
+                end)
+                row.click:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            end,
+            update = function(row, entry)
+                row.name:SetText(L["Recommended for you"])
+                row.role:SetText(L["Best upgrade for each slot"])
+                row.count:SetText(tostring(num(entry.count) or 0))
+                GearVendors.SetChosen(row, entry.chosen)
+            end,
+        },
         vendor = {
             create = function(row)
                 GearVendors.AddChosenMarks(row)
@@ -178,12 +226,12 @@ local function buildList(root, onChoose)
 end
 
 -- The quartermasters (every kind but supply) under the first one's place, then the supply officers.
-local function listEntries(vendors, chosenKey)
+local function listEntries(vendors, chosenKey, recommendedCount)
     local quarter, supply = {}, {}
     for _, v in ipairs(vendors) do
         if v.kind == "supply" then supply[#supply + 1] = v else quarter[#quarter + 1] = v end
     end
-    local out = {}
+    local out = { { kind = "recommended", height = ROW_H, chosen = chosenKey == RECOMMENDED, count = recommendedCount } }
     if #quarter > 0 then
         out[#out + 1] = { kind = "title", height = TITLE_H, text = str(quarter[1].place) or L["Quartermasters"] }
         for _, v in ipairs(quarter) do out[#out + 1] = { kind = "vendor", height = ROW_H, vendor = v, chosen = v.key == chosenKey } end
@@ -195,8 +243,8 @@ local function listEntries(vendors, chosenKey)
     return out
 end
 
-local function refreshList(l, vendors, chosenKey)
-    local height = l.stack:SetData(listEntries(vendors, chosenKey))
+local function refreshList(l, vendors, chosenKey, recommendedCount)
+    local height = l.stack:SetData(listEntries(vendors, chosenKey, recommendedCount))
     l.area:honorLogSetContentHeight(height)
 end
 
@@ -233,6 +281,51 @@ local function needsOf(data, info, level)
 end
 
 local function bgOrder() return HonorLog.BG_ORDER or {} end
+
+-- The recommended view's columns (the star's is the stock table's): the item, its slot, why it is offered and
+-- when it can be bought. Widths in pixels; a text cut by its box carries its full sentence as a tooltip.
+-- Two lines a row: the name across the text block, then the slot and the whole reason; the status in its own
+-- column before the star.
+local REC_ROW_H = 40
+local REC_COL = {
+    item = { x = 4, w = 366 }, text = { x = 32, w = 342 }, slot = { w = 60 }, status = { x = 378, w = 150 },
+}
+local REC_SHIFT = 52 -- what the column titles and the list move up by when no role chips or grey line are shown
+local REC_FOOT_H = 16 -- the second foot line takes this much from the table
+
+local function slotNames(slots)
+    local names = {}
+    for _, slot in ipairs(slots or {}) do names[#names + 1] = GearVendors.SlotName(slot) end
+    return table.concat(names, ", ")
+end
+
+-- The name of an item a recommendation points at: the list's own entry when it has one, else the game's.
+local function itemName(id, byID)
+    local known = byID and byID[id]
+    return str(known and known.name) or str(HonorLog:GetGearName(id)) or tostring(id)
+end
+
+-- What a recommendation's reason tooltip says: the reason, and the buy-today partner when there is one.
+-- byID (optional): the entries of the list by item id.
+local function reasonTip(e, byID)
+    local lines = { str(e.reason) or "" }
+    if e.alternative then
+        lines[#lines + 1] = string.format(L["A smaller upgrade can be bought today: %s."], itemName(e.alternative, byID))
+    end
+    if e.now and e.alternativeTo then
+        lines[#lines + 1] = string.format(L["This is a smaller upgrade than %s, which you cannot buy yet."], itemName(e.alternativeTo, byID))
+    end
+    return table.concat(lines, "\n")
+end
+
+GearVendors.ReasonTip = reasonTip
+
+-- The status column: every row that can be bought today says "Ready to purchase" (a buy-today alternative
+-- too: what makes it different is in its tooltip), else the engine's own sentence.
+local function statusText(e)
+    if e.buyable or e.now then return L["Ready to purchase"], true end
+    return str(e.status) or ""
+end
 
 local function buildStock(root, handlers)
     local inset = Kit:Inset(root)
@@ -277,9 +370,35 @@ local function buildStock(root, handlers)
         t.titles[i] = fs
     end
 
+    -- the recommended view's own column titles, role chips and sentences
+    local recTitles = {
+        { REC_COL.item, L["Item"] }, { REC_COL.status, L["Status"] },
+    }
+    t.recTitles = {}
+    for i, c in ipairs(recTitles) do
+        local fs = fixedText(inset, "labelSmall", c[1].w)
+        fs:SetPoint("TOPLEFT", inset, "TOPLEFT", 6 + c[1].x, -104)
+        fs.honorLogX = 6 + c[1].x
+        fs:SetText(c[2])
+        fs:Hide()
+        t.recTitles[i] = fs
+    end
+    t.roleChips = Kit:Chips(inset, function(key) if handlers.onRole then handlers.onRole(key) end end)
+    t.roleChips:SetPoint("TOPLEFT", inset, "TOPLEFT", 12, -76)
+    t.roleChips:Hide()
+    t.roleNote = fixedText(inset, "grey", 300)
+    t.roleNote:Hide()
+
     t.area = Kit:ScrollArea(inset)
     t.area:SetPoint("TOPLEFT", inset, "TOPLEFT", 6, -STOCK_TOP)
     t.area:SetSize(STOCK_AREA_W, HEIGHT_PLAIN)
+
+    t.recEmpty = Kit:Text(inset, "grey")
+    t.recEmpty:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -STOCK_TOP - 8)
+    t.recEmpty:SetWidth(TABLE_W - 28)
+    t.recEmpty:SetWordWrap(true)
+    t.recEmpty:SetJustifyV("TOP")
+    t.recEmpty:Hide()
 
     t.empty = Kit:Text(inset, "grey")
     t.empty:SetPoint("TOPLEFT", inset, "TOPLEFT", 14, -STOCK_TOP - 8)
@@ -311,8 +430,90 @@ local function buildStock(root, handlers)
     t.foot:SetPoint("BOTTOMLEFT", inset, "BOTTOMLEFT", 12, 12)
     t.foot:SetText(L["The star adds a goal. Prices come from the vendor once you have opened it, otherwise from game data."])
     t.foot.honorLogTip = t.foot:GetText()
+    t.footPlain = t.foot:GetText()
+    -- the recommended view's second line: the slots it could not compare
+    t.foot2 = fixedText(inset, "grey", TABLE_W - 24)
+    t.foot2:SetPoint("BOTTOMLEFT", inset, "BOTTOMLEFT", 12, 12 + REC_FOOT_H)
+    t.foot2:Hide()
+    for _, line in ipairs({ t.foot, t.foot2 }) do
+        line.honorLogCell = CreateFrame("Frame", nil, inset)
+        line.honorLogCell:SetAllPoints(line)
+        line.honorLogCell:EnableMouse(true)
+        line.honorLogCell:SetScript("OnEnter", function() showTooltip(line.honorLogCell, line.honorLogRecTip) end)
+        line.honorLogCell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
 
     t.stack = GearVendors.Stack(t.area.honorLogChild, {
+        rec = {
+            create = function(row)
+                row.stripe = row:CreateTexture(nil, "BACKGROUND")
+                row.stripe:SetAllPoints(row)
+                row.stripe:SetColorTexture(1, 1, 1, 0.04)
+                row.icon = Kit:ItemIcon(row, 24)
+                row.icon:SetPoint("LEFT", row, "LEFT", REC_COL.item.x, 0)
+
+                -- the text block: the name and the slot, then the reason; the whole sentence is the tooltip
+                row.whyCell = CreateFrame("Frame", nil, row)
+                row.whyCell:SetPoint("LEFT", row, "LEFT", REC_COL.text.x, 0)
+                row.whyCell:SetSize(REC_COL.text.w, REC_ROW_H)
+                row.whyCell:EnableMouse(true)
+                row.name = fixedText(row.whyCell, "value", REC_COL.text.w)
+                row.name:SetPoint("TOPLEFT", row.whyCell, "TOPLEFT", 0, -5)
+                row.slot = fixedText(row.whyCell, "grey", REC_COL.slot.w)
+                row.slot:SetPoint("TOPRIGHT", row.whyCell, "TOPRIGHT", 0, -7)
+                row.slot:SetJustifyH("RIGHT")
+                row.why = fixedText(row.whyCell, "grey", REC_COL.text.w)
+                row.why:SetPoint("TOPLEFT", row.whyCell, "TOPLEFT", 0, -23)
+                row.whyCell:SetScript("OnEnter", function(self) showTooltip(self, self.tip) end)
+                row.whyCell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+                row.statusCell = CreateFrame("Frame", nil, row)
+                row.statusCell:SetPoint("LEFT", row, "LEFT", REC_COL.status.x, 0)
+                row.statusCell:SetSize(REC_COL.status.w, REC_ROW_H)
+                row.statusCell:EnableMouse(true)
+                row.status = fixedText(row.statusCell, "grey", REC_COL.status.w)
+                row.status:SetPoint("LEFT", row.statusCell, "LEFT", 0, 0)
+                row.statusCell:SetScript("OnEnter", function(self) showTooltip(self, self.tip) end)
+                row.statusCell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+                row.starCell = CreateFrame("Frame", nil, row)
+                row.starCell:SetPoint("LEFT", row, "LEFT", COL.star.x, 0)
+                row.starCell:SetSize(COL.star.w, REC_ROW_H)
+                row.star = Kit:Star(row.starCell, 18)
+                row.star:SetPoint("LEFT", row.starCell, "LEFT", 0, 0)
+                row.star.honorLogOnToggle = function(star, on)
+                    local entry = row.honorLogEntry
+                    if not entry or not on then return end
+                    -- the add redraws the list (and may reuse this row for another item): keep the id
+                    local id = entry.item.itemID
+                    HonorLog:AddGoal(id)
+                    -- the goal list is the truth: a refused add puts the star back (unless the redraw gave
+                    -- this row to another item)
+                    if row.honorLogEntry == entry then star:SetOn(HonorLog:IsGoal(id)) end
+                end
+            end,
+            update = function(row, entry)
+                local e = entry.item
+                row.stripe:SetShown(entry.striped)
+                row.icon:SetItem(e.itemID)
+                row.name:SetText(Kit:QualityHex(row.icon.honorLogQuality) .. (str(e.name) or "") .. "|r")
+                -- the slot leads the reason line ("Wrist · +20 item levels over ..."), so the name keeps the whole
+                -- first line and nothing crowds the status column
+                row.slot:SetText("")
+                local slotName, reason = str(GearVendors.SlotName(e.slot)), str(e.reason) or ""
+                row.why:SetText((slotName and slotName ~= "") and (slotName .. " \194\183 " .. reason) or reason)
+                row.whyCell.tip = reasonTip(e, entry.byID)
+                local status, buyable = statusText(e)
+                row.status:SetText(status)
+                if buyable then
+                    row.status:SetTextColor(Kit.COLORS.green[1], Kit.COLORS.green[2], Kit.COLORS.green[3])
+                else
+                    color(row.status, "grey")
+                end
+                row.statusCell.tip = e.now and (status .. ". " .. string.format(L["This is a smaller upgrade than %s, which you cannot buy yet."], itemName(e.alternativeTo, entry.byID))) or status
+                row.star:SetOn(false)
+            end,
+        },
         item = {
             create = function(row)
                 row.stripe = row:CreateTexture(nil, "BACKGROUND")
@@ -506,7 +707,118 @@ local function listSignature()
     return table.concat(parts, "/") .. "|" .. table.concat(scans, "|")
 end
 
+-- Which of the two views the table shows: a vendor's stock, or the recommendations. Everything only one view
+-- uses is shown or hidden here.
+local function setRecommendedMode(t, rec)
+    for _, fs in ipairs(t.titles) do fs:SetShown(not rec) end
+    for _, fs in ipairs(t.recTitles) do fs:SetShown(rec) end
+    t.classChips:SetShown(not rec)
+    t.setChips:SetShown(not rec)
+    if rec then
+        t.empty:Hide()
+        t.totals:Hide()
+    else
+        t.area:ClearAllPoints()
+        t.area:SetPoint("TOPLEFT", t.inset, "TOPLEFT", 6, -STOCK_TOP)
+        t.roleChips:Hide()
+        t.roleNote:Hide()
+        t.recEmpty:Hide()
+        t.foot2:Hide()
+        t.foot2.honorLogRecTip = nil
+        t.foot:SetText(t.footPlain)
+        t.foot.honorLogRecTip = nil
+    end
+end
+
+local function roleChips()
+    return {
+        { key = "spec", text = L["From your spec"], tip = L["Use the role your spec has. Choose a role to use it instead."] },
+        { key = "healer", text = L["Healer"], tip = L["Show the healer line of your class."] },
+        { key = "physical", text = L["Physical"], tip = L["Show the line of your class for physical damage."] },
+        { key = "caster", text = L["Caster"], tip = L["Show the line of your class for spell damage."] },
+    }
+end
+
+-- The recommended view: the ranked rewards (state.recommended = { list, info }; list is nil when the engine
+-- answered nothing at all, which draws the head and the foot and no sentence).
+local function refreshRecommended(t, state)
+    setRecommendedMode(t, true)
+    t.vendor = nil
+    t.name:Show()
+    t.role:Show()
+    t.link:Hide()
+    t.map:Hide()
+    t.name:SetText(L["Recommended for you"])
+    t.role:SetText(L["The best PvP reward for each slot, what you can buy first."])
+    local list, info = state.recommended.list, state.recommended.info or {}
+
+    -- a class with several set lines chooses one; with none chosen and no role from the spec, every line shows
+    local roles = type(info.classRoles) == "table" and info.classRoles or {}
+    local several = #roles > 1
+    t.roleChips:SetShown(several)
+    t.roleNote:SetShown(false)
+    if several then
+        local has = {}
+        for _, role in ipairs(roles) do has[role] = true end
+        local options = {}
+        for _, chip in ipairs(roleChips()) do
+            if chip.key == "spec" or has[chip.key] then
+                options[#options + 1] = chip
+            end
+        end
+        local chosen = safe(HonorLog.Recommend.GetChosenRole, HonorLog.Recommend)
+        t.roleChips:SetOptions(options, chosen or "spec")
+        if info.roleSource == "unknown" then
+            t.roleNote:ClearAllPoints()
+            t.roleNote:SetPoint("LEFT", t.roleChips, "RIGHT", 12, 0)
+            t.roleNote:SetWidth(math.max(60, TABLE_W - 24 - (num(t.roleChips:GetWidth()) or 0) - 12))
+            t.roleNote:SetText(L["Your spec gives no role, so every line is shown."])
+            t.roleNote:Show()
+        end
+    end
+
+    -- with no chips and no grey line the titles and the list move up, and the list is taller by the same
+    local up = (several and 0 or REC_SHIFT)
+    for _, fs in ipairs(t.recTitles) do
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", t.inset, "TOPLEFT", fs.honorLogX, -(104 - up))
+    end
+    t.area:ClearAllPoints()
+    t.area:SetPoint("TOPLEFT", t.inset, "TOPLEFT", 6, -(STOCK_TOP - up))
+    t.recEmpty:ClearAllPoints()
+    t.recEmpty:SetPoint("TOPLEFT", t.inset, "TOPLEFT", 14, -(STOCK_TOP - up) - 8)
+
+    local entries, byID = {}, {}
+    for _, e in ipairs(list or {}) do byID[e.itemID] = e end
+    for i, e in ipairs(list or {}) do
+        entries[i] = { kind = "rec", height = REC_ROW_H, item = e, striped = i % 2 == 0, byID = byID }
+    end
+    local sentence
+    if list and info.inventoryUnknown then
+        sentence = L["HonorLog cannot see what your character is wearing right now, so it cannot compare. Try again in a moment."]
+    elseif list and #list == 0 then
+        sentence = L["You already wear better than every PvP reward you can buy."]
+    end
+    t.recEmpty:SetText(sentence or "")
+    t.recEmpty:SetShown(sentence ~= nil)
+
+    local skipped = type(info.skipped) == "table" and #info.skipped > 0 and info.skipped or nil
+    t.area:SetHeight(HEIGHT_PLAIN + up - (skipped and REC_FOOT_H or 0))
+    t.area:honorLogSetContentHeight(t.stack:SetData(entries))
+
+    t.foot:SetText(L["PvP rewards only, compared by item level with what you wear."])
+    t.foot.honorLogRecTip = t.foot:GetText()
+    t.foot2:SetShown(skipped ~= nil)
+    if skipped then
+        local text = string.format(L["Not compared, the game would not say what you wear there: %s."], slotNames(skipped))
+        t.foot2:SetText(text)
+        t.foot2.honorLogRecTip = text
+    end
+end
+
 local function refreshStock(t, state)
+    if state.recommended then return refreshRecommended(t, state) end
+    setRecommendedMode(t, false)
     local vendor = state.vendor
     t.vendor = vendor
     local has = vendor ~= nil
@@ -614,6 +926,11 @@ function GearVendors:Create(parent, onBack)
             gv.set = key ~= "all" and key or nil
             redraw()
         end,
+        onRole = function(key)
+            -- the engine saves the choice per character and redraws the window when it changed
+            local Recommend = HonorLog.Recommend
+            if Recommend and Recommend.SetRole then safe(Recommend.SetRole, Recommend, key ~= "spec" and key or nil) end
+        end,
         onClass = function(key)
             local s = settings()
             if s then s.windowVendorClass = key == "all" and "all" or "player" end
@@ -631,11 +948,16 @@ function GearVendors:Create(parent, onBack)
             self.vendors, self.vendorsSignature = list, list and signature or nil
         end
         local vendors = self.vendors or {}
+        -- the recommendations: the first entry, and where a save that never chose a vendor starts
+        local recList, recInfo = readRecommended()
+        local recommended = s.windowVendor == RECOMMENDED or s.windowVendor == "" or s.windowVendor == nil
         local chosen
-        for _, v in ipairs(vendors) do
-            if v.key == s.windowVendor then chosen = v break end
+        if not recommended then
+            for _, v in ipairs(vendors) do
+                if v.key == s.windowVendor then chosen = v break end
+            end
+            chosen = chosen or vendors[1]
         end
-        chosen = chosen or vendors[1]
         local classMode = s.windowVendorClass == "all" and "all" or "player"
         local classArg = classMode == "all" and "ALL" or nil
         -- sets belong to a class: with every class shown there are too many for chips, so there are none
@@ -647,13 +969,15 @@ function GearVendors:Create(parent, onBack)
         end
         self.set = offered
         local rows = chosen and safe(HonorLog.GetVendorStock, HonorLog, chosen, { class = classArg, set = self.set }) or {}
+        if recommended then self.set = nil end
         local info = safe(HonorLog.Rank.GetInfo, HonorLog.Rank)
         local className = str((call(UnitClass, "player"))) or L["Your class"]
         local state = { vendor = chosen, sets = sets, set = self.set, rows = rows, classMode = classMode, className = className,
             info = info, level = num(call(UnitLevel, "player")) }
+        if recommended then state.recommended = { list = recList, info = recInfo } end
         -- each part guards its own reads, and one failing part leaves the other drawn
         for _, step in ipairs({
-            function() refreshList(self.list, vendors, chosen and chosen.key) end,
+            function() refreshList(self.list, vendors, recommended and RECOMMENDED or (chosen and chosen.key), recList and #recList or 0) end,
             function() refreshStock(self.stock, state) end,
         }) do
             local ok, err = pcall(step)
