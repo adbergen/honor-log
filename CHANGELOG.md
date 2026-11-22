@@ -11,18 +11,18 @@
 - **A summary of each of your characters**, kept in the account's saved data: class, faction, level, rank and
   rank points, whether the weekly rank cap is reached and until when, honor, marks, how far the first gear
   goal is, games and wins. Each character writes its own on entering the world, after each game, on a
-  rank-up and at logout. Nothing shows it yet; a later screen lists them side by side.
+  rank-up and at logout. The Characters screen lists them side by side.
 - **A record per reset week**, kept for 26 weeks: games and results, honor, marks, rank points gained, the
   best game and world kills and deaths. The first time it runs it also builds the earlier weeks from the games
-  you have saved. Nothing shows it yet; a later screen turns it into a weekly recap.
+  you have saved. The weekly recap card is drawn from it.
 - **A log of your world PvP kills and deaths**, the last 500: when, who, their class and rank, the honor a kill
   gave and where it happened. It also adds up today, the places you fight, your totals and your history with one
-  opponent. Nothing shows it yet; a later World PvP screen draws it. It stays on your computer, and resetting a
+  opponent. The World PvP screen draws it. It stays on your computer, and resetting a
   character's stats empties it (and the weekly records).
 - **A record of the players you have met in battlegrounds**, from the end-of-game scoreboard: for each player,
   how many games you played with them and against them, how many of those you won and the most killing blows they
   scored against you in one game. It keeps the last 1,000 players and can list who you win with, who you lose to
-  and the top killers you have faced. Nothing shows it yet; a later screen draws it. It stays on your computer, and
+  and the top killers you have faced. The Players screen draws it. It stays on your computer, and
   resetting a character's stats empties it.
 
 ### Changed
