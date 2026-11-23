@@ -6732,6 +6732,7 @@ local function run()
                 check(not p.pace:IsShown(), "honor cap: no measured pace, no sentence")
                 -- nothing buyable
                 check(p.buyNone:IsShown() and p.buyNone:GetText() == "Nothing on your list can be bought yet." and not p.buyMap:IsShown() and not p.buyIcons[1]:IsShown(), "honor cap: nothing buyable and no advice says so")
+                check(not p.buyLabel:IsShown() and p.buy.honorLogHeight == 44 and p.buyNone.__points[1][5] == 0, "honor cap: with nothing to buy there is no 'You can buy now' heading and the box is shorter")
                 HL.GetHonorCapAdvice = function() return { text = "you are near the cap and nothing can be bought yet." } end
                 p = capOf({ current = 20000, cap = 25000 })
                 check(p.buyNone:GetText() == "You are near the cap and nothing can be bought yet." and p.buyNoneTip.honorLogText == p.buyNone:GetText(), "honor cap: the advice text when there is one")
@@ -6741,6 +6742,7 @@ local function run()
                 HL.GetBuyableNow = function() return { { itemID = 11, name = "Premier Cloak", honor = 4500, marks = { AB = 10 }, gold = 0 }, { itemID = 12, name = "B", honor = 100 }, { itemID = 13, name = "C", honor = 50 } } end
                 p = capOf({ current = 20000, cap = 25000 })
                 check(p.buyIcons[3]:IsShown() and p.buyIcons[1].honorLogItemID == 11 and p.buyIcons[1]:GetWidth() == 28 and not p.buyNone:IsShown(), "honor cap: three icons at 28")
+                check(p.buyLabel:IsShown() and p.buyLabel:GetText() == "You can buy now" and p.buy.honorLogHeight == 76, "honor cap: the heading and the full box when something can be bought")
                 check(p.buyName:GetText() == "Premier Cloak" and p.buyCost:GetText() == "4,500 honor, 10 Arathi Basin marks" and p.buyTip.honorLogText == "Premier Cloak\n4,500 honor, 10 Arathi Basin marks", "honor cap: the first one's name and cost")
                 check(p.buyMap:IsShown() and p.buyMap:GetText() == "Show on map", "honor cap: the Show on map button")
                 p.buyMap.__scripts.OnClick(p.buyMap)
@@ -6837,12 +6839,21 @@ local function run()
                 db.char.history = {}
                 local lines = #printed
                 SlashCmdList.HONORLOG("moment report")
-                check(#M.order == 0 and printed[#printed]:find("No saved game", 1, true) and #printed == lines + 1, "slash: moment report with no saved game says so in chat")
+                check(#M.order == 0 and printed[#printed]:find("No saved game", 1, true) and printed[#printed]:find("first battleground ends", 1, true) and #printed == lines + 1,
+                    "slash: moment report with no saved game says so in chat, and when the card will come")
                 db.char.history = { rec }
                 SlashCmdList.HONORLOG("moment report")
                 check(M.order[1] == "report" and M.states.report.parts.tiles[1].value:GetText() == "+412", "slash: moment report shows the newest saved game, whatever the settings say")
                 SlashCmdList.HONORLOG("moment rank")
-                check(M.states.rankUp.card:IsShown() and M.states.rankUp.parts.rankNumber:GetText() == tostring(mock.rank.level), "slash: moment rank shows the current rank")
+                check(M.states.rankUp.card:IsShown() and M.states.rankUp.parts.rankNumber:GetText() == tostring(math.max(1, mock.rank.level)), "slash: moment rank shows the current rank")
+                do
+                    -- before the first rank (seen in game: "Rank 0 Civilian, nothing new at this rank") it shows rank 1
+                    local keptLevel = mock.rank.level
+                    mock.rank.level = 0
+                    SlashCmdList.HONORLOG("moment rank")
+                    check(M.states.rankUp.parts.rankNumber:GetText() == "1" and M.states.rankUp.parts.unlockIcons[1]:IsShown(), "slash: at rank 0 moment rank shows rank 1 and what it unlocks")
+                    mock.rank.level = keptLevel
+                end
                 SlashCmdList.HONORLOG("moment cap")
                 check(M.states.honorCap.card:IsShown() and M.states.honorCap.parts.headText:GetText():find("^Honor is at "), "slash: moment cap shows the honor cap card from the current honor")
                 lines = #printed
