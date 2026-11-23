@@ -950,6 +950,13 @@ local function buildHonorCap(state)
             if id then ic:SetItem(id) ic:Show() else ic:Hide() end
         end
         p.buyFirst = firstID
+        -- "You can buy now" heads the list only when there is one; the sentence alone needs less room
+        p.buyLabel:SetShown(firstID ~= nil)
+        p.buyNone:ClearAllPoints()
+        p.buyNone:SetPoint("TOPLEFT", buy, "TOPLEFT", 0, firstID and -18 or 0)
+        p.buyNoneTip:ClearAllPoints()
+        p.buyNoneTip:SetPoint("TOPLEFT", buy, "TOPLEFT", 0, firstID and -18 or 0)
+        buy.honorLogHeight = firstID and 76 or 44
         p.buyBox:SetShown(firstID ~= nil)
         p.buyMap:SetShown(firstID ~= nil)
         p.buyNone:SetShown(firstID == nil)
@@ -1003,13 +1010,16 @@ function Moments:Demo(arg)
         local list = safe(HonorLog.GetHistory, HonorLog, "character", 1)
         local record = type(list) == "table" and list[1] or nil
         if not record then
-            HonorLog:Say(L["No saved game to show yet."])
+            HonorLog:Say(L["No saved game to show yet. The card appears by itself when your first battleground ends."])
             return
         end
         self:Show("report", record)
     elseif which == "rank" then
         local info = HonorLog.Rank and safe(HonorLog.Rank.GetInfo, HonorLog.Rank)
-        self:Show("rankUp", { rank = type(info) == "table" and num(info.rank) or nil, info = info })
+        local rank = type(info) == "table" and num(info.rank) or nil
+        -- nobody ranks up to rank 0: before the first rank the card shows rank 1, the first one the player will see
+        if not rank or rank < 1 then rank = 1 end
+        self:Show("rankUp", { rank = rank, info = info })
     elseif which == "cap" then
         self:Show("honorCap", {})
     else
